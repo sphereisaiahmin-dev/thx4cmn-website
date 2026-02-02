@@ -4,15 +4,11 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  color-scheme: dark;
-}
-
 body {
-  @apply bg-midnight text-white antialiased;
+  @apply bg-white text-slate-600 antialiased;
   font-family: 'Doto', sans-serif;
 }
 
 a {
-  @apply text-white hover:text-smoke transition-colors;
+  @apply text-slate-600 hover:text-slate-900 transition-colors;
 }

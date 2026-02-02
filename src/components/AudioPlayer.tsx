@@ -64,16 +64,28 @@ export const AudioPlayer = () => {
 
     const next = playlist[index];
     const player = new tone.Player({
+      url: next.url,
       loop: false,
       reverse: false,
       autostart: false,
+      crossOrigin: 'anonymous',
+      onload: () => {
+        setDuration(player.buffer.duration);
+        setIsReady(true);
+      },
+      onerror: (error) => {
+        console.error('Audio load failed', error);
+        setIsReady(false);
+      },
     }).toDestination();
 
-    await player.load(next.url);
-    setDuration(player.buffer.duration);
-    setIsReady(true);
-
     playerRef.current = player;
+    try {
+      await player.load(next.url);
+    } catch (error) {
+      console.error('Audio load failed', error);
+      setIsReady(false);
+    }
   };
 
   const ensureAudioContext = async () => {
@@ -99,7 +111,9 @@ export const AudioPlayer = () => {
   };
 
   const stopPlayback = () => {
+    const position = currentPosition();
     playerRef.current?.stop();
+    setStartOffset(position);
     setIsPlaying(false);
   };
 

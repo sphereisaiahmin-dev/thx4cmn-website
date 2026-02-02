@@ -1,14 +1,16 @@
 .audio-player {
-  position: fixed;
+  position: sticky;
   top: 24px;
-  right: 24px;
+  align-self: flex-end;
   width: 320px;
   padding: 16px;
   border-radius: 20px;
-  background: rgba(0, 0, 0, 0.35);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: white;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.08);
   font-family: 'Doto', sans-serif;
-  z-index: 50;
+  color: #4b5563;
+  z-index: 20;
 }
 
 .audio-player__title {
@@ -23,7 +25,7 @@
 
 .audio-player__artist {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(100, 116, 139, 0.8);
 }
 
 .audio-player__controls {
@@ -40,7 +42,7 @@
 .audio-player__ab button {
   background: transparent;
   border: none;
-  color: white;
+  color: inherit;
   cursor: pointer;
   text-transform: uppercase;
   letter-spacing: 0.2em;
@@ -51,6 +53,10 @@
 .audio-player__bottom button:hover,
 .audio-player__ab button:hover {
   transform: scale(1.15);
+}
+
+.audio-player__toggle:hover {
+  animation: audio-rgb-text 1.5s linear infinite;
 }
 
 .audio-player__progress {
@@ -69,11 +75,11 @@
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(148, 163, 184, 0.4);
 }
 
 .audio-player__dot.active {
-  background: white;
+  background: rgba(71, 85, 105, 0.9);
 }
 
 .audio-player__dot.loop {
@@ -94,20 +100,20 @@
   margin-top: 12px;
   border-radius: 16px;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(241, 245, 249, 0.7);
 }
 
 .audio-player__speed-labels {
   display: flex;
   justify-content: space-between;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(100, 116, 139, 0.8);
 }
 
 .audio-player__speed input[type='range'] {
   width: 100%;
   margin-top: 8px;
-  accent-color: white;
+  accent-color: rgba(71, 85, 105, 0.9);
 }
 
 .audio-player__bottom {

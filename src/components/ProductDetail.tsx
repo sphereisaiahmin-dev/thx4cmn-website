@@ -29,18 +29,18 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <p className="text-xs uppercase tracking-[0.4em] text-white/60">{product.type}</p>
-        <h1 className="text-3xl uppercase tracking-[0.3em]">{product.name}</h1>
-        <p className="text-sm text-white/70">{product.description}</p>
+        <p className="text-xs uppercase tracking-[0.4em] text-slate-400">{product.type}</p>
+        <h1 className="text-3xl uppercase tracking-[0.3em] text-slate-700">{product.name}</h1>
+        <p className="text-sm text-slate-500">{product.description}</p>
       </div>
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-        <p className="text-sm text-white/60">Price</p>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
+        <p className="text-sm text-slate-400">Price</p>
         <p className="text-2xl">{formatCurrency(product.priceCents, product.currency)}</p>
       </div>
       <button
         type="button"
         onClick={handleAdd}
-        className="rounded-full border border-white/40 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-white hover:text-black"
+        className="rounded-full border border-slate-300 px-6 py-3 text-xs uppercase tracking-[0.3em] text-slate-600 transition hover:border-slate-400 hover:bg-slate-900 hover:text-white"
       >
         Add to cart
       </button>
