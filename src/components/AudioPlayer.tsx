@@ -64,16 +64,14 @@ export const AudioPlayer = () => {
 
     const next = playlist[index];
     const player = new tone.Player({
-      url: next.url,
       loop: false,
       reverse: false,
       autostart: false,
     }).toDestination();
 
-    player.onload = () => {
-      setDuration(player.buffer.duration);
-      setIsReady(true);
-    };
+    await player.load(next.url);
+    setDuration(player.buffer.duration);
+    setIsReady(true);
 
     playerRef.current = player;
   };
