@@ -64,11 +64,9 @@ export const AudioPlayer = () => {
 
     const next = playlist[index];
     const player = new tone.Player({
-      url: next.url,
       loop: false,
       reverse: false,
       autostart: false,
-      crossOrigin: 'anonymous',
       onload: () => {
         setDuration(player.buffer.duration);
         setIsReady(true);
