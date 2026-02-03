@@ -22,10 +22,12 @@ export default function RootLayout({
       <body>
         <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6">
           <Navigation />
+          <div className="flex justify-end pt-6">
+            <AudioPlayer />
+          </div>
           <main className="flex-1 py-16">{children}</main>
           <Footer />
         </div>
-        <AudioPlayer />
       </body>
     </html>
   );

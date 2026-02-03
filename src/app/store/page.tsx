@@ -5,9 +5,9 @@ export default function StorePage() {
   return (
     <section className="space-y-10">
       <div className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.4em] text-white/60">Store</p>
-        <h1 className="text-3xl uppercase tracking-[0.3em]">Latest drops</h1>
-        <p className="max-w-xl text-sm text-white/70">
+        <p className="text-xs uppercase tracking-[0.4em] text-slate-400">Store</p>
+        <h1 className="text-3xl uppercase tracking-[0.3em] text-slate-700">Latest drops</h1>
+        <p className="max-w-xl text-sm text-slate-500">
           Limited releases from thx4cmn. Digital packs deliver instantly. Physical hardware
           ships with custom LED and chord maps.
         </p>

@@ -13,8 +13,8 @@ export default function ProductPage({ params }: ProductPageProps) {
   if (!product) {
     return (
       <section className="space-y-6">
-        <h1 className="text-2xl uppercase tracking-[0.3em]">Product not found</h1>
-        <Link href="/store" className="text-xs uppercase tracking-[0.3em] text-white/60">
+        <h1 className="text-2xl uppercase tracking-[0.3em] text-slate-700">Product not found</h1>
+        <Link href="/store" className="text-xs uppercase tracking-[0.3em] text-slate-400">
           Back to store
         </Link>
       </section>
@@ -23,7 +23,7 @@ export default function ProductPage({ params }: ProductPageProps) {
 
   return (
     <section className="space-y-6">
-      <Link href="/store" className="text-xs uppercase tracking-[0.3em] text-white/60">
+      <Link href="/store" className="text-xs uppercase tracking-[0.3em] text-slate-400">
         ← Back to store
       </Link>
       <ProductDetail product={product} />
