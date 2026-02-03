@@ -3,6 +3,21 @@
 import { useState } from 'react';
 
 type SerialConnectionState = 'idle' | 'connecting' | 'connected' | 'error';
+type SerialPortLike = {
+  open: (options: { baudRate: number }) => Promise<void>;
+  writable?: WritableStream<Uint8Array> | null;
+};
+type SerialLike = {
+  requestPort: () => Promise<SerialPortLike>;
+};
+
+const getSerial = (): SerialLike | null => {
+  if (!('serial' in navigator)) {
+    return null;
+  }
+
+  return (navigator as Navigator & { serial: SerialLike }).serial;
+};
 
 export default function DevicePage() {
   const [status, setStatus] = useState<SerialConnectionState>('idle');
@@ -13,7 +28,8 @@ export default function DevicePage() {
   };
 
   const handleConnect = async () => {
-    if (!('serial' in navigator)) {
+    const serial = getSerial();
+    if (!serial) {
       appendLog('Web Serial not supported in this browser.');
       setStatus('error');
       return;
@@ -21,7 +37,7 @@ export default function DevicePage() {
 
     try {
       setStatus('connecting');
-      const port = await navigator.serial.requestPort();
+      const port = await serial.requestPort();
       await port.open({ baudRate: 115200 });
       appendLog('Connected to device.');
       setStatus('connected');
