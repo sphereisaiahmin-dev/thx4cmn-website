@@ -14,6 +14,8 @@ export const AudioPlayer = () => {
   const playerRef = useRef<import('tone').Player | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const loopIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const signedUrlCacheRef = useRef(new Map<string, string>());
+  const loadIdRef = useRef(0);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -47,6 +49,22 @@ export const AudioPlayer = () => {
     }
   };
 
+  const fetchSignedUrl = async (key: string) => {
+    const cached = signedUrlCacheRef.current.get(key);
+    if (cached) return cached;
+
+    const response = await fetch(`/api/music?key=${encodeURIComponent(key)}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch audio URL (${response.status})`);
+    }
+    const data = (await response.json()) as { url?: string };
+    if (!data.url) {
+      throw new Error('Missing signed URL for audio');
+    }
+    signedUrlCacheRef.current.set(key, data.url);
+    return data.url;
+  };
+
   const loadTrack = async (index: number) => {
     await loadTone();
     const tone = toneRef.current;
@@ -63,6 +81,19 @@ export const AudioPlayer = () => {
     }
 
     const next = playlist[index];
+    const loadId = ++loadIdRef.current;
+    let signedUrl = '';
+    try {
+      signedUrl = await fetchSignedUrl(next.r2Key);
+    } catch (error) {
+      console.error('Audio URL signing failed', error);
+      setIsReady(false);
+      return;
+    }
+
+    if (loadId !== loadIdRef.current) {
+      return;
+    }
     const player = new tone.Player({
       loop: false,
       reverse: false,
@@ -79,7 +110,7 @@ export const AudioPlayer = () => {
 
     playerRef.current = player;
     try {
-      await player.load(next.url);
+      await player.load(signedUrl);
     } catch (error) {
       console.error('Audio load failed', error);
       setIsReady(false);
