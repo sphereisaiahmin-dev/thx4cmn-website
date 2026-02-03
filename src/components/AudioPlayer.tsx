@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { playlist } from '@/data/playlist';
+import { playlist, type Track as TrackMeta } from '@/data/playlist';
 import { formatTime } from '@/lib/format';
 
 type ToneModule = typeof import('tone');
+type Track = TrackMeta & { url: string };
 
 const NUM_DOTS = 20;
 
@@ -14,6 +15,7 @@ export const AudioPlayer = () => {
   const playerRef = useRef<import('tone').Player | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const loopIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [tracks, setTracks] = useState<Track[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -27,7 +29,7 @@ export const AudioPlayer = () => {
   const [startOffset, setStartOffset] = useState(0);
   const [startTime, setStartTime] = useState(0);
 
-  const track = playlist[currentIndex];
+  const track = tracks[currentIndex] ?? playlist[currentIndex];
   const dots = useMemo(() => Array.from({ length: NUM_DOTS }, (_, i) => i), []);
 
   const cleanupIntervals = () => {
@@ -62,7 +64,8 @@ export const AudioPlayer = () => {
       playerRef.current.dispose();
     }
 
-    const next = playlist[index];
+    const next = tracks[index];
+    if (!next) return;
     const player = new tone.Player({
       loop: false,
       reverse: false,
@@ -158,17 +161,17 @@ export const AudioPlayer = () => {
   };
 
   const handlePrev = async () => {
-    const nextIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+    const totalTracks = tracks.length || playlist.length;
+    const nextIndex = (currentIndex - 1 + totalTracks) % totalTracks;
     resetTransport();
     setCurrentIndex(nextIndex);
-    await loadTrack(nextIndex);
   };
 
   const handleNext = async () => {
-    const nextIndex = (currentIndex + 1) % playlist.length;
+    const totalTracks = tracks.length || playlist.length;
+    const nextIndex = (currentIndex + 1) % totalTracks;
     resetTransport();
     setCurrentIndex(nextIndex);
-    await loadTrack(nextIndex);
   };
 
   const handleSpeed = (value: number) => {
@@ -236,7 +239,24 @@ export const AudioPlayer = () => {
   };
 
   useEffect(() => {
-    loadTrack(currentIndex);
+    const fetchPlaylist = async () => {
+      try {
+        const response = await fetch('/api/playlist', { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(`Failed to load playlist (${response.status})`);
+        }
+        const data = (await response.json()) as { tracks: Track[] };
+        if (!data.tracks?.length) {
+          throw new Error('Playlist was empty.');
+        }
+        setTracks(data.tracks);
+        setCurrentIndex((index) => Math.min(index, data.tracks.length - 1));
+      } catch (error) {
+        console.error('Failed to load playlist', error);
+      }
+    };
+
+    fetchPlaylist();
 
     return () => {
       cleanupIntervals();
@@ -244,6 +264,12 @@ export const AudioPlayer = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!tracks.length) return;
+    loadTrack(currentIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks, currentIndex]);
 
   useEffect(() => {
     cleanupIntervals();
