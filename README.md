@@ -30,6 +30,7 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `NEXT_PUBLIC_STRIPE_PRICE_SAMPLE_PACK` | Stripe price ID for the sample pack |
 | `NEXT_PUBLIC_STRIPE_PRICE_MIDI_DEVICE` | Stripe price ID for the hardware device |
+| `NEXT_PUBLIC_AUDIO_BASE_URL` | Public base URL for streaming audio files (no trailing slash) |
 | `R2_ENDPOINT` | Cloudflare R2 S3 endpoint |
 | `R2_ACCESS_KEY_ID` | R2 access key ID |
 | `R2_SECRET_ACCESS_KEY` | R2 secret access key |
