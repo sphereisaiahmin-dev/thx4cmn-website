@@ -68,7 +68,8 @@ export const AudioPlayer = () => {
 
   const loadTone = async () => {
     if (!toneRef.current) {
-      toneRef.current = await import('tone');
+      const module = await import('tone');
+      toneRef.current = (module.default ?? module) as ToneModule;
     }
   };
 
