@@ -47,23 +47,23 @@ export default function CartPage() {
   return (
     <section className="space-y-10">
       <div className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.4em] text-white/60">Cart</p>
+        <p className="text-xs uppercase tracking-[0.4em] text-black/60">Cart</p>
         <h1 className="text-3xl uppercase tracking-[0.3em]">Your selections</h1>
       </div>
 
       {items.length === 0 ? (
-        <p className="text-sm text-white/60">Your cart is empty.</p>
+        <p className="text-sm text-black/60">Your cart is empty.</p>
       ) : (
         <div className="space-y-6">
           <div className="space-y-4">
             {items.map((item) => (
               <div
                 key={item.productId}
-                className="flex flex-col gap-4 border border-white/10 bg-white/5 p-4 md:flex-row md:items-center md:justify-between"
+                className="flex flex-col gap-4 border border-black/10 bg-black/5 p-4 md:flex-row md:items-center md:justify-between"
               >
                 <div>
                   <p className="text-sm uppercase tracking-[0.2em]">{item.name}</p>
-                  <p className="text-xs text-white/60">{formatCurrency(item.priceCents)}</p>
+                  <p className="text-xs text-black/60">{formatCurrency(item.priceCents)}</p>
                 </div>
                 <div className="flex items-center gap-4">
                   <input
@@ -71,11 +71,11 @@ export default function CartPage() {
                     min={1}
                     value={item.quantity}
                     onChange={(event) => updateQuantity(item.productId, Number(event.target.value))}
-                    className="w-20 rounded-md bg-black/50 px-3 py-2 text-sm"
+                    className="w-20 rounded-md bg-black/10 px-3 py-2 text-sm"
                   />
                   <button
                     type="button"
-                    className="text-xs uppercase tracking-[0.3em] text-white/60"
+                    className="text-xs uppercase tracking-[0.3em] text-black/60"
                     onClick={() => removeItem(item.productId)}
                   >
                     Remove
@@ -84,7 +84,7 @@ export default function CartPage() {
               </div>
             ))}
           </div>
-          <div className="flex flex-col gap-4 border border-white/10 bg-black/40 p-6">
+          <div className="flex flex-col gap-4 border border-black/10 bg-black/5 p-6">
             <div className="flex items-center justify-between text-sm uppercase tracking-[0.2em]">
               <span>Total</span>
               <span>{formatCurrency(total)}</span>
@@ -94,14 +94,14 @@ export default function CartPage() {
                 type="button"
                 onClick={handleCheckout}
                 disabled={isLoading}
-                className="rounded-full border border-white/40 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isLoading ? 'Redirecting…' : 'Checkout'}
               </button>
               <button
                 type="button"
                 onClick={clear}
-                className="text-xs uppercase tracking-[0.3em] text-white/60"
+                className="text-xs uppercase tracking-[0.3em] text-black/60"
               >
                 Clear cart
               </button>

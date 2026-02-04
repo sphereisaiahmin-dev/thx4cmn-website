@@ -20,12 +20,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-6">
+        <div className="flex min-h-screen w-full flex-col px-6">
           <Navigation />
+          <AudioPlayer />
           <main className="flex-1 py-16">{children}</main>
           <Footer />
         </div>
-        <AudioPlayer />
       </body>
     </html>
   );

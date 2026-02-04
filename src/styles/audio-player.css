@@ -1,12 +1,11 @@
 .audio-player {
-  position: fixed;
-  top: 24px;
-  right: 24px;
-  width: 320px;
+  position: relative;
+  width: 100%;
   padding: 16px;
   border-radius: 20px;
-  background: rgba(0, 0, 0, 0.35);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   font-family: 'Doto', sans-serif;
   z-index: 50;
 }
@@ -23,7 +22,7 @@
 
 .audio-player__artist {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(0, 0, 0, 0.6);
 }
 
 .audio-player__controls {
@@ -40,7 +39,7 @@
 .audio-player__ab button {
   background: transparent;
   border: none;
-  color: white;
+  color: #0b0b0b;
   cursor: pointer;
   text-transform: uppercase;
   letter-spacing: 0.2em;
@@ -69,11 +68,11 @@
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .audio-player__dot.active {
-  background: white;
+  background: #0b0b0b;
 }
 
 .audio-player__dot.loop {
@@ -94,20 +93,20 @@
   margin-top: 12px;
   border-radius: 16px;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.08);
 }
 
 .audio-player__speed-labels {
   display: flex;
   justify-content: space-between;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(0, 0, 0, 0.6);
 }
 
 .audio-player__speed input[type='range'] {
   width: 100%;
   margin-top: 8px;
-  accent-color: white;
+  accent-color: #0b0b0b;
 }
 
 .audio-player__bottom {
@@ -159,7 +158,6 @@
 
 @media (max-width: 768px) {
   .audio-player {
-    position: static;
     width: 100%;
     margin-bottom: 24px;
   }

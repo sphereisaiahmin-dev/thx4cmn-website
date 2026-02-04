@@ -5,14 +5,42 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+}
+
+html,
+body {
+  min-height: 100%;
 }
 
 body {
-  @apply bg-midnight text-white antialiased;
+  @apply bg-canvas text-black antialiased;
   font-family: 'Doto', sans-serif;
 }
 
 a {
-  @apply text-white hover:text-smoke transition-colors;
+  @apply text-black transition-colors;
+}
+
+.nav-link {
+  @apply transition-colors;
+}
+
+.nav-link:hover {
+  animation: nav-rgb-cycle 1.2s linear infinite;
+}
+
+@keyframes nav-rgb-cycle {
+  0% {
+    color: rgb(255, 0, 0);
+  }
+  33% {
+    color: rgb(0, 170, 0);
+  }
+  66% {
+    color: rgb(0, 120, 255);
+  }
+  100% {
+    color: rgb(255, 0, 0);
+  }
 }
