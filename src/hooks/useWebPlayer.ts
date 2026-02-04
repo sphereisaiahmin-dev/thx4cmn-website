@@ -11,6 +11,7 @@ type PlayerState = {
   isPlaying: boolean;
   duration: number;
   currentTime: number;
+  playbackRate: number;
 };
 
 type PlayerAction =
@@ -20,7 +21,8 @@ type PlayerAction =
   | { type: 'set-error'; payload: string | null }
   | { type: 'set-playing'; payload: boolean }
   | { type: 'set-duration'; payload: number }
-  | { type: 'set-current-time'; payload: number };
+  | { type: 'set-current-time'; payload: number }
+  | { type: 'set-playback-rate'; payload: number };
 
 const initialState: PlayerState = {
   tracks: [],
@@ -30,6 +32,7 @@ const initialState: PlayerState = {
   isPlaying: false,
   duration: 0,
   currentTime: 0,
+  playbackRate: 1,
 };
 
 const reducer = (state: PlayerState, action: PlayerAction): PlayerState => {
@@ -52,6 +55,8 @@ const reducer = (state: PlayerState, action: PlayerAction): PlayerState => {
       return { ...state, duration: action.payload };
     case 'set-current-time':
       return { ...state, currentTime: action.payload };
+    case 'set-playback-rate':
+      return { ...state, playbackRate: action.payload };
     default:
       return state;
   }
@@ -82,6 +87,15 @@ export const useWebPlayer = () => {
       throw error;
     }
     return data.url as string;
+  }, []);
+
+  const shuffleTracks = useCallback((tracks: Track[]) => {
+    const shuffled = [...tracks];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+    }
+    return shuffled;
   }, []);
 
   const loadTrack = useCallback(
@@ -145,7 +159,7 @@ export const useWebPlayer = () => {
         throw new Error(`Failed to load tracks (${response.status}).`);
       }
       const data = await response.json();
-      const nextTracks = Array.isArray(data.tracks) ? data.tracks : [];
+      const nextTracks = Array.isArray(data.tracks) ? shuffleTracks(data.tracks) : [];
       dispatch({ type: 'set-tracks', payload: nextTracks });
       if (nextTracks.length > 0) {
         dispatch({ type: 'set-index', payload: 0 });
@@ -159,7 +173,7 @@ export const useWebPlayer = () => {
         payload: error instanceof Error ? error.message : 'Unable to load tracks.',
       });
     }
-  }, []);
+  }, [shuffleTracks]);
 
   useEffect(() => {
     const engine = new WebPlayerEngine();
@@ -207,6 +221,12 @@ export const useWebPlayer = () => {
     void loadTrack(state.tracks[state.currentIndex]);
   }, [loadTrack, state.currentIndex, state.tracks]);
 
+  useEffect(() => {
+    if (!engineRef.current) return;
+    const audio = engineRef.current.getAudioElement();
+    audio.playbackRate = state.playbackRate;
+  }, [state.playbackRate]);
+
   const currentTrack = state.tracks[state.currentIndex];
 
   const controlsDisabled =
@@ -236,6 +256,11 @@ export const useWebPlayer = () => {
     }
     engineRef.current.seek(time);
     dispatch({ type: 'set-current-time', payload: time });
+  }, []);
+
+  const handleSetPlaybackRate = useCallback((rate: number) => {
+    if (!engineRef.current || !Number.isFinite(rate)) return;
+    dispatch({ type: 'set-playback-rate', payload: rate });
   }, []);
 
   const handlePrev = useCallback(() => {
@@ -274,6 +299,7 @@ export const useWebPlayer = () => {
       handlePrev,
       handleNext,
       handleSeek,
+      handleSetPlaybackRate,
     },
   };
 };
