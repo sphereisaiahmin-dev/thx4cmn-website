@@ -16,6 +16,8 @@ body {
 body {
   @apply bg-canvas text-black antialiased;
   font-family: 'Doto', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 500;
 }
 
 a {
