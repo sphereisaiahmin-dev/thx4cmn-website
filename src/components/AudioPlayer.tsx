@@ -21,7 +21,9 @@ const loadToneModule = async () => {
     tonePromise = import('tone')
       .then((toneImport) => {
         const hasPlayer = (module: unknown): module is ToneModule =>
-          typeof module === 'object' && module !== null && 'Player' in module;
+          (typeof module === 'object' || typeof module === 'function') &&
+          module !== null &&
+          'Player' in module;
 
         if (hasPlayer(toneImport)) {
           return toneImport;
@@ -30,6 +32,11 @@ const loadToneModule = async () => {
         const normalized = (toneImport as ToneModuleWithDefault).default ?? toneImport;
         if (hasPlayer(normalized)) {
           return normalized as ToneModule;
+        }
+
+        const nestedDefault = (normalized as ToneModuleWithDefault).default ?? normalized;
+        if (hasPlayer(nestedDefault)) {
+          return nestedDefault as ToneModule;
         }
 
         return toneImport as ToneModule;
@@ -121,7 +128,14 @@ export const AudioPlayer = () => {
     const nextTrack = tracks[index];
     if (!nextTrack) return;
 
-    const tone = await loadTone();
+    let tone: ToneModule;
+    try {
+      tone = await loadTone();
+    } catch (error) {
+      setTrackError('Audio engine failed to initialize.');
+      return;
+    }
+
     if (!tone?.Player || typeof tone.Player !== 'function') {
       setTrackError('Audio engine failed to initialize.');
       return;
