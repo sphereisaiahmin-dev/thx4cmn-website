@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatTime } from '@/lib/format';
 
 type ToneModule = typeof import('tone');
+type ToneModuleWithDefault = ToneModule & { default?: ToneModule };
 
 type Track = {
   key: string;
@@ -17,9 +18,10 @@ let tonePromise: Promise<ToneModule> | null = null;
 const loadToneModule = async () => {
   if (cachedTone) return cachedTone;
   if (!tonePromise) {
-    tonePromise = import('tone').then(
-      (toneImport) => (toneImport.default ?? toneImport) as ToneModule,
-    );
+    tonePromise = import('tone').then((toneImport) => {
+      const normalized = (toneImport as ToneModuleWithDefault).default ?? toneImport;
+      return normalized as ToneModule;
+    });
   }
   cachedTone = await tonePromise;
   return cachedTone;
