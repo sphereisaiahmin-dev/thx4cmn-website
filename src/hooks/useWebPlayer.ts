@@ -63,6 +63,15 @@ const isExpiredError = (error: unknown) => {
   return message.includes('403') || message.includes('forbidden') || message.includes('expired');
 };
 
+const shuffleTracks = (tracks: Track[]) => {
+  const shuffled = [...tracks];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+};
+
 export const useWebPlayer = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const engineRef = useRef<WebPlayerEngine | null>(null);
@@ -145,7 +154,7 @@ export const useWebPlayer = () => {
         throw new Error(`Failed to load tracks (${response.status}).`);
       }
       const data = await response.json();
-      const nextTracks = Array.isArray(data.tracks) ? data.tracks : [];
+      const nextTracks = Array.isArray(data.tracks) ? shuffleTracks(data.tracks) : [];
       dispatch({ type: 'set-tracks', payload: nextTracks });
       if (nextTracks.length > 0) {
         dispatch({ type: 'set-index', payload: 0 });
