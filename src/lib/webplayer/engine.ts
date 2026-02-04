@@ -93,7 +93,6 @@ export class WebPlayerEngine {
     const duration = Number.isFinite(this.audio.duration) ? this.audio.duration : 0;
     const nextTime = duration ? Math.max(duration - currentTime, 0) : 0;
     const playbackRate = this.audio.playbackRate;
-
     if (shouldReverse) {
       if (!this.reversedUrl) {
         this.reversedUrl = await this.createReversedUrl(this.currentUrl);
