@@ -5,10 +5,26 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatTime } from '@/lib/format';
 
 type ToneModule = typeof import('tone');
+type ToneModuleWithDefault = ToneModule & { default?: ToneModule };
 
 type Track = {
   key: string;
   title: string;
+};
+
+let cachedTone: ToneModule | null = null;
+let tonePromise: Promise<ToneModule> | null = null;
+
+const loadToneModule = async () => {
+  if (cachedTone) return cachedTone;
+  if (!tonePromise) {
+    tonePromise = import('tone').then((toneImport) => {
+      const normalized = (toneImport as ToneModuleWithDefault).default ?? toneImport;
+      return normalized as ToneModule;
+    });
+  }
+  cachedTone = await tonePromise;
+  return cachedTone;
 };
 
 const NUM_DOTS = 20;
@@ -67,10 +83,10 @@ export const AudioPlayer = () => {
   };
 
   const loadTone = async () => {
-    if (!toneRef.current) {
-      const module = await import('tone');
-      toneRef.current = (module.default ?? module) as ToneModule;
-    }
+    if (toneRef.current) return toneRef.current;
+    const tone = await loadToneModule();
+    toneRef.current = tone;
+    return tone;
   };
 
   const fetchSignedUrl = async (key: string) => {
@@ -89,9 +105,11 @@ export const AudioPlayer = () => {
     const nextTrack = tracks[index];
     if (!nextTrack) return;
 
-    await loadTone();
-    const tone = toneRef.current;
-    if (!tone) return;
+    const tone = await loadTone();
+    if (!tone?.Player || typeof tone.Player !== 'function') {
+      setTrackError('Audio engine failed to initialize.');
+      return;
+    }
 
     setIsReady(false);
     setIsPlaying(false);
@@ -142,8 +160,7 @@ export const AudioPlayer = () => {
   };
 
   const ensureAudioContext = async () => {
-    await loadTone();
-    const tone = toneRef.current;
+    const tone = await loadTone();
     if (!tone) return;
     if (tone.getContext().state !== 'running') {
       await tone.start();
