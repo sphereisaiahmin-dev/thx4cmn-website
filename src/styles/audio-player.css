@@ -218,14 +218,6 @@
   box-shadow: 0 0 6px rgba(255, 255, 255, 0.3);
 }
 
-.audio-player__rpm-marks {
-  display: flex;
-  justify-content: space-between;
-  font-size: 9px;
-  opacity: 0.7;
-  letter-spacing: 0.2em;
-}
-
 .audio-player__reverse-button {
   align-self: flex-start;
   padding: 4px 10px;
@@ -235,19 +227,51 @@
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 999px;
-  color: inherit;
+  color: rgb(255, 90, 120);
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease;
+  animation: rgb-oscillate-off 6s linear infinite;
+  transition: border-color 0.2s ease;
 }
 
 .audio-player__reverse-button.active {
   border-color: rgba(255, 255, 255, 0.7);
-  color: rgba(255, 255, 255, 0.95);
+  animation-name: rgb-oscillate-on;
 }
 
 .audio-player__reverse-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+  animation-play-state: paused;
+}
+
+@keyframes rgb-oscillate-off {
+  0% {
+    color: rgb(255, 90, 120);
+  }
+  33% {
+    color: rgb(120, 220, 140);
+  }
+  66% {
+    color: rgb(120, 160, 255);
+  }
+  100% {
+    color: rgb(255, 90, 120);
+  }
+}
+
+@keyframes rgb-oscillate-on {
+  0% {
+    color: rgb(255, 120, 120);
+  }
+  33% {
+    color: rgb(120, 255, 180);
+  }
+  66% {
+    color: rgb(140, 190, 255);
+  }
+  100% {
+    color: rgb(255, 120, 120);
+  }
 }
 
 @media (max-width: 768px) {
