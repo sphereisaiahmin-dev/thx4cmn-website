@@ -13,8 +13,9 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 export const AudioPlayer = () => {
   const { state, currentTrack, statusMessage, controlsDisabled, actions } = useWebPlayer();
-  const { handlePlayToggle, handlePrev, handleNext, handleSeek } = actions;
+  const { handlePlayToggle, handlePrev, handleNext, handleSeek, handlePlaybackRate } = actions;
   const [gradientPosition, setGradientPosition] = useState({ x: 50, y: 50 });
+  const [isDspOpen, setIsDspOpen] = useState(false);
 
   const safeDuration = Number.isFinite(state.duration) ? state.duration : 0;
   const safeCurrentTime = Number.isFinite(state.currentTime) ? state.currentTime : 0;
@@ -43,7 +44,7 @@ export const AudioPlayer = () => {
 
   return (
     <div
-      className="audio-player"
+      className={`audio-player ${isDspOpen ? 'audio-player--expanded' : ''}`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       style={{
@@ -88,6 +89,42 @@ export const AudioPlayer = () => {
           {formatTime(safeCurrentTime)} / {formatTime(safeDuration)}
         </div>
       </div>
+      <div className="audio-player__dsp-toggle">
+        <button
+          type="button"
+          className="audio-player__dsp-toggle-button"
+          onClick={() => setIsDspOpen((prev) => !prev)}
+          aria-expanded={isDspOpen}
+          aria-controls="audio-player-dsp"
+        >
+          ctrl
+        </button>
+      </div>
+      {isDspOpen && (
+        <div className="audio-player__dsp" id="audio-player-dsp">
+          <div className="audio-player__dsp-header">
+            <span className="audio-player__dsp-label">rpm</span>
+            <span className="audio-player__dsp-value">{state.playbackRate.toFixed(2)}x</span>
+          </div>
+          <div className="audio-player__rpm">
+            <input
+              type="range"
+              min={0.5}
+              max={2}
+              step={0.01}
+              value={state.playbackRate}
+              className="audio-player__rpm-slider"
+              onChange={(event) => handlePlaybackRate(Number(event.target.value))}
+              aria-label="Record RPM"
+            />
+            <div className="audio-player__rpm-marks">
+              <span>0.5</span>
+              <span>1.0</span>
+              <span>2.0</span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

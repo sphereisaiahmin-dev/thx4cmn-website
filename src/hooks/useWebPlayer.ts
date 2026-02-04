@@ -11,6 +11,7 @@ type PlayerState = {
   isPlaying: boolean;
   duration: number;
   currentTime: number;
+  playbackRate: number;
 };
 
 type PlayerAction =
@@ -20,7 +21,8 @@ type PlayerAction =
   | { type: 'set-error'; payload: string | null }
   | { type: 'set-playing'; payload: boolean }
   | { type: 'set-duration'; payload: number }
-  | { type: 'set-current-time'; payload: number };
+  | { type: 'set-current-time'; payload: number }
+  | { type: 'set-playback-rate'; payload: number };
 
 const initialState: PlayerState = {
   tracks: [],
@@ -30,6 +32,7 @@ const initialState: PlayerState = {
   isPlaying: false,
   duration: 0,
   currentTime: 0,
+  playbackRate: 1,
 };
 
 const reducer = (state: PlayerState, action: PlayerAction): PlayerState => {
@@ -52,6 +55,8 @@ const reducer = (state: PlayerState, action: PlayerAction): PlayerState => {
       return { ...state, duration: action.payload };
     case 'set-current-time':
       return { ...state, currentTime: action.payload };
+    case 'set-playback-rate':
+      return { ...state, playbackRate: action.payload };
     default:
       return state;
   }
@@ -62,6 +67,17 @@ const isExpiredError = (error: unknown) => {
   const message = error.message.toLowerCase();
   return message.includes('403') || message.includes('forbidden') || message.includes('expired');
 };
+
+const shuffleTracks = (tracks: Track[]) => {
+  const shuffled = [...tracks];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 export const useWebPlayer = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -145,7 +161,7 @@ export const useWebPlayer = () => {
         throw new Error(`Failed to load tracks (${response.status}).`);
       }
       const data = await response.json();
-      const nextTracks = Array.isArray(data.tracks) ? data.tracks : [];
+      const nextTracks = Array.isArray(data.tracks) ? shuffleTracks(data.tracks) : [];
       dispatch({ type: 'set-tracks', payload: nextTracks });
       if (nextTracks.length > 0) {
         dispatch({ type: 'set-index', payload: 0 });
@@ -188,6 +204,7 @@ export const useWebPlayer = () => {
     audio.addEventListener('pause', handlePause);
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', handleError);
+    engine.setPlaybackRate(initialState.playbackRate);
 
     void loadTracks();
 
@@ -206,6 +223,10 @@ export const useWebPlayer = () => {
     if (!state.tracks.length) return;
     void loadTrack(state.tracks[state.currentIndex]);
   }, [loadTrack, state.currentIndex, state.tracks]);
+
+  useEffect(() => {
+    engineRef.current?.setPlaybackRate(state.playbackRate);
+  }, [state.playbackRate]);
 
   const currentTrack = state.tracks[state.currentIndex];
 
@@ -236,6 +257,16 @@ export const useWebPlayer = () => {
     }
     engineRef.current.seek(time);
     dispatch({ type: 'set-current-time', payload: time });
+  }, []);
+
+  const handlePlaybackRate = useCallback((rate: number) => {
+    if (!engineRef.current || !Number.isFinite(rate)) {
+      console.warn('[WebPlayer] Invalid playback rate requested.', rate);
+      return;
+    }
+    const clamped = clamp(rate, 0.5, 2);
+    engineRef.current.setPlaybackRate(clamped);
+    dispatch({ type: 'set-playback-rate', payload: clamped });
   }, []);
 
   const handlePrev = useCallback(() => {
@@ -274,6 +305,7 @@ export const useWebPlayer = () => {
       handlePrev,
       handleNext,
       handleSeek,
+      handlePlaybackRate,
     },
   };
 };
