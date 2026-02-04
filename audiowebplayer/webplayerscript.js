@@ -31,19 +31,20 @@
     </div>
   </div>
 
-  <div style="margin-top: 12px;">
-    <button id="dsp-toggle" class="dsp-toggle" style="
-      font-size: 16px; background: none; border: 0px solid #fff;
-      color: #fff; padding: 6px 10px; border-radius: 8px; cursor: pointer;
-    ">ctrl</button>
-  </div>
 </div>
+
+<button id="dsp-toggle" class="dsp-toggle" style="
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+  font-size: 14px; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.3);
+  color: #fff; padding: 6px 14px; border-radius: 999px; cursor: pointer;
+  font-family: 'Doto', sans-serif; z-index: 9999; letter-spacing: 1px;
+">ctrl</button>
 
 <!-- DSP Widget (hidden initially) -->
 <div id="audio-widget" style="
-  position: fixed; display: none; right: 25px;
-  width: 320px; background: rgba(0,0,0,0.35);
-  border-radius: 20px; padding: 16px; color: white;
+  position: fixed; display: none; left: 50%; bottom: 70px; transform: translateX(-50%);
+  width: 240px; background: rgba(0,0,0,0.35);
+  border-radius: 16px; padding: 12px; color: white;
   font-family: 'Doto', sans-serif; z-index: 9998;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 ">
@@ -55,6 +56,7 @@
   <div style="position: absolute; right: 0; font-size: 12px; color: blue;">2.0x</div>
 </div>
 <input type="range" id="speed" min="0" max="100" step="1" value="50" style="width:100%;">
+<div id="speedVal" style="margin-top: 6px; font-size: 12px; text-align: center; opacity: 0.8;">1.0x</div>
 </div>
 <div style="
   display: flex;
@@ -145,7 +147,9 @@
   -webkit-appearance: none;
   width: 100%;
   height: 6px;
-  background: #999;
+  background: linear-gradient(90deg, rgb(255, 0, 0), rgb(0, 255, 0), rgb(0, 0, 255));
+  background-size: 200% 100%;
+  background-position: calc(var(--speed-pos, 50) * 1%) 50%;
   border-radius: 3px;
   outline: none;
   margin: 12px 0;
@@ -267,7 +271,8 @@ async function loadTrack(i) {
     // 2) center the log slider at 1.0×
     const initSlider = speedToSlider(1.0);
     speedCtl.value = initSlider;
-    speedVal.textContent = sliderToSpeed(initSlider).toFixed(2);
+    speedVal.textContent = `${sliderToSpeed(initSlider).toFixed(2)}x`;
+    updateSpeedSlider(initSlider);
   };
 }
   function createDots(){
@@ -411,13 +416,10 @@ nextBtn.onclick = () => {
   resetReverse();
 };
 
-  // Speed
-  speedCtl.oninput=e=>{
-    if(!player.buffer||!player.buffer.loaded) return;
-    player.playbackRate=+e.target.value;
-    speedVal.textContent=(+e.target.value).toFixed(2);
-  };
-  
+  function updateSpeedSlider(value) {
+    speedCtl.style.setProperty('--speed-pos', value);
+  }
+
 const reverseBtn = document.getElementById('reverse');
 let isReversing = false;
 
@@ -456,6 +458,8 @@ function speedToSlider(speed) {
 speedCtl.oninput = e => {
   const newRate = sliderToSpeed(+e.target.value);
   player.playbackRate = newRate;
+  speedVal.textContent = `${newRate.toFixed(2)}x`;
+  updateSpeedSlider(+e.target.value);
 };
 
 
@@ -502,25 +506,23 @@ markB.onclick = () => {
   // DSP toggle
   dspToggle.onclick=()=>{
     widget.style.display=widget.style.display==='block'?'none':'block';
-    const r=document.getElementById('custom-audio-player').getBoundingClientRect();
-    widget.style.top=r.bottom+window.scrollY+10+'px';
   };
 
   // Live update
   setInterval(()=>{
     if(player?.buffer&&isPlaying) updateUI(nowPos());
   },100);
-  
-  loadTrack(currentTrack);
 
-// Init
-window.onload = () => {
-  // Shuffle array
-  for (let i = tracks.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [tracks[i], tracks[j]] = [tracks[j], tracks[i]];
+  function shuffleTracks(list) {
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [list[i], list[j]] = [list[j], list[i]];
+    }
   }
+
+  shuffleTracks(tracks);
+  currentTrack = Math.floor(Math.random() * tracks.length);
   loadTrack(currentTrack);
-};
+  updateSpeedSlider(speedCtl.value);
 })();
 </script>
