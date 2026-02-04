@@ -147,11 +147,6 @@ export const AudioPlayer = () => {
               aria-label="Record RPM"
               style={{ '--rpm-progress': rpmProgress } as CSSProperties}
             />
-            <div className="audio-player__rpm-marks">
-              <span>0.5</span>
-              <span>1.0</span>
-              <span>2.0</span>
-            </div>
           </div>
           <button
             type="button"
