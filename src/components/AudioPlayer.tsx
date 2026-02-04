@@ -67,6 +67,7 @@ export const AudioPlayer = () => {
   const [isLoadingTrack, setIsLoadingTrack] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
+  const [hasInteracted, setHasInteracted] = useState(false);
 
   const track = tracks[currentIndex];
   const dots = useMemo(() => Array.from({ length: NUM_DOTS }, (_, i) => i), []);
@@ -167,6 +168,13 @@ export const AudioPlayer = () => {
     }
   };
 
+  const handleUserGesture = async () => {
+    if (!hasInteracted) {
+      setHasInteracted(true);
+    }
+    await ensureAudioContext();
+  };
+
   const startPlayback = async () => {
     await ensureAudioContext();
     if (!playerRef.current?.buffer.loaded) return;
@@ -186,7 +194,14 @@ export const AudioPlayer = () => {
   };
 
   const handleTogglePlay = async () => {
-    if (!playerRef.current?.buffer.loaded || isLoadingTrack) return;
+    if (isLoadingTrack) return;
+    await handleUserGesture();
+
+    if (!playerRef.current?.buffer.loaded) {
+      await loadTrack(currentIndex);
+    }
+
+    if (!playerRef.current?.buffer.loaded) return;
 
     if (isPlaying) {
       stopPlayback();
@@ -195,7 +210,8 @@ export const AudioPlayer = () => {
     }
   };
 
-  const handleSeek = (position: number) => {
+  const handleSeek = async (position: number) => {
+    await handleUserGesture();
     if (!playerRef.current?.buffer.loaded) return;
     playerRef.current.stop();
     setStartOffset(position);
@@ -229,6 +245,7 @@ export const AudioPlayer = () => {
 
   const handlePrev = () => {
     if (!tracks.length) return;
+    void handleUserGesture();
     stopPlayback();
     resetTransport();
     const nextIndex = getRandomIndex(tracks.length, currentIndex);
@@ -237,6 +254,7 @@ export const AudioPlayer = () => {
 
   const handleNext = () => {
     if (!tracks.length) return;
+    void handleUserGesture();
     stopPlayback();
     resetTransport();
     const nextIndex = getRandomIndex(tracks.length, currentIndex);
@@ -252,6 +270,7 @@ export const AudioPlayer = () => {
 
   const handleReverseToggle = () => {
     if (!playerRef.current?.buffer.loaded || !isPlaying) return;
+    void handleUserGesture();
     const position = currentPosition();
     playerRef.current.stop();
     const nextValue = !isReversing;
@@ -266,6 +285,7 @@ export const AudioPlayer = () => {
 
   const handleMarkA = () => {
     if (!isPlaying) return;
+    void handleUserGesture();
     if (loopA === null) {
       setLoopA(currentPosition());
       setLoopB(null);
@@ -278,6 +298,7 @@ export const AudioPlayer = () => {
 
   const handleMarkB = () => {
     if (!isPlaying || loopA === null) return;
+    void handleUserGesture();
     if (loopB === null) {
       setLoopB(currentPosition());
       return;
@@ -347,10 +368,10 @@ export const AudioPlayer = () => {
   }, []);
 
   useEffect(() => {
-    if (!tracks.length) return;
+    if (!tracks.length || !hasInteracted) return;
     void loadTrack(currentIndex);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentIndex, tracks]);
+  }, [currentIndex, tracks, hasInteracted]);
 
   useEffect(() => {
     cleanupIntervals();
@@ -416,7 +437,9 @@ export const AudioPlayer = () => {
                 className={`audio-player__dot ${isActive ? 'active' : ''} ${
                   inLoop ? 'loop' : ''
                 }`}
-                onClick={() => handleSeek(dotSlice * (dot + 0.5))}
+                onClick={() => {
+                  void handleSeek(dotSlice * (dot + 0.5));
+                }}
                 aria-label={`Seek ${dot}`}
                 disabled={controlsDisabled}
               />
