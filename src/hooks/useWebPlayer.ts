@@ -12,6 +12,7 @@ type PlayerState = {
   duration: number;
   currentTime: number;
   playbackRate: number;
+  isReversed: boolean;
 };
 
 type PlayerAction =
@@ -22,7 +23,8 @@ type PlayerAction =
   | { type: 'set-playing'; payload: boolean }
   | { type: 'set-duration'; payload: number }
   | { type: 'set-current-time'; payload: number }
-  | { type: 'set-playback-rate'; payload: number };
+  | { type: 'set-playback-rate'; payload: number }
+  | { type: 'set-reversed'; payload: boolean };
 
 const initialState: PlayerState = {
   tracks: [],
@@ -33,6 +35,7 @@ const initialState: PlayerState = {
   duration: 0,
   currentTime: 0,
   playbackRate: 1,
+  isReversed: false,
 };
 
 const reducer = (state: PlayerState, action: PlayerAction): PlayerState => {
@@ -57,6 +60,8 @@ const reducer = (state: PlayerState, action: PlayerAction): PlayerState => {
       return { ...state, currentTime: action.payload };
     case 'set-playback-rate':
       return { ...state, playbackRate: action.payload };
+    case 'set-reversed':
+      return { ...state, isReversed: action.payload };
     default:
       return state;
   }
@@ -78,6 +83,9 @@ const shuffleTracks = (tracks: Track[]) => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const MIN_PLAYBACK_RATE = 0.35;
+const MAX_PLAYBACK_RATE = 2.35;
 
 export const useWebPlayer = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -124,6 +132,9 @@ export const useWebPlayer = () => {
 
       try {
         await loadWithRetry(false);
+        if (state.isReversed) {
+          await engineRef.current?.setReversed(true);
+        }
         dispatch({ type: 'set-status', payload: 'ready' });
         if (autoPlayRef.current) {
           autoPlayRef.current = false;
@@ -149,7 +160,7 @@ export const useWebPlayer = () => {
         });
       }
     },
-    [fetchSignedUrl],
+    [fetchSignedUrl, state.isReversed],
   );
 
   const loadTracks = useCallback(async () => {
@@ -264,10 +275,25 @@ export const useWebPlayer = () => {
       console.warn('[WebPlayer] Invalid playback rate requested.', rate);
       return;
     }
-    const clamped = clamp(rate, 0.5, 2);
+    const clamped = clamp(rate, MIN_PLAYBACK_RATE, MAX_PLAYBACK_RATE);
     engineRef.current.setPlaybackRate(clamped);
     dispatch({ type: 'set-playback-rate', payload: clamped });
   }, []);
+
+  const handleReverseToggle = useCallback(async () => {
+    if (!engineRef.current || controlsDisabled) return;
+    const nextValue = !state.isReversed;
+    try {
+      await engineRef.current.setReversed(nextValue);
+      dispatch({ type: 'set-reversed', payload: nextValue });
+    } catch (error) {
+      console.error('[WebPlayer] Reverse toggle failed.', error);
+      dispatch({
+        type: 'set-error',
+        payload: error instanceof Error ? error.message : 'Unable to reverse playback.',
+      });
+    }
+  }, [controlsDisabled, state.isReversed]);
 
   const handlePrev = useCallback(() => {
     if (!state.tracks.length) return;
@@ -306,6 +332,7 @@ export const useWebPlayer = () => {
       handleNext,
       handleSeek,
       handlePlaybackRate,
+      handleReverseToggle,
     },
   };
 };

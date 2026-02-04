@@ -13,7 +13,14 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 export const AudioPlayer = () => {
   const { state, currentTrack, statusMessage, controlsDisabled, actions } = useWebPlayer();
-  const { handlePlayToggle, handlePrev, handleNext, handleSeek, handlePlaybackRate } = actions;
+  const {
+    handlePlayToggle,
+    handlePrev,
+    handleNext,
+    handleSeek,
+    handlePlaybackRate,
+    handleReverseToggle,
+  } = actions;
   const [gradientPosition, setGradientPosition] = useState({ x: 50, y: 50 });
   const [isDspOpen, setIsDspOpen] = useState(false);
 
@@ -30,6 +37,28 @@ export const AudioPlayer = () => {
     : 0;
 
   const isLoading = state.status === 'loading-list' || state.status === 'loading-track';
+  const rpmSliderValue = useMemo(() => {
+    const downRange = 1 - 0.35;
+    const upRange = 2.35 - 1;
+    if (state.playbackRate === 1) return 0.5;
+    if (state.playbackRate > 1) {
+      const magnitude = Math.sqrt((state.playbackRate - 1) / upRange);
+      return clamp(0.5 + magnitude * 0.5, 0, 1);
+    }
+    const magnitude = Math.sqrt((1 - state.playbackRate) / downRange);
+    return clamp(0.5 - magnitude * 0.5, 0, 1);
+  }, [state.playbackRate]);
+  const rpmProgress = clamp(rpmSliderValue, 0, 1);
+  const mapSliderToRate = (value: number) => {
+    const centered = value - 0.5;
+    if (!centered) return 1;
+    const magnitude = Math.min(Math.abs(centered) / 0.5, 1);
+    const curved = magnitude ** 2;
+    if (centered < 0) {
+      return 1 - (1 - 0.35) * curved;
+    }
+    return 1 + (2.35 - 1) * curved;
+  };
 
   const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -109,13 +138,14 @@ export const AudioPlayer = () => {
           <div className="audio-player__rpm">
             <input
               type="range"
-              min={0.5}
-              max={2}
-              step={0.01}
-              value={state.playbackRate}
+              min={0}
+              max={1}
+              step={0.001}
+              value={rpmSliderValue}
               className="audio-player__rpm-slider"
-              onChange={(event) => handlePlaybackRate(Number(event.target.value))}
+              onChange={(event) => handlePlaybackRate(mapSliderToRate(Number(event.target.value)))}
               aria-label="Record RPM"
+              style={{ '--rpm-progress': rpmProgress } as CSSProperties}
             />
             <div className="audio-player__rpm-marks">
               <span>0.5</span>
@@ -123,6 +153,15 @@ export const AudioPlayer = () => {
               <span>2.0</span>
             </div>
           </div>
+          <button
+            type="button"
+            className={`audio-player__reverse-button ${state.isReversed ? 'active' : ''}`}
+            onClick={handleReverseToggle}
+            disabled={controlsDisabled || isLoading}
+            aria-pressed={state.isReversed}
+          >
+            reverse
+          </button>
         </div>
       )}
     </div>
