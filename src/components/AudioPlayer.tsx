@@ -1,15 +1,23 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 
 import { formatTime } from '@/lib/format';
 
 type ToneModule = typeof import('tone');
-type ToneModuleWithDefault = ToneModule & { default?: ToneModule };
 
 type Track = {
   key: string;
   title: string;
+};
+
+type PlaybackState = {
+  playbackRate: number;
+  isReversing: boolean;
+  loop: {
+    start: number | null;
+    end: number | null;
+  };
 };
 
 let cachedTone: ToneModule | null = null;
@@ -19,7 +27,7 @@ const loadToneModule = async () => {
   if (cachedTone) return cachedTone;
   if (!tonePromise) {
     tonePromise = import('tone').then((toneImport) => {
-      const normalized = (toneImport as ToneModuleWithDefault).default ?? toneImport;
+      const normalized = (toneImport as ToneModule & { default?: ToneModule }).default ?? toneImport;
       return normalized as ToneModule;
     });
   }
@@ -27,17 +35,8 @@ const loadToneModule = async () => {
   return cachedTone;
 };
 
-const NUM_DOTS = 20;
+const DOT_COUNT = 24;
 const ARTIST_LABEL = 'thx4cmn';
-
-const getRandomIndex = (length: number, exclude: number) => {
-  if (length <= 1) return exclude;
-  let next = exclude;
-  while (next === exclude) {
-    next = Math.floor(Math.random() * length);
-  }
-  return next;
-};
 
 const isExpiredError = (error: unknown) => {
   if (!(error instanceof Error)) return false;
@@ -45,43 +44,38 @@ const isExpiredError = (error: unknown) => {
   return message.includes('403') || message.includes('forbidden') || message.includes('expired');
 };
 
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
 export const AudioPlayer = () => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const toneRef = useRef<ToneModule | null>(null);
   const playerRef = useRef<import('tone').Player | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
-  const loopIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const startOffsetRef = useRef(0);
+  const startTimeRef = useRef(0);
+
   const [tracks, setTracks] = useState<Track[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [controlsOpen, setControlsOpen] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
-  const [isReversing, setIsReversing] = useState(false);
-  const [loopA, setLoopA] = useState<number | null>(null);
-  const [loopB, setLoopB] = useState<number | null>(null);
-  const [startOffset, setStartOffset] = useState(0);
-  const [startTime, setStartTime] = useState(0);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [isLoadingTrack, setIsLoadingTrack] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const [trackError, setTrackError] = useState<string | null>(null);
   const [hasInteracted, setHasInteracted] = useState(false);
+  const [playbackState, setPlaybackState] = useState<PlaybackState>({
+    playbackRate: 1,
+    isReversing: false,
+    loop: {
+      start: null,
+      end: null,
+    },
+  });
 
   const track = tracks[currentIndex];
-  const dots = useMemo(() => Array.from({ length: NUM_DOTS }, (_, i) => i), []);
-
-  const cleanupIntervals = () => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    if (loopIntervalRef.current) {
-      clearInterval(loopIntervalRef.current);
-      loopIntervalRef.current = null;
-    }
-  };
+  const dots = useMemo(() => Array.from({ length: DOT_COUNT }, (_, i) => i), []);
 
   const loadTone = async () => {
     if (toneRef.current) return toneRef.current;
@@ -102,6 +96,27 @@ export const AudioPlayer = () => {
     return data.url as string;
   };
 
+  const resetTransport = () => {
+    startOffsetRef.current = 0;
+    startTimeRef.current = 0;
+    setCurrentTime(0);
+    setPlaybackState({
+      playbackRate: 1,
+      isReversing: false,
+      loop: {
+        start: null,
+        end: null,
+      },
+    });
+  };
+
+  const disposePlayer = () => {
+    if (playerRef.current) {
+      playerRef.current.dispose();
+      playerRef.current = null;
+    }
+  };
+
   const loadTrack = async (index: number) => {
     const nextTrack = tracks[index];
     if (!nextTrack) return;
@@ -114,16 +129,12 @@ export const AudioPlayer = () => {
 
     setIsReady(false);
     setIsPlaying(false);
-    setCurrentTime(0);
     setDuration(0);
-    setLoopA(null);
-    setLoopB(null);
     setTrackError(null);
     setIsLoadingTrack(true);
+    resetTransport();
 
-    if (playerRef.current) {
-      playerRef.current.dispose();
-    }
+    disposePlayer();
 
     const player = new tone.Player({
       loop: false,
@@ -175,25 +186,36 @@ export const AudioPlayer = () => {
     await ensureAudioContext();
   };
 
+  const currentPosition = () => {
+    const tone = toneRef.current;
+    if (!playerRef.current || !tone) return 0;
+    const elapsed = (tone.now() - startTimeRef.current) * playbackState.playbackRate;
+    const direction = playbackState.isReversing ? -1 : 1;
+    return clamp(startOffsetRef.current + direction * elapsed, 0, duration);
+  };
+
   const startPlayback = async () => {
     await ensureAudioContext();
     if (!playerRef.current?.buffer.loaded) return;
-
-    playerRef.current.playbackRate = playbackRate;
-    playerRef.current.reverse = isReversing;
     const tone = toneRef.current;
     if (!tone) return;
-    playerRef.current.start(tone.now(), startOffset);
-    setStartTime(tone.now());
+
+    playerRef.current.playbackRate = playbackState.playbackRate;
+    playerRef.current.reverse = playbackState.isReversing;
+    playerRef.current.start(tone.now(), startOffsetRef.current);
+    startTimeRef.current = tone.now();
     setIsPlaying(true);
   };
 
   const stopPlayback = () => {
-    playerRef.current?.stop();
+    if (!playerRef.current) return;
+    playerRef.current.stop();
+    startOffsetRef.current = currentPosition();
+    setCurrentTime(startOffsetRef.current);
     setIsPlaying(false);
   };
 
-  const handleTogglePlay = async () => {
+  const togglePlay = async () => {
     if (isLoadingTrack) return;
     await handleUserGesture();
 
@@ -213,119 +235,56 @@ export const AudioPlayer = () => {
   const handleSeek = async (position: number) => {
     await handleUserGesture();
     if (!playerRef.current?.buffer.loaded) return;
-    playerRef.current.stop();
-    setStartOffset(position);
     const tone = toneRef.current;
     if (!tone) return;
-    setStartTime(tone.now());
-    playerRef.current.start(tone.now(), position);
-    setIsPlaying(true);
+
+    playerRef.current.stop();
+    startOffsetRef.current = clamp(position, 0, duration);
+    startTimeRef.current = tone.now();
+    if (isPlaying) {
+      playerRef.current.start(tone.now(), startOffsetRef.current);
+    }
+    setCurrentTime(startOffsetRef.current);
   };
 
-  const currentPosition = () => {
-    const tone = toneRef.current;
-    if (!playerRef.current || !tone) return 0;
-    const elapsed = (tone.now() - startTime) * playbackRate;
-    return Math.max(0, Math.min(startOffset + (isReversing ? -elapsed : elapsed), duration));
-  };
-
-  const updateCurrentTime = () => {
-    if (!playerRef.current?.buffer.loaded || !isPlaying) return;
-    setCurrentTime(currentPosition());
-  };
-
-  const resetTransport = () => {
-    setStartOffset(0);
-    setStartTime(0);
-    setIsReversing(false);
-    setPlaybackRate(1);
-    setLoopA(null);
-    setLoopB(null);
+  const selectTrack = async (index: number) => {
+    setCurrentIndex(index);
+    resetTransport();
+    stopPlayback();
+    if (hasInteracted) {
+      await loadTrack(index);
+    }
   };
 
   const handlePrev = () => {
     if (!tracks.length) return;
     void handleUserGesture();
-    stopPlayback();
-    resetTransport();
-    const nextIndex = getRandomIndex(tracks.length, currentIndex);
-    setCurrentIndex(nextIndex);
+    const nextIndex = (currentIndex - 1 + tracks.length) % tracks.length;
+    void selectTrack(nextIndex);
   };
 
   const handleNext = () => {
     if (!tracks.length) return;
     void handleUserGesture();
-    stopPlayback();
-    resetTransport();
-    const nextIndex = getRandomIndex(tracks.length, currentIndex);
-    setCurrentIndex(nextIndex);
+    const nextIndex = (currentIndex + 1) % tracks.length;
+    void selectTrack(nextIndex);
   };
 
-  const handleSpeed = (value: number) => {
-    setPlaybackRate(value);
-    if (playerRef.current) {
-      playerRef.current.playbackRate = value;
-    }
+  const updateGradient = (event: PointerEvent<HTMLDivElement>) => {
+    const element = containerRef.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 100;
+    const y = ((event.clientY - rect.top) / rect.height) * 100;
+    element.style.setProperty('--mouse-x', `${clamp(x, 0, 100)}%`);
+    element.style.setProperty('--mouse-y', `${clamp(y, 0, 100)}%`);
   };
 
-  const handleReverseToggle = () => {
-    if (!playerRef.current?.buffer.loaded || !isPlaying) return;
-    void handleUserGesture();
-    const position = currentPosition();
-    playerRef.current.stop();
-    const nextValue = !isReversing;
-    setIsReversing(nextValue);
-    playerRef.current.reverse = nextValue;
-    const tone = toneRef.current;
-    if (!tone) return;
-    setStartOffset(position);
-    setStartTime(tone.now());
-    playerRef.current.start(tone.now(), position);
-  };
-
-  const handleMarkA = () => {
-    if (!isPlaying) return;
-    void handleUserGesture();
-    if (loopA === null) {
-      setLoopA(currentPosition());
-      setLoopB(null);
-      return;
-    }
-
-    setLoopA(null);
-    setLoopB(null);
-  };
-
-  const handleMarkB = () => {
-    if (!isPlaying || loopA === null) return;
-    void handleUserGesture();
-    if (loopB === null) {
-      setLoopB(currentPosition());
-      return;
-    }
-
-    setLoopB(null);
-  };
-
-  const startLoopWatcher = () => {
-    if (loopIntervalRef.current) {
-      clearInterval(loopIntervalRef.current);
-    }
-
-    loopIntervalRef.current = setInterval(() => {
-      if (!loopA || !loopB || !isPlaying || !playerRef.current) return;
-
-      const low = Math.min(loopA, loopB);
-      const high = Math.max(loopA, loopB);
-      const position = currentPosition();
-
-      if (!isReversing && position >= high) {
-        handleSeek(low);
-      }
-      if (isReversing && position <= low) {
-        handleSeek(high);
-      }
-    }, 120);
+  const resetGradient = () => {
+    const element = containerRef.current;
+    if (!element) return;
+    element.style.setProperty('--mouse-x', '50%');
+    element.style.setProperty('--mouse-y', '50%');
   };
 
   useEffect(() => {
@@ -344,8 +303,7 @@ export const AudioPlayer = () => {
         const nextTracks = Array.isArray(data.tracks) ? data.tracks : [];
         setTracks(nextTracks);
         if (nextTracks.length > 0) {
-          const randomIndex = Math.floor(Math.random() * nextTracks.length);
-          setCurrentIndex(randomIndex);
+          setCurrentIndex(0);
         }
       } catch (error) {
         if (!isMounted) return;
@@ -362,8 +320,10 @@ export const AudioPlayer = () => {
 
     return () => {
       isMounted = false;
-      cleanupIntervals();
-      playerRef.current?.dispose();
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      disposePlayer();
     };
   }, []);
 
@@ -374,29 +334,31 @@ export const AudioPlayer = () => {
   }, [currentIndex, tracks, hasInteracted]);
 
   useEffect(() => {
-    cleanupIntervals();
-    intervalRef.current = setInterval(updateCurrentTime, 150);
+    if (!isPlaying) return;
 
-    if (loopA !== null && loopB !== null) {
-      startLoopWatcher();
-    }
+    const tick = () => {
+      const position = currentPosition();
+      if (position >= duration && duration > 0) {
+        setCurrentTime(duration);
+        stopPlayback();
+        return;
+      }
+      setCurrentTime(position);
+      rafRef.current = requestAnimationFrame(tick);
+    };
 
-    return () => cleanupIntervals();
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isPlaying, loopA, loopB, playbackRate, isReversing]);
+  }, [isPlaying, playbackState.playbackRate, playbackState.isReversing, duration]);
 
-  const dotSlice = duration ? duration / NUM_DOTS : 0;
-  const filledDots = dotSlice ? Math.floor(currentTime / dotSlice) : 0;
-  const loopStartIndex = loopA !== null && dotSlice ? Math.floor(loopA / dotSlice) : null;
-  const loopEndIndex = loopB !== null && dotSlice ? Math.floor(loopB / dotSlice) : null;
-
-  const loopBounds =
-    loopStartIndex !== null && loopEndIndex !== null
-      ? {
-          min: Math.min(loopStartIndex, loopEndIndex),
-          max: Math.max(loopStartIndex, loopEndIndex),
-        }
-      : null;
+  const dotSlice = duration ? duration / DOT_COUNT : 0;
+  const activeIndex = dotSlice ? Math.floor(currentTime / dotSlice) : -1;
 
   const controlsDisabled = isLoadingList || !tracks.length || !!listError;
   const statusMessage = listError
@@ -408,39 +370,48 @@ export const AudioPlayer = () => {
         : trackError;
 
   return (
-    <div className="audio-player">
-      <div className="audio-player__title">
-        <span>{track ? track.title : 'No track loaded'}</span>
-        <span className="audio-player__artist">{track ? ARTIST_LABEL : ''}</span>
+    <div
+      className="audio-player"
+      ref={containerRef}
+      onPointerMove={updateGradient}
+      onPointerLeave={resetGradient}
+    >
+      <div className="audio-player__header">
+        <div className="audio-player__title">
+          <span>{track ? track.title : 'No track loaded'}</span>
+          <span className="audio-player__artist">{track ? ARTIST_LABEL : ''}</span>
+        </div>
+        <div className="audio-player__controls">
+          <button type="button" onClick={handlePrev} disabled={controlsDisabled}>
+            prev
+          </button>
+          <button
+            type="button"
+            onClick={togglePlay}
+            disabled={controlsDisabled || isLoadingTrack}
+          >
+            {isPlaying ? 'pause' : isReady && !isLoadingTrack ? 'play' : 'loading'}
+          </button>
+          <button type="button" onClick={handleNext} disabled={controlsDisabled}>
+            next
+          </button>
+        </div>
       </div>
       {statusMessage && <div className="audio-player__status">{statusMessage}</div>}
-      <div className="audio-player__controls">
-        <button type="button" onClick={handlePrev} disabled={controlsDisabled}>
-          prev
-        </button>
-        <button type="button" onClick={handleTogglePlay} disabled={controlsDisabled || isLoadingTrack}>
-          {isPlaying ? 'pause' : isReady && !isLoadingTrack ? 'play' : 'loading'}
-        </button>
-        <button type="button" onClick={handleNext} disabled={controlsDisabled}>
-          next
-        </button>
-      </div>
       <div className="audio-player__progress">
-        <div className="audio-player__dots">
+        <div className="audio-player__dots" role="list">
           {dots.map((dot) => {
-            const isActive = dot < filledDots;
-            const inLoop = loopBounds && dot >= loopBounds.min && dot <= loopBounds.max;
+            const isActive = dot <= activeIndex;
             return (
               <button
                 type="button"
                 key={dot}
-                className={`audio-player__dot ${isActive ? 'active' : ''} ${
-                  inLoop ? 'loop' : ''
-                }`}
+                className={`audio-player__dot ${isActive ? 'active' : ''}`}
                 onClick={() => {
+                  if (!dotSlice) return;
                   void handleSeek(dotSlice * (dot + 0.5));
                 }}
-                aria-label={`Seek ${dot}`}
+                aria-label={`Seek to ${Math.round((dot / DOT_COUNT) * 100)} percent`}
                 disabled={controlsDisabled}
               />
             );
@@ -450,63 +421,6 @@ export const AudioPlayer = () => {
           {formatTime(currentTime)} / {formatTime(duration)}
         </div>
       </div>
-      <button
-        type="button"
-        className="audio-player__toggle"
-        onClick={() => setControlsOpen((open) => !open)}
-        disabled={controlsDisabled}
-      >
-        ctrl
-      </button>
-
-      {controlsOpen && (
-        <div className="audio-player__panel">
-          <div className="audio-player__speed">
-            <div className="audio-player__speed-labels">
-              <span>0.5x</span>
-              <span>1.0x</span>
-              <span>2.0x</span>
-            </div>
-            <input
-              type="range"
-              min={0.5}
-              max={2}
-              step={0.1}
-              value={playbackRate}
-              onChange={(event) => handleSpeed(Number(event.target.value))}
-              disabled={controlsDisabled}
-            />
-          </div>
-          <div className="audio-player__bottom">
-            <button
-              type="button"
-              onClick={handleReverseToggle}
-              className={isReversing ? 'active' : ''}
-              disabled={controlsDisabled}
-            >
-              reverse
-            </button>
-            <div className="audio-player__ab">
-              <button
-                type="button"
-                onClick={handleMarkA}
-                className={loopA !== null ? 'active' : ''}
-                disabled={controlsDisabled}
-              >
-                a
-              </button>
-              <button
-                type="button"
-                onClick={handleMarkB}
-                className={loopB !== null ? 'active' : ''}
-                disabled={controlsDisabled}
-              >
-                b
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
