@@ -14,6 +14,7 @@ export class WebPlayerEngine {
     this.audio = new Audio();
     this.audio.preload = 'metadata';
     this.audio.crossOrigin = 'anonymous';
+    this.setPreservesPitch(false);
   }
 
   getAudioElement() {
@@ -86,6 +87,29 @@ export class WebPlayerEngine {
 
   seek(time: number) {
     this.audio.currentTime = time;
+  }
+
+  setPlaybackRate(rate: number) {
+    const nextRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
+    this.audio.playbackRate = nextRate;
+    this.setPreservesPitch(false);
+  }
+
+  private setPreservesPitch(shouldPreserve: boolean) {
+    const audio = this.audio as HTMLAudioElement & {
+      webkitPreservesPitch?: boolean;
+      mozPreservesPitch?: boolean;
+      preservesPitch?: boolean;
+    };
+    if (typeof audio.preservesPitch === 'boolean') {
+      audio.preservesPitch = shouldPreserve;
+    }
+    if (typeof audio.webkitPreservesPitch === 'boolean') {
+      audio.webkitPreservesPitch = shouldPreserve;
+    }
+    if (typeof audio.mozPreservesPitch === 'boolean') {
+      audio.mozPreservesPitch = shouldPreserve;
+    }
   }
 
   destroy() {
