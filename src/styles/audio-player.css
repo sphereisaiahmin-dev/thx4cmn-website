@@ -32,6 +32,13 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
+.audio-player__status {
+  text-align: center;
+  font-size: 11px;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
 .audio-player__controls {
   display: flex;
   justify-content: space-between;

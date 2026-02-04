@@ -53,6 +53,9 @@ See `supabase/README.md` for schema details and setup steps.
 1. Create an R2 bucket and access keys.
 2. Set `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET`.
 3. Upload the sample pack zip to the key referenced in `src/data/products.ts`.
+4. For the web audio player, upload `.mp3` files under the `music/` prefix and ensure the bucket
+   allows GET/HEAD requests (including Range requests) from your site origin so the signed URLs can
+   stream and seek in the browser.
 
 ## Deployment (Vercel)
 
@@ -64,3 +67,9 @@ See `supabase/README.md` for schema details and setup steps.
 
 `/api/download` verifies entitlements in Supabase and returns a signed R2 URL. The digital
 product entitlement is created when Stripe sends `checkout.session.completed`.
+
+## How the web audio player works
+
+The web audio player loads its track list from `/api/music/list` and requests short-lived signed
+URLs from `/api/music/signed-url` for playback. The server signs the URLs using the same R2
+credentials listed in `.env.example`, so keep those secrets server-only.

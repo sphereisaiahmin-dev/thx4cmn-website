@@ -2,18 +2,39 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { playlist } from '@/data/playlist';
 import { formatTime } from '@/lib/format';
 
 type ToneModule = typeof import('tone');
 
+type Track = {
+  key: string;
+  title: string;
+};
+
 const NUM_DOTS = 20;
+const ARTIST_LABEL = 'thx4cmn';
+
+const getRandomIndex = (length: number, exclude: number) => {
+  if (length <= 1) return exclude;
+  let next = exclude;
+  while (next === exclude) {
+    next = Math.floor(Math.random() * length);
+  }
+  return next;
+};
+
+const isExpiredError = (error: unknown) => {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes('403') || message.includes('forbidden') || message.includes('expired');
+};
 
 export const AudioPlayer = () => {
   const toneRef = useRef<ToneModule | null>(null);
   const playerRef = useRef<import('tone').Player | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const loopIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [tracks, setTracks] = useState<Track[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -26,8 +47,12 @@ export const AudioPlayer = () => {
   const [loopB, setLoopB] = useState<number | null>(null);
   const [startOffset, setStartOffset] = useState(0);
   const [startTime, setStartTime] = useState(0);
+  const [isLoadingList, setIsLoadingList] = useState(true);
+  const [isLoadingTrack, setIsLoadingTrack] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [trackError, setTrackError] = useState<string | null>(null);
 
-  const track = playlist[currentIndex];
+  const track = tracks[currentIndex];
   const dots = useMemo(() => Array.from({ length: NUM_DOTS }, (_, i) => i), []);
 
   const cleanupIntervals = () => {
@@ -47,33 +72,72 @@ export const AudioPlayer = () => {
     }
   };
 
+  const fetchSignedUrl = async (key: string) => {
+    const response = await fetch(`/api/music/signed-url?key=${encodeURIComponent(key)}`);
+    if (!response.ok) {
+      throw new Error(`Failed to get signed URL (${response.status}).`);
+    }
+    const data = await response.json();
+    if (!data.url) {
+      throw new Error('Signed URL missing.');
+    }
+    return data.url as string;
+  };
+
   const loadTrack = async (index: number) => {
+    const nextTrack = tracks[index];
+    if (!nextTrack) return;
+
     await loadTone();
     const tone = toneRef.current;
     if (!tone) return;
+
     setIsReady(false);
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
     setLoopA(null);
     setLoopB(null);
+    setTrackError(null);
+    setIsLoadingTrack(true);
 
     if (playerRef.current) {
       playerRef.current.dispose();
     }
 
-    const next = playlist[index];
     const player = new tone.Player({
       loop: false,
       reverse: false,
       autostart: false,
     }).toDestination();
 
-    await player.load(next.url);
-    setDuration(player.buffer.duration);
-    setIsReady(true);
+    const loadWithSignedUrl = async (hasRetried: boolean) => {
+      try {
+        const url = await fetchSignedUrl(nextTrack.key);
+        await player.load(url);
+        setDuration(player.buffer.duration);
+        setIsReady(true);
+        playerRef.current = player;
+      } catch (error) {
+        if (!hasRetried && isExpiredError(error)) {
+          await loadWithSignedUrl(true);
+          return;
+        }
+        throw error;
+      }
+    };
 
-    playerRef.current = player;
+    try {
+      await loadWithSignedUrl(false);
+    } catch (error) {
+      player.dispose();
+      if (playerRef.current === player) {
+        playerRef.current = null;
+      }
+      setTrackError('Unable to load the selected track.');
+    } finally {
+      setIsLoadingTrack(false);
+    }
   };
 
   const ensureAudioContext = async () => {
@@ -104,7 +168,7 @@ export const AudioPlayer = () => {
   };
 
   const handleTogglePlay = async () => {
-    if (!playerRef.current?.buffer.loaded) return;
+    if (!playerRef.current?.buffer.loaded || isLoadingTrack) return;
 
     if (isPlaying) {
       stopPlayback();
@@ -145,18 +209,20 @@ export const AudioPlayer = () => {
     setLoopB(null);
   };
 
-  const handlePrev = async () => {
-    const nextIndex = (currentIndex - 1 + playlist.length) % playlist.length;
+  const handlePrev = () => {
+    if (!tracks.length) return;
+    stopPlayback();
     resetTransport();
+    const nextIndex = getRandomIndex(tracks.length, currentIndex);
     setCurrentIndex(nextIndex);
-    await loadTrack(nextIndex);
   };
 
-  const handleNext = async () => {
-    const nextIndex = (currentIndex + 1) % playlist.length;
+  const handleNext = () => {
+    if (!tracks.length) return;
+    stopPlayback();
     resetTransport();
+    const nextIndex = getRandomIndex(tracks.length, currentIndex);
     setCurrentIndex(nextIndex);
-    await loadTrack(nextIndex);
   };
 
   const handleSpeed = (value: number) => {
@@ -224,14 +290,49 @@ export const AudioPlayer = () => {
   };
 
   useEffect(() => {
-    loadTrack(currentIndex);
+    let isMounted = true;
+
+    const loadList = async () => {
+      setIsLoadingList(true);
+      setListError(null);
+      try {
+        const response = await fetch('/api/music/list');
+        if (!response.ok) {
+          throw new Error(`Failed to load tracks (${response.status}).`);
+        }
+        const data = await response.json();
+        if (!isMounted) return;
+        const nextTracks = Array.isArray(data.tracks) ? data.tracks : [];
+        setTracks(nextTracks);
+        if (nextTracks.length > 0) {
+          const randomIndex = Math.floor(Math.random() * nextTracks.length);
+          setCurrentIndex(randomIndex);
+        }
+      } catch (error) {
+        if (!isMounted) return;
+        setTracks([]);
+        setListError('Unable to load tracks. Please try again later.');
+      } finally {
+        if (isMounted) {
+          setIsLoadingList(false);
+        }
+      }
+    };
+
+    void loadList();
 
     return () => {
+      isMounted = false;
       cleanupIntervals();
       playerRef.current?.dispose();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!tracks.length) return;
+    void loadTrack(currentIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, tracks]);
 
   useEffect(() => {
     cleanupIntervals();
@@ -258,20 +359,30 @@ export const AudioPlayer = () => {
         }
       : null;
 
+  const controlsDisabled = isLoadingList || !tracks.length || !!listError;
+  const statusMessage = listError
+    ? listError
+    : isLoadingList
+      ? 'Loading tracks...'
+      : !tracks.length
+        ? 'No tracks available yet.'
+        : trackError;
+
   return (
     <div className="audio-player">
       <div className="audio-player__title">
-        <span>{track.title}</span>
-        <span className="audio-player__artist">{track.artist}</span>
+        <span>{track ? track.title : 'No track loaded'}</span>
+        <span className="audio-player__artist">{track ? ARTIST_LABEL : ''}</span>
       </div>
+      {statusMessage && <div className="audio-player__status">{statusMessage}</div>}
       <div className="audio-player__controls">
-        <button type="button" onClick={handlePrev}>
+        <button type="button" onClick={handlePrev} disabled={controlsDisabled}>
           prev
         </button>
-        <button type="button" onClick={handleTogglePlay}>
-          {isPlaying ? 'pause' : isReady ? 'play' : 'loading'}
+        <button type="button" onClick={handleTogglePlay} disabled={controlsDisabled || isLoadingTrack}>
+          {isPlaying ? 'pause' : isReady && !isLoadingTrack ? 'play' : 'loading'}
         </button>
-        <button type="button" onClick={handleNext}>
+        <button type="button" onClick={handleNext} disabled={controlsDisabled}>
           next
         </button>
       </div>
@@ -289,6 +400,7 @@ export const AudioPlayer = () => {
                 }`}
                 onClick={() => handleSeek(dotSlice * (dot + 0.5))}
                 aria-label={`Seek ${dot}`}
+                disabled={controlsDisabled}
               />
             );
           })}
@@ -301,6 +413,7 @@ export const AudioPlayer = () => {
         type="button"
         className="audio-player__toggle"
         onClick={() => setControlsOpen((open) => !open)}
+        disabled={controlsDisabled}
       >
         ctrl
       </button>
@@ -320,17 +433,33 @@ export const AudioPlayer = () => {
               step={0.1}
               value={playbackRate}
               onChange={(event) => handleSpeed(Number(event.target.value))}
+              disabled={controlsDisabled}
             />
           </div>
           <div className="audio-player__bottom">
-            <button type="button" onClick={handleReverseToggle} className={isReversing ? 'active' : ''}>
+            <button
+              type="button"
+              onClick={handleReverseToggle}
+              className={isReversing ? 'active' : ''}
+              disabled={controlsDisabled}
+            >
               reverse
             </button>
             <div className="audio-player__ab">
-              <button type="button" onClick={handleMarkA} className={loopA !== null ? 'active' : ''}>
+              <button
+                type="button"
+                onClick={handleMarkA}
+                className={loopA !== null ? 'active' : ''}
+                disabled={controlsDisabled}
+              >
                 a
               </button>
-              <button type="button" onClick={handleMarkB} className={loopB !== null ? 'active' : ''}>
+              <button
+                type="button"
+                onClick={handleMarkB}
+                className={loopB !== null ? 'active' : ''}
+                disabled={controlsDisabled}
+              >
                 b
               </button>
             </div>
