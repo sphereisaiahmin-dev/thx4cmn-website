@@ -1,11 +1,14 @@
 import type { Metadata } from 'next';
-
-import { AudioPlayer } from '@/components/AudioPlayer';
+import dynamic from 'next/dynamic';
 import { Footer } from '@/components/Footer';
 import { Navigation } from '@/components/Navigation';
 
 import './globals.css';
 import '@/styles/audio-player.css';
+
+const AudioPlayer = dynamic(() => import('@/components/AudioPlayer').then((mod) => mod.AudioPlayer), {
+  ssr: false,
+});
 
 export const metadata: Metadata = {
   title: 'thx4cmn',
