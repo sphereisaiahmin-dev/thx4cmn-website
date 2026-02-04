@@ -18,10 +18,26 @@ let tonePromise: Promise<ToneModule> | null = null;
 const loadToneModule = async () => {
   if (cachedTone) return cachedTone;
   if (!tonePromise) {
-    tonePromise = import('tone').then((toneImport) => {
-      const normalized = (toneImport as ToneModuleWithDefault).default ?? toneImport;
-      return normalized as ToneModule;
-    });
+    tonePromise = import('tone')
+      .then((toneImport) => {
+        const hasPlayer = (module: unknown): module is ToneModule =>
+          typeof module === 'object' && module !== null && 'Player' in module;
+
+        if (hasPlayer(toneImport)) {
+          return toneImport;
+        }
+
+        const normalized = (toneImport as ToneModuleWithDefault).default ?? toneImport;
+        if (hasPlayer(normalized)) {
+          return normalized as ToneModule;
+        }
+
+        return toneImport as ToneModule;
+      })
+      .catch((error) => {
+        tonePromise = null;
+        throw error;
+      });
   }
   cachedTone = await tonePromise;
   return cachedTone;
