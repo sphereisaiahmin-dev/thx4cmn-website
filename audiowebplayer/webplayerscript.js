@@ -285,6 +285,10 @@ async function loadTrack(i) {
   }
 
   function nowPos(){
+    if (!player.buffer) return 0;
+    if (!isPlaying) {
+      return Math.max(0, Math.min(offset, player.buffer.duration));
+    }
     const elapsed=(Tone.now()-startTime)*player.playbackRate;
     return Math.max(0, Math.min(offset+(player.reverse?-elapsed:elapsed), player.buffer.duration));
   }
@@ -379,6 +383,7 @@ playBtn.onclick = async () => {
     isPlaying = true;
     playBtn.textContent = 'pause';
   } else {
+    offset = nowPos();
     player.stop();
     isPlaying = false;
     playBtn.textContent = 'play';
@@ -422,18 +427,22 @@ const reverseBtn = document.getElementById('reverse');
 let isReversing = false;
 
 reverseBtn.onclick = () => {
-  if (!player.buffer || !isPlaying) return;
+  if (!player.buffer || !player.buffer.loaded) return;
 
+  const wasPlaying = isPlaying;
+  const p = nowPos();
   isReversing = !isReversing;
   reverseBtn.classList.toggle('active', isReversing);
 
-  const p = nowPos();
   player.stop();
   offset = p;
   player.reverse = isReversing;
-  startTime = Tone.now();
-  player.start(Tone.now(), offset);
-  if (aEn && bEn) startLoop();
+
+  if (wasPlaying) {
+    startTime = Tone.now();
+    player.start(Tone.now(), offset);
+    if (aEn && bEn) startLoop();
+  }
 };
 
 function sliderToSpeed(val) {
