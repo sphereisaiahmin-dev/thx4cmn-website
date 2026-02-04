@@ -47,10 +47,7 @@
   font-size: 12px;
 }
 
-.audio-player__controls button,
-.audio-player__toggle,
-.audio-player__bottom button,
-.audio-player__ab button {
+.audio-player__controls button {
   background: transparent;
   border: none;
   color: inherit;
@@ -59,10 +56,7 @@
   letter-spacing: 0.2em;
 }
 
-.audio-player__controls button:hover,
-.audio-player__toggle:hover,
-.audio-player__bottom button:hover,
-.audio-player__ab button:hover {
+.audio-player__controls button:hover {
   transform: scale(1.15);
 }
 
@@ -73,101 +67,14 @@
   gap: 6px;
 }
 
-.audio-player__dots {
-  display: flex;
-  gap: 4px;
-}
-
-.audio-player__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.35);
-}
-
-.audio-player__dot.active {
-  background: #ffffff;
-}
-
-.audio-player__dot.loop {
-  animation: audio-rgb-cycle 1.5s linear infinite;
+.audio-player__scrub {
+  width: 100%;
+  accent-color: #ffffff;
 }
 
 .audio-player__time {
   font-size: 11px;
   opacity: 0.7;
-}
-
-.audio-player__toggle {
-  margin-top: 10px;
-  font-size: 11px;
-}
-
-.audio-player__panel {
-  margin-top: 10px;
-  border-radius: 16px;
-  padding: 10px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.audio-player__speed-labels {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.audio-player__speed input[type='range'] {
-  width: 100%;
-  margin-top: 8px;
-  accent-color: #ffffff;
-}
-
-.audio-player__bottom {
-  margin-top: 12px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.audio-player__ab {
-  display: flex;
-  gap: 12px;
-}
-
-.audio-player__bottom .active,
-.audio-player__ab .active {
-  animation: audio-rgb-text 1.5s linear infinite;
-}
-
-@keyframes audio-rgb-cycle {
-  0% {
-    background: red;
-  }
-  33% {
-    background: green;
-  }
-  66% {
-    background: blue;
-  }
-  100% {
-    background: red;
-  }
-}
-
-@keyframes audio-rgb-text {
-  0% {
-    color: red;
-  }
-  33% {
-    color: green;
-  }
-  66% {
-    color: blue;
-  }
-  100% {
-    color: red;
-  }
 }
 
 @media (max-width: 768px) {
