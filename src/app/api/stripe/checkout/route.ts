@@ -1,5 +1,6 @@
 import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
+import Stripe from 'stripe';
 
 import { getProductById } from '@/data/products';
 import { getStripeClient } from '@/lib/stripe';
@@ -12,11 +13,15 @@ interface CheckoutItem {
 export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
+  const requestId = globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
   try {
     const { items } = (await request.json()) as { items: CheckoutItem[] };
 
     if (!items || items.length === 0) {
-      return NextResponse.json({ error: 'No items provided.' }, { status: 400 });
+      return NextResponse.json(
+        { error: 'No items provided.', requestId },
+        { status: 400 },
+      );
     }
 
     const invalidItem = items.find(
@@ -25,7 +30,7 @@ export async function POST(request: Request) {
 
     if (invalidItem) {
       return NextResponse.json(
-        { error: 'All items must include a quantity of at least 1.' },
+        { error: 'All items must include a quantity of at least 1.', requestId },
         { status: 400 },
       );
     }
@@ -65,6 +70,14 @@ export async function POST(request: Request) {
       (forwardedProto && forwardedHost ? `${forwardedProto}://${forwardedHost}` : null) ??
       'http://localhost:3000';
     const stripe = getStripeClient();
+    const logContext = {
+      requestId,
+      itemCount: items.length,
+      origin,
+      hasOriginHeader: Boolean(originHeader),
+      forwardedProto,
+      forwardedHost,
+    };
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
@@ -76,9 +89,32 @@ export async function POST(request: Request) {
       },
     });
 
-    return NextResponse.json({ url: session.url });
+    if (!session.url) {
+      console.error('Stripe checkout session missing URL.', {
+        ...logContext,
+        sessionId: session.id,
+      });
+      return NextResponse.json(
+        { error: 'Checkout session did not return a URL.', requestId },
+        { status: 500 },
+      );
+    }
+
+    return NextResponse.json({ url: session.url, requestId });
   } catch (error) {
-    console.error(error);
-    return NextResponse.json({ error: 'Unable to create checkout session.' }, { status: 500 });
+    const isStripeError = error instanceof Stripe.errors.StripeError;
+    console.error('Stripe checkout error.', {
+      requestId,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      stripeType: isStripeError ? error.type : undefined,
+      stripeCode: isStripeError ? error.code : undefined,
+      stripeRequestId: isStripeError ? error.requestId : undefined,
+      rawError: isStripeError ? error.raw : undefined,
+    });
+    return NextResponse.json(
+      { error: 'Unable to create checkout session.', requestId },
+      { status: 500 },
+    );
   }
 }
