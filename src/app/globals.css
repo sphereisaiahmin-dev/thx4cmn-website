@@ -32,6 +32,10 @@ a {
   animation: nav-rgb-cycle 1.2s linear infinite;
 }
 
+.cart-count {
+  animation: cart-rgb-cycle 2.6s linear infinite;
+}
+
 @keyframes nav-rgb-cycle {
   0% {
     color: rgb(255, 0, 0);
@@ -44,5 +48,20 @@ a {
   }
   100% {
     color: rgb(255, 0, 0);
+  }
+}
+
+@keyframes cart-rgb-cycle {
+  0% {
+    color: rgb(220, 70, 70);
+  }
+  33% {
+    color: rgb(70, 180, 90);
+  }
+  66% {
+    color: rgb(80, 130, 220);
+  }
+  100% {
+    color: rgb(220, 70, 70);
   }
 }

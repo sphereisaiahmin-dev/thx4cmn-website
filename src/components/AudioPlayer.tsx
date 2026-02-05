@@ -1,7 +1,8 @@
 'use client';
 
 import type { CSSProperties } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { usePathname } from 'next/navigation';
 
 import { useWebPlayer } from '@/hooks/useWebPlayer';
 import { formatTime } from '@/lib/format';
@@ -15,6 +16,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 export const AudioPlayer = () => {
   const isMiniCartOpen = useUiStore((state) => state.isMiniCartOpen);
   const { state, currentTrack, statusMessage, controlsDisabled, actions } = useWebPlayer();
+  const pathname = usePathname();
   const {
     handlePlayToggle,
     handlePrev,
@@ -28,6 +30,7 @@ export const AudioPlayer = () => {
   const [gradientPosition, setGradientPosition] = useState({ x: 50, y: 50 });
   const [isDspOpen, setIsDspOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const isDspVisible = isDspOpen && !isCollapsed;
 
   const safeDuration = Number.isFinite(state.duration) ? state.duration : 0;
   const safeCurrentTime = Number.isFinite(state.currentTime) ? state.currentTime : 0;
@@ -87,6 +90,17 @@ export const AudioPlayer = () => {
   const handleMouseLeave = () => {
     setGradientPosition({ x: 50, y: 50 });
   };
+
+  useEffect(() => {
+    const updateCollapsed = (nextValue: boolean) => {
+      setIsCollapsed((prev) => (prev === nextValue ? prev : nextValue));
+    };
+    if (pathname === '/cart') {
+      updateCollapsed(true);
+    } else if (pathname === '/') {
+      updateCollapsed(false);
+    }
+  }, [pathname]);
 
   return (
     <div
@@ -177,65 +191,67 @@ export const AudioPlayer = () => {
             ctrl
           </button>
         </div>
-        {isDspOpen && !isCollapsed && (
-          <div className="audio-player__dsp" id="audio-player-dsp">
-            <div className="audio-player__dsp-header">
-              <span className="audio-player__dsp-label">rpm</span>
-              <span className="audio-player__dsp-value">{state.playbackRate.toFixed(2)}x</span>
-            </div>
-            <div className="audio-player__rpm">
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.001}
-                value={rpmSliderValue}
-                className="audio-player__rpm-slider"
-                onChange={(event) => handlePlaybackRate(mapSliderToRate(Number(event.target.value)))}
-                aria-label="Record RPM"
-                style={{ '--rpm-progress': rpmProgress } as CSSProperties}
-              />
-              <div className="audio-player__rpm-marks">
-                <span>0.5</span>
-                <span>1.0</span>
-                <span>2.0</span>
-              </div>
-            </div>
-            <div className="audio-player__transport-controls">
-              <button
-                type="button"
-                className={`audio-player__reverse-button ${state.isReversed ? 'active' : ''}`}
-                onClick={handleReverseToggle}
-                disabled={controlsDisabled || isLoading}
-                aria-pressed={state.isReversed}
-              >
-                reverse
-              </button>
-              <div className="audio-player__loop-controls" aria-label="Loop controls">
-                <button
-                  type="button"
-                  className={`audio-player__loop-button ${state.loopStart !== null ? 'active' : ''}`}
-                  onClick={handleLoopStartToggle}
-                  disabled={controlsDisabled || !safeDuration}
-                  aria-pressed={state.loopStart !== null}
-                  aria-label="Set loop start"
-                >
-                  [
-                </button>
-                <button
-                  type="button"
-                  className={`audio-player__loop-button ${state.loopEnd !== null ? 'active' : ''}`}
-                  onClick={handleLoopEndToggle}
-                  disabled={controlsDisabled || !safeDuration}
-                  aria-pressed={state.loopEnd !== null}
-                  aria-label="Set loop end"
-                >
-                  ]
-                </button>
-              </div>
+        <div
+          className={`audio-player__dsp ${isDspVisible ? 'is-open' : ''}`}
+          id="audio-player-dsp"
+          aria-hidden={!isDspVisible}
+        >
+          <div className="audio-player__dsp-header">
+            <span className="audio-player__dsp-label">rpm</span>
+            <span className="audio-player__dsp-value">{state.playbackRate.toFixed(2)}x</span>
+          </div>
+          <div className="audio-player__rpm">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.001}
+              value={rpmSliderValue}
+              className="audio-player__rpm-slider"
+              onChange={(event) => handlePlaybackRate(mapSliderToRate(Number(event.target.value)))}
+              aria-label="Record RPM"
+              style={{ '--rpm-progress': rpmProgress } as CSSProperties}
+            />
+            <div className="audio-player__rpm-marks">
+              <span>0.5</span>
+              <span>1.0</span>
+              <span>2.0</span>
             </div>
           </div>
-        )}
+          <div className="audio-player__transport-controls">
+            <button
+              type="button"
+              className={`audio-player__reverse-button ${state.isReversed ? 'active' : ''}`}
+              onClick={handleReverseToggle}
+              disabled={controlsDisabled || isLoading}
+              aria-pressed={state.isReversed}
+            >
+              reverse
+            </button>
+            <div className="audio-player__loop-controls" aria-label="Loop controls">
+              <button
+                type="button"
+                className={`audio-player__loop-button ${state.loopStart !== null ? 'active' : ''}`}
+                onClick={handleLoopStartToggle}
+                disabled={controlsDisabled || !safeDuration}
+                aria-pressed={state.loopStart !== null}
+                aria-label="Set loop start"
+              >
+                [
+              </button>
+              <button
+                type="button"
+                className={`audio-player__loop-button ${state.loopEnd !== null ? 'active' : ''}`}
+                onClick={handleLoopEndToggle}
+                disabled={controlsDisabled || !safeDuration}
+                aria-pressed={state.loopEnd !== null}
+                aria-label="Set loop end"
+              >
+                ]
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

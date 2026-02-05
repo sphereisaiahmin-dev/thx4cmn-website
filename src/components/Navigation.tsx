@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 
 import { formatCurrency } from '@/lib/format';
@@ -18,6 +18,7 @@ export const Navigation = () => {
   const items = useCartStore((state) => state.items);
   const isMiniCartOpen = useUiStore((state) => state.isMiniCartOpen);
   const setMiniCartOpen = useUiStore((state) => state.setMiniCartOpen);
+  const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
   const totalQuantity = useMemo(
     () => items.reduce((total, item) => total + item.quantity, 0),
     [items],
@@ -26,6 +27,44 @@ export const Navigation = () => {
     () => items.reduce((total, item) => total + item.priceCents * item.quantity, 0),
     [items],
   );
+
+  const handleCheckout = async () => {
+    if (items.length === 0 || isCheckoutLoading) return;
+    setIsCheckoutLoading(true);
+    try {
+      const response = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        let errorPayload: { error?: string; requestId?: string } | null = null;
+        try {
+          errorPayload = (await response.json()) as { error?: string; requestId?: string };
+        } catch (parseError) {
+          console.error('Failed to parse checkout error response.', parseError);
+        }
+        const message = errorPayload?.error ?? 'Checkout failed';
+        const requestId = errorPayload?.requestId ? ` (requestId: ${errorPayload.requestId})` : '';
+        throw new Error(`${message}${requestId}`);
+      }
+
+      const { url } = await response.json();
+      if (url) {
+        setMiniCartOpen(false);
+        window.location.href = url;
+      }
+    } catch (error) {
+      console.error(error);
+      setIsCheckoutLoading(false);
+    }
+  };
 
   return (
     <>
@@ -51,9 +90,9 @@ export const Navigation = () => {
             aria-controls="mini-cart"
             onClick={() => setMiniCartOpen(true)}
           >
-            Cart
+            CART
             {totalQuantity > 0 ? (
-              <span className="absolute -right-4 -top-2 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-black px-1 text-[0.6rem] font-semibold text-white">
+              <span className="cart-count absolute -right-3 -top-2 font-semibold text-[0.7rem]">
                 {totalQuantity}
               </span>
             ) : null}
@@ -112,13 +151,23 @@ export const Navigation = () => {
               <span>Subtotal</span>
               <span>{formatCurrency(subtotal)}</span>
             </div>
-            <Link
-              href="/cart"
-              className="nav-link inline-flex w-full items-center justify-center border border-black px-4 py-3 text-xs uppercase tracking-[0.3em]"
-              onClick={() => setMiniCartOpen(false)}
-            >
-              View cart
-            </Link>
+            <div className="flex flex-col gap-3">
+              <Link
+                href="/cart"
+                className="nav-link inline-flex w-full items-center justify-center border border-black px-4 py-3 text-xs uppercase tracking-[0.3em]"
+                onClick={() => setMiniCartOpen(false)}
+              >
+                View cart
+              </Link>
+              <button
+                type="button"
+                onClick={handleCheckout}
+                disabled={items.length === 0 || isCheckoutLoading}
+                className="inline-flex w-full items-center justify-center border border-black/30 px-4 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isCheckoutLoading ? 'Redirecting…' : 'Checkout'}
+              </button>
+            </div>
           </div>
         </aside>
       </div>
