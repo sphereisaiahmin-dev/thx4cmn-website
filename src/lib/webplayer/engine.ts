@@ -3,15 +3,30 @@ type EffectNode = {
   node: AudioNode;
 };
 
-type CachedTrackBuffers = {
-  forward: AudioBuffer;
-  reversed: AudioBuffer;
+type CachedTrackData = {
   duration: number;
+  length: number;
+  sampleRate: number;
+  numberOfChannels: number;
+  channels: Float32Array[];
 };
 
-const FADE_SECONDS = 0.01;
-const START_EPSILON_SECONDS = 0.0001;
+type TransportMessage =
+  | {
+      type: 'LOAD_TRACK_BUFFER';
+      channels: Float32Array[];
+      channelCount: number;
+      length: number;
+      sampleRate: number;
+      initialFrame: number;
+    }
+  | { type: 'SET_PLAYHEAD'; frame: number }
+  | { type: 'SET_DIRECTION'; direction: 1 | -1 }
+  | { type: 'SET_RATE'; rate: number }
+  | { type: 'SET_PLAYING'; playing: boolean };
 
+const WORKLET_NAME = 'reverse-transport-processor';
+const WORKLET_MODULE_URL = new URL('./reverse-worklet.processor.js', import.meta.url);
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 export class WebPlayerEngine {
@@ -19,18 +34,16 @@ export class WebPlayerEngine {
   private entryGain: GainNode | null = null;
   private masterGain: GainNode | null = null;
   private effects: EffectNode[] = [];
-  private source: AudioBufferSourceNode | null = null;
-  private sourceGain: GainNode | null = null;
-  private buffersByUrl = new Map<string, CachedTrackBuffers>();
+  private transportNode: AudioWorkletNode | null = null;
+  private buffersByUrl = new Map<string, CachedTrackData>();
   private currentUrl: string | null = null;
-  private currentBuffers: CachedTrackBuffers | null = null;
+  private currentTrack: CachedTrackData | null = null;
   private isPlaying = false;
   private isReversed = false;
   private playbackRate = 1;
-  private playStartCtxTime = 0;
-  // Forward timeline offset (seconds) at the moment the current segment started.
-  // We keep this in forward time even when reversed, then map to buffer offset as duration - t.
-  private playStartOffsetSec = 0;
+  private timelineAnchorSec = 0;
+  private timelineAnchorCtxTime = 0;
+  private pendingBoundaryFrame: number | null = null;
 
   private async ensureContext(resumeIfSuspended = false) {
     if (!this.context) {
@@ -38,6 +51,7 @@ export class WebPlayerEngine {
       this.entryGain = this.context.createGain();
       this.masterGain = this.context.createGain();
       this.rebuildGraph();
+      await this.ensureTransportNode();
     }
     if (resumeIfSuspended && this.context.state !== 'running') {
       await this.context.resume();
@@ -45,14 +59,45 @@ export class WebPlayerEngine {
     return this.context;
   }
 
+  private async ensureTransportNode() {
+    if (!this.context || !this.entryGain || this.transportNode) return;
+    await this.context.audioWorklet.addModule(WORKLET_MODULE_URL);
+    this.transportNode = new AudioWorkletNode(this.context, WORKLET_NAME, {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+    });
+    this.transportNode.port.onmessage = (event) => this.handleTransportMessage(event.data);
+    this.transportNode.connect(this.entryGain);
+  }
+
+  private handleTransportMessage(message: { type?: string; frame?: number; playing?: boolean }) {
+    if (!this.currentTrack) return;
+
+    if (message.type === 'CURRENT_FRAME' && typeof message.frame === 'number') {
+      // Processor reports frame in forward-frame space. We keep this as the authoritative
+      // timeline anchor so direction toggles can start from the exact rendered moment.
+      this.timelineAnchorSec = clamp(message.frame / this.currentTrack.sampleRate, 0, this.currentTrack.duration);
+      this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
+      if (typeof message.playing === 'boolean') {
+        this.isPlaying = message.playing;
+      }
+    }
+
+    if (message.type === 'BOUNDARY_REACHED' && typeof message.frame === 'number') {
+      this.pendingBoundaryFrame = message.frame;
+      this.timelineAnchorSec = clamp(message.frame / this.currentTrack.sampleRate, 0, this.currentTrack.duration);
+      this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
+      this.isPlaying = false;
+    }
+  }
+
   setEffectChain(nodes: EffectNode[]) {
     this.effects = nodes;
     this.rebuildGraph();
-    if (this.source && this.entryGain && this.sourceGain) {
-      this.source.disconnect();
-      this.sourceGain.disconnect();
-      this.source.connect(this.sourceGain);
-      this.sourceGain.connect(this.entryGain);
+    if (this.transportNode && this.entryGain) {
+      this.transportNode.disconnect();
+      this.transportNode.connect(this.entryGain);
     }
   }
 
@@ -73,83 +118,104 @@ export class WebPlayerEngine {
 
   async load(url: string) {
     await this.ensureContext();
-    this.stopSourceNow();
     this.currentUrl = url;
-    this.currentBuffers = await this.getOrCreateBuffers(url);
-    this.isReversed = false;
+    this.currentTrack = await this.getOrCreateTrackData(url);
     this.isPlaying = false;
-    this.playStartOffsetSec = 0;
-    this.playStartCtxTime = this.context?.currentTime ?? 0;
+    this.timelineAnchorSec = 0;
+    this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
+    this.pendingBoundaryFrame = null;
+
+    this.postTransportMessage({
+      type: 'LOAD_TRACK_BUFFER',
+      channels: this.currentTrack.channels,
+      channelCount: this.currentTrack.numberOfChannels,
+      length: this.currentTrack.length,
+      sampleRate: this.currentTrack.sampleRate,
+      initialFrame: 0,
+    });
+    this.postTransportMessage({ type: 'SET_DIRECTION', direction: this.isReversed ? -1 : 1 });
+    this.postTransportMessage({ type: 'SET_RATE', rate: this.playbackRate });
+    this.postTransportMessage({ type: 'SET_PLAYING', playing: false });
   }
 
   async play() {
     const context = await this.ensureContext(true);
-    if (context.state !== 'running') return;
-    if (!this.currentBuffers || this.isPlaying) return;
-    this.startSourceAt(this.playStartOffsetSec, false);
+    if (context.state !== 'running' || !this.currentTrack || this.isPlaying) return;
+
+    const anchor = this.getCurrentTime();
+    this.timelineAnchorSec = anchor;
+    this.timelineAnchorCtxTime = context.currentTime;
+    this.pendingBoundaryFrame = null;
+
+    this.postTransportMessage({ type: 'SET_PLAYHEAD', frame: this.secondsToFrame(anchor) });
+    this.postTransportMessage({ type: 'SET_PLAYING', playing: true });
+    this.isPlaying = true;
   }
 
   pause() {
-    if (!this.currentBuffers) return;
-    this.playStartOffsetSec = this.getCurrentTime();
-    this.stopSourceNow();
+    if (!this.currentTrack) return;
+    this.timelineAnchorSec = this.getCurrentTime();
+    this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
     this.isPlaying = false;
+    this.postTransportMessage({ type: 'SET_PLAYING', playing: false });
   }
 
-  seek(time: number) {
-    if (!this.currentBuffers) return;
-    const nextTime = clamp(time, 0, this.currentBuffers.duration);
-    if (this.isPlaying && this.context?.state === 'running') {
-      this.startSourceAt(nextTime, true);
-      return;
-    }
-    if (this.isPlaying) {
-      this.stopSourceNow();
-      this.isPlaying = false;
-    }
-    this.playStartOffsetSec = nextTime;
+  async seek(time: number) {
+    if (!this.currentTrack) return;
+    await this.ensureContext(true);
+    const nextTime = clamp(time, 0, this.currentTrack.duration);
+    this.timelineAnchorSec = nextTime;
+    this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
+    this.pendingBoundaryFrame = null;
+    this.postTransportMessage({ type: 'SET_PLAYHEAD', frame: this.secondsToFrame(nextTime) });
   }
 
   setPlaybackRate(rate: number) {
     const nextRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
     const currentTime = this.getCurrentTime();
     this.playbackRate = nextRate;
-    if (this.source) {
-      this.source.playbackRate.setValueAtTime(nextRate, this.context?.currentTime ?? 0);
-      this.playStartOffsetSec = currentTime;
-      this.playStartCtxTime = this.context?.currentTime ?? 0;
-    }
+    this.timelineAnchorSec = currentTime;
+    this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
+    this.postTransportMessage({ type: 'SET_RATE', rate: nextRate });
   }
 
   async setReversed(shouldReverse: boolean) {
-    if (!this.currentBuffers || shouldReverse === this.isReversed) return;
+    if (!this.currentTrack || shouldReverse === this.isReversed) return;
+    await this.ensureContext(true);
+
     const currentTime = this.getCurrentTime();
+    this.timelineAnchorSec = currentTime;
+    this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
     this.isReversed = shouldReverse;
-    if (this.isPlaying && this.context?.state === 'running') {
-      this.startSourceAt(currentTime, true);
-      return;
-    }
-    if (this.isPlaying) {
-      this.stopSourceNow();
-      this.isPlaying = false;
-    }
-    this.playStartOffsetSec = currentTime;
+
+    // Timeline is always forward-time seconds. We set the playhead first, then switch direction,
+    // so reverse starts exactly from the same logical song moment without reloads or node rebuilds.
+    this.postTransportMessage({ type: 'SET_PLAYHEAD', frame: this.secondsToFrame(currentTime) });
+    this.postTransportMessage({ type: 'SET_DIRECTION', direction: shouldReverse ? -1 : 1 });
   }
 
   getCurrentTime() {
-    if (!this.currentBuffers) return 0;
-    const duration = this.currentBuffers.duration;
-    if (!this.isPlaying || !this.context) {
-      return clamp(this.playStartOffsetSec, 0, duration);
+    if (!this.currentTrack) return 0;
+    const duration = this.currentTrack.duration;
+
+    if (!this.isPlaying || !this.context || this.context.state !== 'running') {
+      return clamp(this.timelineAnchorSec, 0, duration);
     }
 
-    const elapsed = (this.context.currentTime - this.playStartCtxTime) * this.playbackRate;
+    if (this.pendingBoundaryFrame !== null) {
+      const boundaryTime = clamp(this.pendingBoundaryFrame / this.currentTrack.sampleRate, 0, duration);
+      this.timelineAnchorSec = boundaryTime;
+      this.pendingBoundaryFrame = null;
+      return boundaryTime;
+    }
+
+    const elapsed = (this.context.currentTime - this.timelineAnchorCtxTime) * this.playbackRate;
     const direction = this.isReversed ? -1 : 1;
-    return clamp(this.playStartOffsetSec + elapsed * direction, 0, duration);
+    return clamp(this.timelineAnchorSec + elapsed * direction, 0, duration);
   }
 
   getDuration() {
-    return this.currentBuffers?.duration ?? 0;
+    return this.currentTrack?.duration ?? 0;
   }
 
   getIsPlaying() {
@@ -160,77 +226,16 @@ export class WebPlayerEngine {
     return this.isReversed;
   }
 
-  private stopSourceNow() {
-    if (this.source) {
-      this.source.onended = null;
-      this.source.stop();
-      this.source.disconnect();
-      this.source = null;
-    }
-    if (this.sourceGain) {
-      this.sourceGain.disconnect();
-      this.sourceGain = null;
-    }
+  private secondsToFrame(seconds: number) {
+    if (!this.currentTrack) return 0;
+    return clamp(seconds * this.currentTrack.sampleRate, 0, this.currentTrack.length - 1);
   }
 
-  private startSourceAt(forwardTimelineTime: number, withMicroFade: boolean) {
-    if (!this.context || !this.entryGain || !this.currentBuffers || this.context.state !== 'running') return;
-
-    const { duration } = this.currentBuffers;
-    const safeForwardTime = clamp(forwardTimelineTime, 0, duration);
-    const nextBuffer = this.isReversed ? this.currentBuffers.reversed : this.currentBuffers.forward;
-    // For reversed playback we map from forward timeline time t to reversed buffer offset duration - t.
-    const rawOffset = this.isReversed ? duration - safeForwardTime : safeForwardTime;
-    const maxOffset = Math.max(duration - START_EPSILON_SECONDS, 0);
-    const safeOffset = clamp(rawOffset, 0, maxOffset);
-
-    const nextSource = this.context.createBufferSource();
-    nextSource.buffer = nextBuffer;
-    nextSource.playbackRate.setValueAtTime(this.playbackRate, this.context.currentTime);
-
-    const nextGain = this.context.createGain();
-    const now = this.context.currentTime;
-    const fadeDuration = withMicroFade ? FADE_SECONDS : 0;
-
-    if (withMicroFade) {
-      nextGain.gain.setValueAtTime(0, now);
-      nextGain.gain.linearRampToValueAtTime(1, now + fadeDuration);
-    } else {
-      nextGain.gain.setValueAtTime(1, now);
-    }
-
-    nextSource.connect(nextGain);
-    nextGain.connect(this.entryGain);
-
-    const prevSource = this.source;
-    const prevGain = this.sourceGain;
-    if (prevSource && prevGain && withMicroFade) {
-      prevGain.gain.cancelScheduledValues(now);
-      prevGain.gain.setValueAtTime(prevGain.gain.value, now);
-      prevGain.gain.linearRampToValueAtTime(0, now + fadeDuration);
-      prevSource.stop(now + fadeDuration);
-    } else if (prevSource) {
-      prevSource.stop();
-    }
-
-    this.source = nextSource;
-    this.sourceGain = nextGain;
-    this.playStartOffsetSec = safeForwardTime;
-    this.playStartCtxTime = now;
-    this.isPlaying = true;
-
-    nextSource.onended = () => {
-      if (this.source !== nextSource) return;
-      this.isPlaying = false;
-      this.source = null;
-      this.sourceGain = null;
-      this.playStartOffsetSec = this.isReversed ? 0 : duration;
-    };
-
-    nextSource.start(now, safeOffset);
+  private postTransportMessage(message: TransportMessage) {
+    this.transportNode?.port.postMessage(message);
   }
 
-  private async getOrCreateBuffers(url: string) {
+  private async getOrCreateTrackData(url: string) {
     const cached = this.buffersByUrl.get(url);
     if (cached) {
       return cached;
@@ -241,33 +246,31 @@ export class WebPlayerEngine {
     if (!response.ok) {
       throw new Error(`Unable to fetch audio source (${response.status}).`);
     }
+
     const arrayBuffer = await response.arrayBuffer();
-    const forwardBuffer = await context.decodeAudioData(arrayBuffer.slice(0));
-    const reversedBuffer = context.createBuffer(
-      forwardBuffer.numberOfChannels,
-      forwardBuffer.length,
-      forwardBuffer.sampleRate,
-    );
+    const decoded = await context.decodeAudioData(arrayBuffer.slice(0));
+    const channels = Array.from({ length: decoded.numberOfChannels }, (_, channel) => {
+      const source = decoded.getChannelData(channel);
+      const copy = new Float32Array(source.length);
+      copy.set(source);
+      return copy;
+    });
 
-    for (let channel = 0; channel < forwardBuffer.numberOfChannels; channel += 1) {
-      const sourceData = forwardBuffer.getChannelData(channel);
-      const targetData = reversedBuffer.getChannelData(channel);
-      for (let index = 0, last = sourceData.length - 1; index < sourceData.length; index += 1) {
-        targetData[index] = sourceData[last - index];
-      }
-    }
-
-    const value: CachedTrackBuffers = {
-      forward: forwardBuffer,
-      reversed: reversedBuffer,
-      duration: forwardBuffer.duration,
+    const value: CachedTrackData = {
+      duration: decoded.duration,
+      length: decoded.length,
+      sampleRate: decoded.sampleRate,
+      numberOfChannels: decoded.numberOfChannels,
+      channels,
     };
+
     this.buffersByUrl.set(url, value);
     return value;
   }
 
   destroy() {
     this.pause();
+    this.transportNode?.disconnect();
     this.entryGain?.disconnect();
     this.masterGain?.disconnect();
     this.effects.forEach((effect) => effect.node.disconnect());
