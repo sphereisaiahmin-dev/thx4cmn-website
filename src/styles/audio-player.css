@@ -15,6 +15,7 @@
   isolation: isolate;
   --gradient-x: 50%;
   --gradient-y: 50%;
+  transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
 .audio-player::before {
@@ -35,6 +36,12 @@
 .audio-player > * {
   position: relative;
   z-index: 1;
+}
+
+.audio-player--hidden {
+  opacity: 0;
+  transform: translateY(-12px);
+  pointer-events: none;
 }
 
 .audio-player__header {
