@@ -25,6 +25,7 @@ export const AudioPlayer = () => {
   } = actions;
   const [gradientPosition, setGradientPosition] = useState({ x: 50, y: 50 });
   const [isDspOpen, setIsDspOpen] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const safeDuration = Number.isFinite(state.duration) ? state.duration : 0;
   const safeCurrentTime = Number.isFinite(state.currentTime) ? state.currentTime : 0;
@@ -87,7 +88,9 @@ export const AudioPlayer = () => {
 
   return (
     <div
-      className={`audio-player ${isDspOpen ? 'audio-player--expanded' : ''}`}
+      className={`audio-player ${isDspOpen ? 'audio-player--expanded' : ''} ${
+        isCollapsed ? 'audio-player--collapsed' : ''
+      }`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       style={{
@@ -95,11 +98,21 @@ export const AudioPlayer = () => {
         '--gradient-y': `${gradientPosition.y}%`,
       } as CSSProperties}
     >
-      <div className="audio-player__title">
-        <span>{currentTrack ? currentTrack.title : 'No track loaded'}</span>
-        <span className="audio-player__artist">{currentTrack ? ARTIST_LABEL : ''}</span>
+      <div className="audio-player__header">
+        <div className="audio-player__title">
+          <span>{currentTrack ? currentTrack.title : 'No track loaded'}</span>
+          <span className="audio-player__artist">{currentTrack ? ARTIST_LABEL : ''}</span>
+        </div>
+        <button
+          type="button"
+          className="audio-player__collapse-button"
+          onClick={() => setIsCollapsed((prev) => !prev)}
+          aria-expanded={!isCollapsed}
+          aria-label={isCollapsed ? 'Expand player' : 'Collapse player'}
+        >
+          {'<>'}
+        </button>
       </div>
-      {statusMessage && <div className="audio-player__status">{statusMessage}</div>}
       <div className="audio-player__controls">
         <button type="button" onClick={handlePrev} disabled={controlsDisabled}>
           prev
@@ -111,114 +124,117 @@ export const AudioPlayer = () => {
           next
         </button>
       </div>
-      <div className="audio-player__progress">
-        <div className="audio-player__dots" role="list">
-          {dotPositions.map((position, index) => {
-            const isActive = index <= activeIndex && safeDuration > 0;
-            const seekTarget = safeDuration * position;
-            const isLoopStart = loopStartIndex === index;
-            const isLoopEnd = loopEndIndex === index;
-            const isLoopSection =
-              loopSectionStart !== null &&
-              loopSectionEnd !== null &&
-              index >= loopSectionStart &&
-              index <= loopSectionEnd;
-            return (
-              <button
-                type="button"
-                key={position}
-                className={`audio-player__dot ${isActive ? 'active' : ''} ${
-                  isLoopSection ? 'loop-section' : ''
-                } ${
-                  isLoopStart && isLoopEnd
-                    ? 'loop-marker loop-marker--both'
-                    : isLoopStart
-                    ? 'loop-marker loop-marker--start'
-                    : isLoopEnd
-                    ? 'loop-marker loop-marker--end'
-                    : ''
-                }`}
-                onClick={() => handleSeek(seekTarget)}
-                aria-label={`Seek to ${Math.round(position * 100)}%`}
-                disabled={controlsDisabled || !safeDuration}
+      <div className="audio-player__details" aria-hidden={isCollapsed}>
+        {statusMessage && <div className="audio-player__status">{statusMessage}</div>}
+        <div className="audio-player__progress">
+          <div className="audio-player__dots" role="list">
+            {dotPositions.map((position, index) => {
+              const isActive = index <= activeIndex && safeDuration > 0;
+              const seekTarget = safeDuration * position;
+              const isLoopStart = loopStartIndex === index;
+              const isLoopEnd = loopEndIndex === index;
+              const isLoopSection =
+                loopSectionStart !== null &&
+                loopSectionEnd !== null &&
+                index >= loopSectionStart &&
+                index <= loopSectionEnd;
+              return (
+                <button
+                  type="button"
+                  key={position}
+                  className={`audio-player__dot ${isActive ? 'active' : ''} ${
+                    isLoopSection ? 'loop-section' : ''
+                  } ${
+                    isLoopStart && isLoopEnd
+                      ? 'loop-marker loop-marker--both'
+                      : isLoopStart
+                      ? 'loop-marker loop-marker--start'
+                      : isLoopEnd
+                      ? 'loop-marker loop-marker--end'
+                      : ''
+                  }`}
+                  onClick={() => handleSeek(seekTarget)}
+                  aria-label={`Seek to ${Math.round(position * 100)}%`}
+                  disabled={controlsDisabled || !safeDuration}
+                />
+              );
+            })}
+          </div>
+          <div className="audio-player__time">
+            {formatTime(safeCurrentTime)} / {formatTime(safeDuration)}
+          </div>
+        </div>
+        <div className="audio-player__dsp-toggle">
+          <button
+            type="button"
+            className="audio-player__dsp-toggle-button"
+            onClick={() => setIsDspOpen((prev) => !prev)}
+            aria-expanded={isDspOpen}
+            aria-controls="audio-player-dsp"
+          >
+            ctrl
+          </button>
+        </div>
+        {isDspOpen && !isCollapsed && (
+          <div className="audio-player__dsp" id="audio-player-dsp">
+            <div className="audio-player__dsp-header">
+              <span className="audio-player__dsp-label">rpm</span>
+              <span className="audio-player__dsp-value">{state.playbackRate.toFixed(2)}x</span>
+            </div>
+            <div className="audio-player__rpm">
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.001}
+                value={rpmSliderValue}
+                className="audio-player__rpm-slider"
+                onChange={(event) => handlePlaybackRate(mapSliderToRate(Number(event.target.value)))}
+                aria-label="Record RPM"
+                style={{ '--rpm-progress': rpmProgress } as CSSProperties}
               />
-            );
-          })}
-        </div>
-        <div className="audio-player__time">
-          {formatTime(safeCurrentTime)} / {formatTime(safeDuration)}
-        </div>
-      </div>
-      <div className="audio-player__dsp-toggle">
-        <button
-          type="button"
-          className="audio-player__dsp-toggle-button"
-          onClick={() => setIsDspOpen((prev) => !prev)}
-          aria-expanded={isDspOpen}
-          aria-controls="audio-player-dsp"
-        >
-          ctrl
-        </button>
-      </div>
-      {isDspOpen && (
-        <div className="audio-player__dsp" id="audio-player-dsp">
-          <div className="audio-player__dsp-header">
-            <span className="audio-player__dsp-label">rpm</span>
-            <span className="audio-player__dsp-value">{state.playbackRate.toFixed(2)}x</span>
-          </div>
-          <div className="audio-player__rpm">
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.001}
-              value={rpmSliderValue}
-              className="audio-player__rpm-slider"
-              onChange={(event) => handlePlaybackRate(mapSliderToRate(Number(event.target.value)))}
-              aria-label="Record RPM"
-              style={{ '--rpm-progress': rpmProgress } as CSSProperties}
-            />
-            <div className="audio-player__rpm-marks">
-              <span>0.5</span>
-              <span>1.0</span>
-              <span>2.0</span>
+              <div className="audio-player__rpm-marks">
+                <span>0.5</span>
+                <span>1.0</span>
+                <span>2.0</span>
+              </div>
             </div>
-          </div>
-          <div className="audio-player__transport-controls">
-            <button
-              type="button"
-              className={`audio-player__reverse-button ${state.isReversed ? 'active' : ''}`}
-              onClick={handleReverseToggle}
-              disabled={controlsDisabled || isLoading}
-              aria-pressed={state.isReversed}
-            >
-              reverse
-            </button>
-            <div className="audio-player__loop-controls" aria-label="Loop controls">
+            <div className="audio-player__transport-controls">
               <button
                 type="button"
-                className={`audio-player__loop-button ${state.loopStart !== null ? 'active' : ''}`}
-                onClick={handleLoopStartToggle}
-                disabled={controlsDisabled || !safeDuration}
-                aria-pressed={state.loopStart !== null}
-                aria-label="Set loop start"
+                className={`audio-player__reverse-button ${state.isReversed ? 'active' : ''}`}
+                onClick={handleReverseToggle}
+                disabled={controlsDisabled || isLoading}
+                aria-pressed={state.isReversed}
               >
-                [
+                reverse
               </button>
-              <button
-                type="button"
-                className={`audio-player__loop-button ${state.loopEnd !== null ? 'active' : ''}`}
-                onClick={handleLoopEndToggle}
-                disabled={controlsDisabled || !safeDuration}
-                aria-pressed={state.loopEnd !== null}
-                aria-label="Set loop end"
-              >
-                ]
-              </button>
+              <div className="audio-player__loop-controls" aria-label="Loop controls">
+                <button
+                  type="button"
+                  className={`audio-player__loop-button ${state.loopStart !== null ? 'active' : ''}`}
+                  onClick={handleLoopStartToggle}
+                  disabled={controlsDisabled || !safeDuration}
+                  aria-pressed={state.loopStart !== null}
+                  aria-label="Set loop start"
+                >
+                  [
+                </button>
+                <button
+                  type="button"
+                  className={`audio-player__loop-button ${state.loopEnd !== null ? 'active' : ''}`}
+                  onClick={handleLoopEndToggle}
+                  disabled={controlsDisabled || !safeDuration}
+                  aria-pressed={state.loopEnd !== null}
+                  aria-label="Set loop end"
+                >
+                  ]
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
