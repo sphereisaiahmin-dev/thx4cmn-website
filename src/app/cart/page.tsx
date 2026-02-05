@@ -31,7 +31,15 @@ export default function CartPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Checkout failed');
+        let errorPayload: { error?: string; requestId?: string } | null = null;
+        try {
+          errorPayload = (await response.json()) as { error?: string; requestId?: string };
+        } catch (parseError) {
+          console.error('Failed to parse checkout error response.', parseError);
+        }
+        const message = errorPayload?.error ?? 'Checkout failed';
+        const requestId = errorPayload?.requestId ? ` (requestId: ${errorPayload.requestId})` : '';
+        throw new Error(`${message}${requestId}`);
       }
 
       const { url } = await response.json();
