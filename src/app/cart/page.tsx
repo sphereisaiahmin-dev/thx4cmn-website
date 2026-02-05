@@ -70,7 +70,13 @@ export default function CartPage() {
                     type="number"
                     min={1}
                     value={item.quantity}
-                    onChange={(event) => updateQuantity(item.productId, Number(event.target.value))}
+                    onChange={(event) => {
+                      const nextQuantity = Number(event.target.value);
+                      updateQuantity(
+                        item.productId,
+                        Number.isFinite(nextQuantity) && nextQuantity > 0 ? nextQuantity : 1,
+                      );
+                    }}
                     className="w-20 rounded-md bg-black/10 px-3 py-2 text-sm"
                   />
                   <button
