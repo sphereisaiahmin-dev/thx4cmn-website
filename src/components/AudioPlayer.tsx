@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 
 import { useWebPlayer } from '@/hooks/useWebPlayer';
 import { formatTime } from '@/lib/format';
+import { useUiStore } from '@/store/ui';
 
 const ARTIST_LABEL = 'thx4cmn';
 const DOT_COUNT = 24;
@@ -12,6 +13,7 @@ const DOT_COUNT = 24;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 export const AudioPlayer = () => {
+  const isMiniCartOpen = useUiStore((state) => state.isMiniCartOpen);
   const { state, currentTrack, statusMessage, controlsDisabled, actions } = useWebPlayer();
   const {
     handlePlayToggle,
@@ -90,7 +92,7 @@ export const AudioPlayer = () => {
     <div
       className={`audio-player ${isDspOpen ? 'audio-player--expanded' : ''} ${
         isCollapsed ? 'audio-player--collapsed' : ''
-      }`}
+      } ${isMiniCartOpen ? 'audio-player--hidden' : ''}`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       style={{
