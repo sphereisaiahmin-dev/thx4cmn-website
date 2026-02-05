@@ -102,7 +102,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ url: session.url, requestId });
   } catch (error) {
-    const isStripeError = error instanceof Stripe.StripeError;
+    const isStripeError = error instanceof Stripe.errors.StripeError;
     console.error('Stripe checkout error.', {
       requestId,
       message: error instanceof Error ? error.message : String(error),
