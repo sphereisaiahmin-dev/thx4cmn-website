@@ -50,7 +50,8 @@ class ReverseTransportProcessor extends AudioWorkletProcessor {
     const frameStep = this.direction * this.rate * sampleRateRatio;
 
     for (let i = 0; i < frameCount; i += 1) {
-      const atBoundary = this.playheadFrame <= 0 || this.playheadFrame >= this.length - 1;
+      const atBoundary =
+        this.direction === -1 ? this.playheadFrame <= 0 : this.playheadFrame >= this.length - 1;
       if (!hasTrack || !this.playing || atBoundary) {
         for (let outCh = 0; outCh < output.length; outCh += 1) {
           output[outCh][i] = 0;
