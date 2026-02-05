@@ -86,6 +86,7 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 const MIN_PLAYBACK_RATE = 0.35;
 const MAX_PLAYBACK_RATE = 2.35;
+const SIGNED_URL_TTL_MS = 70_000;
 
 export const useWebPlayer = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -93,6 +94,7 @@ export const useWebPlayer = () => {
   const autoPlayRef = useRef(false);
   const loadRequestIdRef = useRef(0);
   const reverseStateRef = useRef(initialState.isReversed);
+  const signedUrlCacheRef = useRef(new Map<string, { url: string; expiresAt: number }>());
 
   useEffect(() => {
     reverseStateRef.current = state.isReversed;
@@ -128,8 +130,14 @@ export const useWebPlayer = () => {
 
       const loadWithRetry = async (hasRetried: boolean) => {
         try {
-          const url = await fetchSignedUrl(track.key);
-          await engineRef.current?.load(url);
+          const now = Date.now();
+          const cached = signedUrlCacheRef.current.get(track.key);
+          const shouldRefresh = hasRetried || !cached || cached.expiresAt <= now;
+          const url = shouldRefresh ? await fetchSignedUrl(track.key) : cached.url;
+          if (shouldRefresh) {
+            signedUrlCacheRef.current.set(track.key, { url, expiresAt: now + SIGNED_URL_TTL_MS });
+          }
+          await engineRef.current?.load(url, track.key);
         } catch (error) {
           if (!hasRetried && isExpiredError(error)) {
             console.warn('[WebPlayer] Signed URL expired, retrying.', error);

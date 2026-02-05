@@ -35,8 +35,7 @@ export class WebPlayerEngine {
   private masterGain: GainNode | null = null;
   private effects: EffectNode[] = [];
   private transportNode: AudioWorkletNode | null = null;
-  private buffersByUrl = new Map<string, CachedTrackData>();
-  private currentUrl: string | null = null;
+  private buffersByKey = new Map<string, CachedTrackData>();
   private currentTrack: CachedTrackData | null = null;
   private isPlaying = false;
   private isReversed = false;
@@ -116,10 +115,10 @@ export class WebPlayerEngine {
     this.masterGain.connect(this.context.destination);
   }
 
-  async load(url: string) {
+  async load(url: string, trackKey?: string) {
     await this.ensureContext();
-    this.currentUrl = url;
-    this.currentTrack = await this.getOrCreateTrackData(url);
+    const cacheKey = trackKey ?? url;
+    this.currentTrack = await this.getOrCreateTrackData(cacheKey, url);
     this.isPlaying = false;
     this.timelineAnchorSec = 0;
     this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
@@ -235,8 +234,8 @@ export class WebPlayerEngine {
     this.transportNode?.port.postMessage(message);
   }
 
-  private async getOrCreateTrackData(url: string) {
-    const cached = this.buffersByUrl.get(url);
+  private async getOrCreateTrackData(cacheKey: string, url: string) {
+    const cached = this.buffersByKey.get(cacheKey);
     if (cached) {
       return cached;
     }
@@ -264,7 +263,7 @@ export class WebPlayerEngine {
       channels,
     };
 
-    this.buffersByUrl.set(url, value);
+    this.buffersByKey.set(cacheKey, value);
     return value;
   }
 
@@ -274,7 +273,7 @@ export class WebPlayerEngine {
     this.entryGain?.disconnect();
     this.masterGain?.disconnect();
     this.effects.forEach((effect) => effect.node.disconnect());
-    this.buffersByUrl.clear();
+    this.buffersByKey.clear();
     if (this.context && this.context.state !== 'closed') {
       void this.context.close();
     }
