@@ -91,6 +91,7 @@ export const useWebPlayer = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const engineRef = useRef<WebPlayerEngine | null>(null);
   const autoPlayRef = useRef(false);
+  const loadRequestIdRef = useRef(0);
   const reverseStateRef = useRef(initialState.isReversed);
 
   useEffect(() => {
@@ -116,10 +117,14 @@ export const useWebPlayer = () => {
   const loadTrack = useCallback(
     async (track: Track | undefined) => {
       if (!track || !engineRef.current) return;
+      const requestId = loadRequestIdRef.current + 1;
+      loadRequestIdRef.current = requestId;
       dispatch({ type: 'set-status', payload: 'loading-track' });
       dispatch({ type: 'set-error', payload: null });
       dispatch({ type: 'set-duration', payload: 0 });
       dispatch({ type: 'set-current-time', payload: 0 });
+
+      const isLatestRequest = () => loadRequestIdRef.current === requestId;
 
       const loadWithRetry = async (hasRetried: boolean) => {
         try {
@@ -137,7 +142,9 @@ export const useWebPlayer = () => {
 
       try {
         await loadWithRetry(false);
+        if (!isLatestRequest()) return;
         await engineRef.current?.setReversed(reverseStateRef.current);
+        if (!isLatestRequest()) return;
         dispatch({ type: 'set-status', payload: 'ready' });
         dispatch({ type: 'set-duration', payload: engineRef.current?.getDuration() ?? 0 });
         dispatch({ type: 'set-current-time', payload: engineRef.current?.getCurrentTime() ?? 0 });
@@ -154,6 +161,7 @@ export const useWebPlayer = () => {
           }
         }
       } catch (error) {
+        if (!isLatestRequest()) return;
         console.error('[WebPlayer] Track load failed.', error);
         dispatch({
           type: 'set-status',
@@ -225,12 +233,16 @@ export const useWebPlayer = () => {
 
   const currentTrack = state.tracks[state.currentIndex];
 
-  const controlsDisabled =
-    state.status === 'loading-list' || state.status === 'loading-track' || !state.tracks.length;
+  const controlsDisabled = state.status === 'loading-list' || !state.tracks.length;
 
   const handlePlayToggle = useCallback(async () => {
     if (!engineRef.current || controlsDisabled) return;
+    if (state.status === 'loading-track') {
+      autoPlayRef.current = !autoPlayRef.current;
+      return;
+    }
     if (state.isPlaying) {
+      autoPlayRef.current = false;
       engineRef.current.pause();
       return;
     }
@@ -243,7 +255,7 @@ export const useWebPlayer = () => {
         payload: error instanceof Error ? error.message : 'Unable to start playback.',
       });
     }
-  }, [controlsDisabled, state.isPlaying]);
+  }, [controlsDisabled, state.isPlaying, state.status]);
 
   const handleSeek = useCallback((time: number) => {
     if (!engineRef.current || !Number.isFinite(time)) {
