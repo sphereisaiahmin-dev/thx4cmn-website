@@ -91,7 +91,6 @@ export const useWebPlayer = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const engineRef = useRef<WebPlayerEngine | null>(null);
   const autoPlayRef = useRef(false);
-  const isReversedRef = useRef(state.isReversed);
 
   const fetchSignedUrl = useCallback(async (key: string) => {
     const response = await fetch(`/api/music/signed-url?key=${encodeURIComponent(key)}`);
@@ -137,6 +136,8 @@ export const useWebPlayer = () => {
           await engineRef.current?.setReversed(true);
         }
         dispatch({ type: 'set-status', payload: 'ready' });
+        dispatch({ type: 'set-duration', payload: engineRef.current?.getDuration() ?? 0 });
+        dispatch({ type: 'set-current-time', payload: engineRef.current?.getCurrentTime() ?? 0 });
         if (autoPlayRef.current) {
           autoPlayRef.current = false;
           try {
@@ -190,53 +191,22 @@ export const useWebPlayer = () => {
   }, []);
 
   useEffect(() => {
-    isReversedRef.current = state.isReversed;
-  }, [state.isReversed]);
-
-  useEffect(() => {
     const engine = new WebPlayerEngine();
     engineRef.current = engine;
 
-    const audio = engine.getAudioElement();
-    const handleTimeUpdate = () => {
-      dispatch({ type: 'set-current-time', payload: audio.currentTime || 0 });
-      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
-      if (isReversedRef.current && duration > 0 && audio.currentTime >= duration - 0.05) {
-        audio.pause();
-        audio.currentTime = duration;
-        dispatch({ type: 'set-playing', payload: false });
-      }
-    };
-    const handleDuration = () => {
-      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
-      dispatch({ type: 'set-duration', payload: duration });
-    };
-    const handlePlay = () => dispatch({ type: 'set-playing', payload: true });
-    const handlePause = () => dispatch({ type: 'set-playing', payload: false });
-    const handleEnded = () => dispatch({ type: 'set-playing', payload: false });
-    const handleError = () => {
-      console.error('[WebPlayer] Audio element error event fired.');
-      dispatch({ type: 'set-error', payload: 'Audio playback error.' });
-      dispatch({ type: 'set-status', payload: 'error' });
+    const syncPlaybackState = () => {
+      dispatch({ type: 'set-current-time', payload: engine.getCurrentTime() });
+      dispatch({ type: 'set-duration', payload: engine.getDuration() });
+      dispatch({ type: 'set-playing', payload: engine.getIsPlaying() });
     };
 
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('durationchange', handleDuration);
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('pause', handlePause);
-    audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('error', handleError);
+    const intervalId = window.setInterval(syncPlaybackState, 120);
     engine.setPlaybackRate(initialState.playbackRate);
 
     void loadTracks();
 
     return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('durationchange', handleDuration);
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('pause', handlePause);
-      audio.removeEventListener('ended', handleEnded);
-      audio.removeEventListener('error', handleError);
+      window.clearInterval(intervalId);
       engine.destroy();
     };
   }, [loadTracks]);
