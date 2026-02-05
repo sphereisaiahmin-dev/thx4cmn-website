@@ -3,31 +3,39 @@ type EffectNode = {
   node: AudioNode;
 };
 
+type CachedTrackBuffers = {
+  forward: AudioBuffer;
+  reversed: AudioBuffer;
+  duration: number;
+};
+
+const FADE_SECONDS = 0.01;
+const START_EPSILON_SECONDS = 0.0001;
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
 export class WebPlayerEngine {
-  private audio: HTMLAudioElement;
   private context: AudioContext | null = null;
-  private source: MediaElementAudioSourceNode | null = null;
+  private entryGain: GainNode | null = null;
   private masterGain: GainNode | null = null;
   private effects: EffectNode[] = [];
+  private source: AudioBufferSourceNode | null = null;
+  private sourceGain: GainNode | null = null;
+  private buffersByUrl = new Map<string, CachedTrackBuffers>();
   private currentUrl: string | null = null;
-  private reversedUrl: string | null = null;
+  private currentBuffers: CachedTrackBuffers | null = null;
+  private isPlaying = false;
   private isReversed = false;
-
-  constructor() {
-    this.audio = new Audio();
-    this.audio.preload = 'metadata';
-    this.audio.crossOrigin = 'anonymous';
-    this.setPreservesPitch(false);
-  }
-
-  getAudioElement() {
-    return this.audio;
-  }
+  private playbackRate = 1;
+  private playStartCtxTime = 0;
+  // Forward timeline offset (seconds) at the moment the current segment started.
+  // We keep this in forward time even when reversed, then map to buffer offset as duration - t.
+  private playStartOffsetSec = 0;
 
   async ensureContext() {
     if (!this.context) {
       this.context = new AudioContext();
-      this.source = this.context.createMediaElementSource(this.audio);
+      this.entryGain = this.context.createGain();
       this.masterGain = this.context.createGain();
       this.rebuildGraph();
     }
@@ -40,15 +48,21 @@ export class WebPlayerEngine {
   setEffectChain(nodes: EffectNode[]) {
     this.effects = nodes;
     this.rebuildGraph();
+    if (this.source && this.entryGain && this.sourceGain) {
+      this.source.disconnect();
+      this.sourceGain.disconnect();
+      this.source.connect(this.sourceGain);
+      this.sourceGain.connect(this.entryGain);
+    }
   }
 
   private rebuildGraph() {
-    if (!this.context || !this.source || !this.masterGain) return;
-    this.source.disconnect();
+    if (!this.context || !this.entryGain || !this.masterGain) return;
+    this.entryGain.disconnect();
     this.masterGain.disconnect();
     this.effects.forEach((effect) => effect.node.disconnect());
 
-    const chain: AudioNode[] = [this.source, ...this.effects.map((effect) => effect.node), this.masterGain];
+    const chain: AudioNode[] = [this.entryGain, ...this.effects.map((effect) => effect.node), this.masterGain];
     chain.forEach((node, index) => {
       if (index < chain.length - 1) {
         node.connect(chain[index + 1]);
@@ -58,138 +72,197 @@ export class WebPlayerEngine {
   }
 
   async load(url: string) {
-    if (this.reversedUrl) {
-      URL.revokeObjectURL(this.reversedUrl);
-      this.reversedUrl = null;
-    }
+    await this.ensureContext();
+    this.stopSourceNow();
     this.currentUrl = url;
+    this.currentBuffers = await this.getOrCreateBuffers(url);
     this.isReversed = false;
-    await this.loadUrl(url);
+    this.isPlaying = false;
+    this.playStartOffsetSec = 0;
+    this.playStartCtxTime = this.context?.currentTime ?? 0;
   }
 
   async play() {
     await this.ensureContext();
-    await this.audio.play();
+    if (!this.currentBuffers || this.isPlaying) return;
+    this.startSourceAt(this.playStartOffsetSec, false);
   }
 
   pause() {
-    this.audio.pause();
+    if (!this.currentBuffers) return;
+    this.playStartOffsetSec = this.getCurrentTime();
+    this.stopSourceNow();
+    this.isPlaying = false;
   }
 
   seek(time: number) {
-    this.audio.currentTime = time;
+    if (!this.currentBuffers) return;
+    const nextTime = clamp(time, 0, this.currentBuffers.duration);
+    if (this.isPlaying) {
+      this.startSourceAt(nextTime, true);
+      return;
+    }
+    this.playStartOffsetSec = nextTime;
   }
 
   setPlaybackRate(rate: number) {
     const nextRate = Number.isFinite(rate) && rate > 0 ? rate : 1;
-    this.audio.playbackRate = nextRate;
-    this.setPreservesPitch(false);
+    const currentTime = this.getCurrentTime();
+    this.playbackRate = nextRate;
+    if (this.source) {
+      this.source.playbackRate.setValueAtTime(nextRate, this.context?.currentTime ?? 0);
+      this.playStartOffsetSec = currentTime;
+      this.playStartCtxTime = this.context?.currentTime ?? 0;
+    }
   }
 
   async setReversed(shouldReverse: boolean) {
-    if (!this.currentUrl || shouldReverse === this.isReversed) return;
-    const wasPlaying = !this.audio.paused;
-    const currentTime = this.audio.currentTime;
-    const duration = Number.isFinite(this.audio.duration) ? this.audio.duration : 0;
-    const nextTime = duration ? Math.max(duration - currentTime, 0) : 0;
-    const playbackRate = this.audio.playbackRate;
-    if (shouldReverse) {
-      if (!this.reversedUrl) {
-        this.reversedUrl = await this.createReversedUrl(this.currentUrl);
-      }
-      await this.loadUrl(this.reversedUrl);
-      this.isReversed = true;
+    if (!this.currentBuffers || shouldReverse === this.isReversed) return;
+    const currentTime = this.getCurrentTime();
+    this.isReversed = shouldReverse;
+    if (this.isPlaying) {
+      this.startSourceAt(currentTime, true);
+      return;
+    }
+    this.playStartOffsetSec = currentTime;
+  }
+
+  getCurrentTime() {
+    if (!this.currentBuffers) return 0;
+    const duration = this.currentBuffers.duration;
+    if (!this.isPlaying || !this.context) {
+      return clamp(this.playStartOffsetSec, 0, duration);
+    }
+
+    const elapsed = (this.context.currentTime - this.playStartCtxTime) * this.playbackRate;
+    const direction = this.isReversed ? -1 : 1;
+    return clamp(this.playStartOffsetSec + elapsed * direction, 0, duration);
+  }
+
+  getDuration() {
+    return this.currentBuffers?.duration ?? 0;
+  }
+
+  getIsPlaying() {
+    return this.isPlaying;
+  }
+
+  getIsReversed() {
+    return this.isReversed;
+  }
+
+  private stopSourceNow() {
+    if (this.source) {
+      this.source.onended = null;
+      this.source.stop();
+      this.source.disconnect();
+      this.source = null;
+    }
+    if (this.sourceGain) {
+      this.sourceGain.disconnect();
+      this.sourceGain = null;
+    }
+  }
+
+  private startSourceAt(forwardTimelineTime: number, withMicroFade: boolean) {
+    if (!this.context || !this.entryGain || !this.currentBuffers) return;
+
+    const { duration } = this.currentBuffers;
+    const safeForwardTime = clamp(forwardTimelineTime, 0, duration);
+    const nextBuffer = this.isReversed ? this.currentBuffers.reversed : this.currentBuffers.forward;
+    // For reversed playback we map from forward timeline time t to reversed buffer offset duration - t.
+    const rawOffset = this.isReversed ? duration - safeForwardTime : safeForwardTime;
+    const maxOffset = Math.max(duration - START_EPSILON_SECONDS, 0);
+    const safeOffset = clamp(rawOffset, 0, maxOffset);
+
+    const nextSource = this.context.createBufferSource();
+    nextSource.buffer = nextBuffer;
+    nextSource.playbackRate.setValueAtTime(this.playbackRate, this.context.currentTime);
+
+    const nextGain = this.context.createGain();
+    const now = this.context.currentTime;
+    const fadeDuration = withMicroFade ? FADE_SECONDS : 0;
+
+    if (withMicroFade) {
+      nextGain.gain.setValueAtTime(0, now);
+      nextGain.gain.linearRampToValueAtTime(1, now + fadeDuration);
     } else {
-      await this.loadUrl(this.currentUrl);
-      this.isReversed = false;
+      nextGain.gain.setValueAtTime(1, now);
     }
 
-    this.audio.playbackRate = playbackRate;
-    if (Number.isFinite(nextTime)) {
-      this.audio.currentTime = Math.min(nextTime, this.audio.duration || nextTime);
+    nextSource.connect(nextGain);
+    nextGain.connect(this.entryGain);
+
+    const prevSource = this.source;
+    const prevGain = this.sourceGain;
+    if (prevSource && prevGain && withMicroFade) {
+      prevGain.gain.cancelScheduledValues(now);
+      prevGain.gain.setValueAtTime(prevGain.gain.value, now);
+      prevGain.gain.linearRampToValueAtTime(0, now + fadeDuration);
+      prevSource.stop(now + fadeDuration);
+    } else if (prevSource) {
+      prevSource.stop();
     }
-    if (wasPlaying) {
-      await this.play();
-    }
+
+    this.source = nextSource;
+    this.sourceGain = nextGain;
+    this.playStartOffsetSec = safeForwardTime;
+    this.playStartCtxTime = now;
+    this.isPlaying = true;
+
+    nextSource.onended = () => {
+      if (this.source !== nextSource) return;
+      this.isPlaying = false;
+      this.source = null;
+      this.sourceGain = null;
+      this.playStartOffsetSec = this.isReversed ? 0 : duration;
+    };
+
+    nextSource.start(now, safeOffset);
   }
 
-  private async loadUrl(url: string) {
-    this.audio.src = url;
-    this.audio.load();
-    await new Promise<void>((resolve, reject) => {
-      const handleLoaded = () => {
-        cleanup();
-        resolve();
-      };
-      const handleError = () => {
-        cleanup();
-        console.error('[WebPlayer] Audio element reported a load error.');
-        reject(new Error('Unable to load audio source.'));
-      };
-      const cleanup = () => {
-        this.audio.removeEventListener('loadedmetadata', handleLoaded);
-        this.audio.removeEventListener('error', handleError);
-      };
-      this.audio.addEventListener('loadedmetadata', handleLoaded);
-      this.audio.addEventListener('error', handleError);
-    });
-  }
+  private async getOrCreateBuffers(url: string) {
+    const cached = this.buffersByUrl.get(url);
+    if (cached) {
+      return cached;
+    }
 
-  private async createReversedUrl(url: string) {
     const context = await this.ensureContext();
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Unable to fetch audio source (${response.status}).`);
     }
     const arrayBuffer = await response.arrayBuffer();
-    const audioBuffer = await context.decodeAudioData(arrayBuffer.slice(0));
+    const forwardBuffer = await context.decodeAudioData(arrayBuffer.slice(0));
     const reversedBuffer = context.createBuffer(
-      audioBuffer.numberOfChannels,
-      audioBuffer.length,
-      audioBuffer.sampleRate,
+      forwardBuffer.numberOfChannels,
+      forwardBuffer.length,
+      forwardBuffer.sampleRate,
     );
 
-    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel += 1) {
-      const sourceData = audioBuffer.getChannelData(channel);
+    for (let channel = 0; channel < forwardBuffer.numberOfChannels; channel += 1) {
+      const sourceData = forwardBuffer.getChannelData(channel);
       const targetData = reversedBuffer.getChannelData(channel);
       for (let index = 0, last = sourceData.length - 1; index < sourceData.length; index += 1) {
         targetData[index] = sourceData[last - index];
       }
     }
 
-    const wavBuffer = encodeWav(reversedBuffer);
-    const blob = new Blob([wavBuffer], { type: 'audio/wav' });
-    return URL.createObjectURL(blob);
-  }
-
-  private setPreservesPitch(shouldPreserve: boolean) {
-    const audio = this.audio as HTMLAudioElement & {
-      webkitPreservesPitch?: boolean;
-      mozPreservesPitch?: boolean;
-      preservesPitch?: boolean;
+    const value: CachedTrackBuffers = {
+      forward: forwardBuffer,
+      reversed: reversedBuffer,
+      duration: forwardBuffer.duration,
     };
-    if (typeof audio.preservesPitch === 'boolean') {
-      audio.preservesPitch = shouldPreserve;
-    }
-    if (typeof audio.webkitPreservesPitch === 'boolean') {
-      audio.webkitPreservesPitch = shouldPreserve;
-    }
-    if (typeof audio.mozPreservesPitch === 'boolean') {
-      audio.mozPreservesPitch = shouldPreserve;
-    }
+    this.buffersByUrl.set(url, value);
+    return value;
   }
 
   destroy() {
-    this.audio.pause();
-    this.audio.removeAttribute('src');
-    this.audio.load();
-    this.source?.disconnect();
+    this.pause();
+    this.entryGain?.disconnect();
     this.masterGain?.disconnect();
     this.effects.forEach((effect) => effect.node.disconnect());
-    if (this.reversedUrl) {
-      URL.revokeObjectURL(this.reversedUrl);
-      this.reversedUrl = null;
-    }
+    this.buffersByUrl.clear();
     if (this.context && this.context.state !== 'closed') {
       void this.context.close();
     }
@@ -197,59 +270,3 @@ export class WebPlayerEngine {
 }
 
 export type { EffectNode };
-
-const encodeWav = (buffer: AudioBuffer) => {
-  const numChannels = buffer.numberOfChannels;
-  const sampleRate = buffer.sampleRate;
-  const length = buffer.length * numChannels * 2;
-  const arrayBuffer = new ArrayBuffer(44 + length);
-  const view = new DataView(arrayBuffer);
-
-  const writeString = (offset: number, value: string) => {
-    for (let index = 0; index < value.length; index += 1) {
-      view.setUint8(offset + index, value.charCodeAt(index));
-    }
-  };
-
-  let offset = 0;
-  writeString(offset, 'RIFF');
-  offset += 4;
-  view.setUint32(offset, 36 + length, true);
-  offset += 4;
-  writeString(offset, 'WAVE');
-  offset += 4;
-  writeString(offset, 'fmt ');
-  offset += 4;
-  view.setUint32(offset, 16, true);
-  offset += 4;
-  view.setUint16(offset, 1, true);
-  offset += 2;
-  view.setUint16(offset, numChannels, true);
-  offset += 2;
-  view.setUint32(offset, sampleRate, true);
-  offset += 4;
-  view.setUint32(offset, sampleRate * numChannels * 2, true);
-  offset += 4;
-  view.setUint16(offset, numChannels * 2, true);
-  offset += 2;
-  view.setUint16(offset, 16, true);
-  offset += 2;
-  writeString(offset, 'data');
-  offset += 4;
-  view.setUint32(offset, length, true);
-  offset += 4;
-
-  const channels = Array.from({ length: numChannels }, (_, index) => buffer.getChannelData(index));
-  let sampleIndex = 0;
-  while (sampleIndex < buffer.length) {
-    for (let channel = 0; channel < numChannels; channel += 1) {
-      let sample = channels[channel][sampleIndex] ?? 0;
-      sample = Math.max(-1, Math.min(1, sample));
-      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      offset += 2;
-    }
-    sampleIndex += 1;
-  }
-
-  return arrayBuffer;
-};
