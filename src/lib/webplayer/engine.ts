@@ -32,14 +32,14 @@ export class WebPlayerEngine {
   // We keep this in forward time even when reversed, then map to buffer offset as duration - t.
   private playStartOffsetSec = 0;
 
-  async ensureContext() {
+  private async ensureContext(resumeIfSuspended = false) {
     if (!this.context) {
       this.context = new AudioContext();
       this.entryGain = this.context.createGain();
       this.masterGain = this.context.createGain();
       this.rebuildGraph();
     }
-    if (this.context.state !== 'running') {
+    if (resumeIfSuspended && this.context.state !== 'running') {
       await this.context.resume();
     }
     return this.context;
@@ -83,7 +83,8 @@ export class WebPlayerEngine {
   }
 
   async play() {
-    await this.ensureContext();
+    const context = await this.ensureContext(true);
+    if (context.state !== 'running') return;
     if (!this.currentBuffers || this.isPlaying) return;
     this.startSourceAt(this.playStartOffsetSec, false);
   }
@@ -98,9 +99,13 @@ export class WebPlayerEngine {
   seek(time: number) {
     if (!this.currentBuffers) return;
     const nextTime = clamp(time, 0, this.currentBuffers.duration);
-    if (this.isPlaying) {
+    if (this.isPlaying && this.context?.state === 'running') {
       this.startSourceAt(nextTime, true);
       return;
+    }
+    if (this.isPlaying) {
+      this.stopSourceNow();
+      this.isPlaying = false;
     }
     this.playStartOffsetSec = nextTime;
   }
@@ -120,9 +125,13 @@ export class WebPlayerEngine {
     if (!this.currentBuffers || shouldReverse === this.isReversed) return;
     const currentTime = this.getCurrentTime();
     this.isReversed = shouldReverse;
-    if (this.isPlaying) {
+    if (this.isPlaying && this.context?.state === 'running') {
       this.startSourceAt(currentTime, true);
       return;
+    }
+    if (this.isPlaying) {
+      this.stopSourceNow();
+      this.isPlaying = false;
     }
     this.playStartOffsetSec = currentTime;
   }
@@ -165,7 +174,7 @@ export class WebPlayerEngine {
   }
 
   private startSourceAt(forwardTimelineTime: number, withMicroFade: boolean) {
-    if (!this.context || !this.entryGain || !this.currentBuffers) return;
+    if (!this.context || !this.entryGain || !this.currentBuffers || this.context.state !== 'running') return;
 
     const { duration } = this.currentBuffers;
     const safeForwardTime = clamp(forwardTimelineTime, 0, duration);
