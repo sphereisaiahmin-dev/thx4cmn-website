@@ -45,6 +45,10 @@ export const AudioPlayer = () => {
     state.loopEnd !== null && safeDuration
       ? clamp(Math.floor((state.loopEnd / safeDuration) * DOT_COUNT), 0, DOT_COUNT - 1)
       : null;
+  const loopSectionStart =
+    loopStartIndex !== null && loopEndIndex !== null ? Math.min(loopStartIndex, loopEndIndex) : null;
+  const loopSectionEnd =
+    loopStartIndex !== null && loopEndIndex !== null ? Math.max(loopStartIndex, loopEndIndex) : null;
 
   const isLoading = state.status === 'loading-list' || state.status === 'loading-track';
   const rpmSliderValue = useMemo(() => {
@@ -114,11 +118,18 @@ export const AudioPlayer = () => {
             const seekTarget = safeDuration * position;
             const isLoopStart = loopStartIndex === index;
             const isLoopEnd = loopEndIndex === index;
+            const isLoopSection =
+              loopSectionStart !== null &&
+              loopSectionEnd !== null &&
+              index >= loopSectionStart &&
+              index <= loopSectionEnd;
             return (
               <button
                 type="button"
                 key={position}
                 className={`audio-player__dot ${isActive ? 'active' : ''} ${
+                  isLoopSection ? 'loop-section' : ''
+                } ${
                   isLoopStart && isLoopEnd
                     ? 'loop-marker loop-marker--both'
                     : isLoopStart
@@ -173,36 +184,38 @@ export const AudioPlayer = () => {
               <span>2.0</span>
             </div>
           </div>
-          <button
-            type="button"
-            className={`audio-player__reverse-button ${state.isReversed ? 'active' : ''}`}
-            onClick={handleReverseToggle}
-            disabled={controlsDisabled || isLoading}
-            aria-pressed={state.isReversed}
-          >
-            reverse
-          </button>
-          <div className="audio-player__loop-controls" aria-label="Loop controls">
+          <div className="audio-player__transport-controls">
             <button
               type="button"
-              className={`audio-player__loop-button ${state.loopStart !== null ? 'active' : ''}`}
-              onClick={handleLoopStartToggle}
-              disabled={controlsDisabled || !safeDuration}
-              aria-pressed={state.loopStart !== null}
-              aria-label="Set loop start"
+              className={`audio-player__reverse-button ${state.isReversed ? 'active' : ''}`}
+              onClick={handleReverseToggle}
+              disabled={controlsDisabled || isLoading}
+              aria-pressed={state.isReversed}
             >
-              [
+              reverse
             </button>
-            <button
-              type="button"
-              className={`audio-player__loop-button ${state.loopEnd !== null ? 'active' : ''}`}
-              onClick={handleLoopEndToggle}
-              disabled={controlsDisabled || !safeDuration}
-              aria-pressed={state.loopEnd !== null}
-              aria-label="Set loop end"
-            >
-              ]
-            </button>
+            <div className="audio-player__loop-controls" aria-label="Loop controls">
+              <button
+                type="button"
+                className={`audio-player__loop-button ${state.loopStart !== null ? 'active' : ''}`}
+                onClick={handleLoopStartToggle}
+                disabled={controlsDisabled || !safeDuration}
+                aria-pressed={state.loopStart !== null}
+                aria-label="Set loop start"
+              >
+                [
+              </button>
+              <button
+                type="button"
+                className={`audio-player__loop-button ${state.loopEnd !== null ? 'active' : ''}`}
+                onClick={handleLoopEndToggle}
+                disabled={controlsDisabled || !safeDuration}
+                aria-pressed={state.loopEnd !== null}
+                aria-label="Set loop end"
+              >
+                ]
+              </button>
+            </div>
           </div>
         </div>
       )}

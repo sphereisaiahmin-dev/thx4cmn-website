@@ -316,6 +316,11 @@ export const useWebPlayer = () => {
 
   const handleLoopStartToggle = useCallback(() => {
     if (controlsDisabled || !Number.isFinite(state.currentTime)) return;
+    if (state.loopStart !== null && state.loopEnd !== null) {
+      dispatch({ type: 'set-loop-start', payload: null });
+      dispatch({ type: 'set-loop-end', payload: null });
+      return;
+    }
     if (state.loopStart !== null) {
       dispatch({ type: 'set-loop-start', payload: null });
       return;
@@ -329,6 +334,11 @@ export const useWebPlayer = () => {
 
   const handleLoopEndToggle = useCallback(() => {
     if (controlsDisabled || !Number.isFinite(state.currentTime)) return;
+    if (state.loopStart !== null && state.loopEnd !== null) {
+      dispatch({ type: 'set-loop-start', payload: null });
+      dispatch({ type: 'set-loop-end', payload: null });
+      return;
+    }
     if (state.loopEnd !== null) {
       dispatch({ type: 'set-loop-end', payload: null });
       return;
