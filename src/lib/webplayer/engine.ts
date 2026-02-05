@@ -23,7 +23,8 @@ type TransportMessage =
   | { type: 'SET_PLAYHEAD'; frame: number }
   | { type: 'SET_DIRECTION'; direction: 1 | -1 }
   | { type: 'SET_RATE'; rate: number }
-  | { type: 'SET_PLAYING'; playing: boolean };
+  | { type: 'SET_PLAYING'; playing: boolean }
+  | { type: 'SET_LOOP'; startFrame: number | null; endFrame: number | null; enabled: boolean };
 
 const WORKLET_NAME = 'reverse-transport-processor';
 const WORKLET_MODULE_URL = new URL('./reverse-worklet.processor.js', import.meta.url);
@@ -43,6 +44,9 @@ export class WebPlayerEngine {
   private timelineAnchorSec = 0;
   private timelineAnchorCtxTime = 0;
   private pendingBoundaryFrame: number | null = null;
+  private loopStartSec: number | null = null;
+  private loopEndSec: number | null = null;
+  private loopEnabled = false;
 
   private async ensureContext(resumeIfSuspended = false) {
     if (!this.context) {
@@ -89,6 +93,11 @@ export class WebPlayerEngine {
       this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
       this.isPlaying = false;
     }
+
+    if (message.type === 'LOOPED' && typeof message.frame === 'number') {
+      this.timelineAnchorSec = clamp(message.frame / this.currentTrack.sampleRate, 0, this.currentTrack.duration);
+      this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
+    }
   }
 
   setEffectChain(nodes: EffectNode[]) {
@@ -123,6 +132,9 @@ export class WebPlayerEngine {
     this.timelineAnchorSec = 0;
     this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
     this.pendingBoundaryFrame = null;
+    this.loopStartSec = null;
+    this.loopEndSec = null;
+    this.loopEnabled = false;
 
     this.postTransportMessage({
       type: 'LOAD_TRACK_BUFFER',
@@ -134,6 +146,7 @@ export class WebPlayerEngine {
     });
     this.postTransportMessage({ type: 'SET_DIRECTION', direction: this.isReversed ? -1 : 1 });
     this.postTransportMessage({ type: 'SET_RATE', rate: this.playbackRate });
+    this.postTransportMessage({ type: 'SET_LOOP', startFrame: null, endFrame: null, enabled: false });
     this.postTransportMessage({ type: 'SET_PLAYING', playing: false });
   }
 
@@ -191,6 +204,45 @@ export class WebPlayerEngine {
     // so reverse starts exactly from the same logical song moment without reloads or node rebuilds.
     this.postTransportMessage({ type: 'SET_PLAYHEAD', frame: this.secondsToFrame(currentTime) });
     this.postTransportMessage({ type: 'SET_DIRECTION', direction: shouldReverse ? -1 : 1 });
+  }
+
+  setLoopPoints(startSec: number | null, endSec: number | null) {
+    if (!this.currentTrack) {
+      this.loopStartSec = startSec;
+      this.loopEndSec = endSec;
+      this.loopEnabled = false;
+      return;
+    }
+    const duration = this.currentTrack.duration;
+    const clampedStart = startSec !== null ? clamp(startSec, 0, duration) : null;
+    const clampedEnd = endSec !== null ? clamp(endSec, 0, duration) : null;
+    const enabled = clampedStart !== null && clampedEnd !== null && clampedEnd > clampedStart;
+    this.loopStartSec = clampedStart;
+    this.loopEndSec = clampedEnd;
+    this.loopEnabled = enabled;
+
+    this.postTransportMessage({
+      type: 'SET_LOOP',
+      startFrame: clampedStart !== null ? this.secondsToFrame(clampedStart) : null,
+      endFrame: clampedEnd !== null ? this.secondsToFrame(clampedEnd) : null,
+      enabled,
+    });
+
+    if (enabled) {
+      const currentTime = this.getCurrentTime();
+      let targetTime: number | null = null;
+      if (currentTime < clampedStart) {
+        targetTime = this.isReversed ? clampedEnd : clampedStart;
+      } else if (currentTime > clampedEnd) {
+        targetTime = this.isReversed ? clampedEnd : clampedStart;
+      }
+      if (targetTime !== null) {
+        this.timelineAnchorSec = targetTime;
+        this.timelineAnchorCtxTime = this.context?.currentTime ?? 0;
+        this.pendingBoundaryFrame = null;
+        this.postTransportMessage({ type: 'SET_PLAYHEAD', frame: this.secondsToFrame(targetTime) });
+      }
+    }
   }
 
   getCurrentTime() {

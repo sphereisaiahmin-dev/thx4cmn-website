@@ -20,6 +20,8 @@ export const AudioPlayer = () => {
     handleSeek,
     handlePlaybackRate,
     handleReverseToggle,
+    handleLoopStartToggle,
+    handleLoopEndToggle,
   } = actions;
   const [gradientPosition, setGradientPosition] = useState({ x: 50, y: 50 });
   const [isDspOpen, setIsDspOpen] = useState(false);
@@ -35,6 +37,14 @@ export const AudioPlayer = () => {
   const activeIndex = safeDuration
     ? clamp(Math.floor(progress * DOT_COUNT), 0, DOT_COUNT - 1)
     : 0;
+  const loopStartIndex =
+    state.loopStart !== null && safeDuration
+      ? clamp(Math.floor((state.loopStart / safeDuration) * DOT_COUNT), 0, DOT_COUNT - 1)
+      : null;
+  const loopEndIndex =
+    state.loopEnd !== null && safeDuration
+      ? clamp(Math.floor((state.loopEnd / safeDuration) * DOT_COUNT), 0, DOT_COUNT - 1)
+      : null;
 
   const isLoading = state.status === 'loading-list' || state.status === 'loading-track';
   const rpmSliderValue = useMemo(() => {
@@ -102,11 +112,21 @@ export const AudioPlayer = () => {
           {dotPositions.map((position, index) => {
             const isActive = index <= activeIndex && safeDuration > 0;
             const seekTarget = safeDuration * position;
+            const isLoopStart = loopStartIndex === index;
+            const isLoopEnd = loopEndIndex === index;
             return (
               <button
                 type="button"
                 key={position}
-                className={`audio-player__dot ${isActive ? 'active' : ''}`}
+                className={`audio-player__dot ${isActive ? 'active' : ''} ${
+                  isLoopStart && isLoopEnd
+                    ? 'loop-marker loop-marker--both'
+                    : isLoopStart
+                    ? 'loop-marker loop-marker--start'
+                    : isLoopEnd
+                    ? 'loop-marker loop-marker--end'
+                    : ''
+                }`}
                 onClick={() => handleSeek(seekTarget)}
                 aria-label={`Seek to ${Math.round(position * 100)}%`}
                 disabled={controlsDisabled || !safeDuration}
@@ -162,6 +182,28 @@ export const AudioPlayer = () => {
           >
             reverse
           </button>
+          <div className="audio-player__loop-controls" aria-label="Loop controls">
+            <button
+              type="button"
+              className={`audio-player__loop-button ${state.loopStart !== null ? 'active' : ''}`}
+              onClick={handleLoopStartToggle}
+              disabled={controlsDisabled || !safeDuration}
+              aria-pressed={state.loopStart !== null}
+              aria-label="Set loop start"
+            >
+              [
+            </button>
+            <button
+              type="button"
+              className={`audio-player__loop-button ${state.loopEnd !== null ? 'active' : ''}`}
+              onClick={handleLoopEndToggle}
+              disabled={controlsDisabled || !safeDuration}
+              aria-pressed={state.loopEnd !== null}
+              aria-label="Set loop end"
+            >
+              ]
+            </button>
+          </div>
         </div>
       )}
     </div>

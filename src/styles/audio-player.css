@@ -250,6 +250,50 @@
   cursor: not-allowed;
 }
 
+.audio-player__loop-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.audio-player__loop-button {
+  padding: 4px 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.35em;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.audio-player__loop-button.active {
+  border-color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.95);
+  animation: nav-rgb-cycle 1.2s linear infinite;
+}
+
+.audio-player__loop-button:not(:disabled):hover {
+  animation: nav-rgb-cycle 1.2s linear infinite;
+}
+
+.audio-player__loop-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.audio-player__dot.loop-marker {
+  background: currentColor;
+  color: rgba(255, 255, 255, 0.9);
+  animation: nav-rgb-cycle 1.2s linear infinite;
+}
+
+.audio-player__dot.loop-marker--both {
+  box-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+}
+
 @media (max-width: 768px) {
   .audio-player {
     top: 84px;

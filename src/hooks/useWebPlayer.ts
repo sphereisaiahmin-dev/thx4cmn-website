@@ -13,6 +13,8 @@ type PlayerState = {
   currentTime: number;
   playbackRate: number;
   isReversed: boolean;
+  loopStart: number | null;
+  loopEnd: number | null;
 };
 
 type PlayerAction =
@@ -24,7 +26,9 @@ type PlayerAction =
   | { type: 'set-duration'; payload: number }
   | { type: 'set-current-time'; payload: number }
   | { type: 'set-playback-rate'; payload: number }
-  | { type: 'set-reversed'; payload: boolean };
+  | { type: 'set-reversed'; payload: boolean }
+  | { type: 'set-loop-start'; payload: number | null }
+  | { type: 'set-loop-end'; payload: number | null };
 
 const initialState: PlayerState = {
   tracks: [],
@@ -36,6 +40,8 @@ const initialState: PlayerState = {
   currentTime: 0,
   playbackRate: 1,
   isReversed: false,
+  loopStart: null,
+  loopEnd: null,
 };
 
 const reducer = (state: PlayerState, action: PlayerAction): PlayerState => {
@@ -62,6 +68,10 @@ const reducer = (state: PlayerState, action: PlayerAction): PlayerState => {
       return { ...state, playbackRate: action.payload };
     case 'set-reversed':
       return { ...state, isReversed: action.payload };
+    case 'set-loop-start':
+      return { ...state, loopStart: action.payload };
+    case 'set-loop-end':
+      return { ...state, loopEnd: action.payload };
     default:
       return state;
   }
@@ -239,6 +249,10 @@ export const useWebPlayer = () => {
     engineRef.current?.setPlaybackRate(state.playbackRate);
   }, [state.playbackRate]);
 
+  useEffect(() => {
+    engineRef.current?.setLoopPoints(state.loopStart, state.loopEnd);
+  }, [state.loopEnd, state.loopStart]);
+
   const currentTrack = state.tracks[state.currentIndex];
 
   const controlsDisabled = state.status === 'loading-list' || !state.tracks.length;
@@ -300,6 +314,33 @@ export const useWebPlayer = () => {
     }
   }, [controlsDisabled, state.isReversed]);
 
+  const handleLoopStartToggle = useCallback(() => {
+    if (controlsDisabled || !Number.isFinite(state.currentTime)) return;
+    if (state.loopStart !== null) {
+      dispatch({ type: 'set-loop-start', payload: null });
+      return;
+    }
+    const nextStart = clamp(state.currentTime, 0, state.duration);
+    dispatch({ type: 'set-loop-start', payload: nextStart });
+    if (state.loopEnd !== null && state.loopEnd <= nextStart) {
+      dispatch({ type: 'set-loop-end', payload: null });
+    }
+  }, [controlsDisabled, state.currentTime, state.duration, state.loopEnd, state.loopStart]);
+
+  const handleLoopEndToggle = useCallback(() => {
+    if (controlsDisabled || !Number.isFinite(state.currentTime)) return;
+    if (state.loopEnd !== null) {
+      dispatch({ type: 'set-loop-end', payload: null });
+      return;
+    }
+    const nextEnd = clamp(state.currentTime, 0, state.duration);
+    if (state.loopStart !== null && nextEnd <= state.loopStart) {
+      console.warn('[WebPlayer] Loop end must come after loop start.');
+      return;
+    }
+    dispatch({ type: 'set-loop-end', payload: nextEnd });
+  }, [controlsDisabled, state.currentTime, state.duration, state.loopEnd, state.loopStart]);
+
   const handlePrev = useCallback(() => {
     if (!state.tracks.length) return;
     autoPlayRef.current = state.isPlaying;
@@ -309,6 +350,8 @@ export const useWebPlayer = () => {
     dispatch({ type: 'set-playing', payload: false });
     dispatch({ type: 'set-playback-rate', payload: initialState.playbackRate });
     dispatch({ type: 'set-reversed', payload: false });
+    dispatch({ type: 'set-loop-start', payload: null });
+    dispatch({ type: 'set-loop-end', payload: null });
     const nextIndex = (state.currentIndex - 1 + state.tracks.length) % state.tracks.length;
     dispatch({ type: 'set-index', payload: nextIndex });
   }, [state.currentIndex, state.isPlaying, state.tracks.length]);
@@ -322,6 +365,8 @@ export const useWebPlayer = () => {
     dispatch({ type: 'set-playing', payload: false });
     dispatch({ type: 'set-playback-rate', payload: initialState.playbackRate });
     dispatch({ type: 'set-reversed', payload: false });
+    dispatch({ type: 'set-loop-start', payload: null });
+    dispatch({ type: 'set-loop-end', payload: null });
     const nextIndex = (state.currentIndex + 1) % state.tracks.length;
     dispatch({ type: 'set-index', payload: nextIndex });
   }, [state.currentIndex, state.isPlaying, state.tracks.length]);
@@ -346,6 +391,8 @@ export const useWebPlayer = () => {
       handleSeek,
       handlePlaybackRate,
       handleReverseToggle,
+      handleLoopStartToggle,
+      handleLoopEndToggle,
     },
   };
 };
