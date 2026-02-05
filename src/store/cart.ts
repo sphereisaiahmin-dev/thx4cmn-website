@@ -46,11 +46,19 @@ export const useCartStore = create<CartState>()(
           items: state.items.filter((item) => item.productId !== productId),
         })),
       updateQuantity: (productId, quantity) =>
-        set((state) => ({
-          items: state.items.map((item) =>
-            item.productId === productId ? { ...item, quantity } : item,
-          ),
-        })),
+        set((state) => {
+          const sanitizedQuantity = Number.isFinite(quantity)
+            ? Math.max(1, Math.floor(quantity))
+            : 1;
+
+          return {
+            items: state.items.map((item) =>
+              item.productId === productId
+                ? { ...item, quantity: sanitizedQuantity }
+                : item,
+            ),
+          };
+        }),
       clear: () => set({ items: [] }),
     }),
     {

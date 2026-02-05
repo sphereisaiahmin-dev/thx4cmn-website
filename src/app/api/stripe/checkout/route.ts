@@ -19,6 +19,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No items provided.' }, { status: 400 });
     }
 
+    const invalidItem = items.find(
+      (item) => !Number.isFinite(item.quantity) || item.quantity < 1,
+    );
+
+    if (invalidItem) {
+      return NextResponse.json(
+        { error: 'All items must include a quantity of at least 1.' },
+        { status: 400 },
+      );
+    }
+
     const lineItems = items.map((item) => {
       const product = getProductById(item.productId);
       if (!product) {
@@ -45,7 +56,14 @@ export async function POST(request: Request) {
       } as const;
     });
 
-    const origin = headers().get('origin') ?? 'http://localhost:3000';
+    const requestHeaders = headers();
+    const originHeader = requestHeaders.get('origin');
+    const forwardedProto = requestHeaders.get('x-forwarded-proto');
+    const forwardedHost = requestHeaders.get('x-forwarded-host') ?? requestHeaders.get('host');
+    const origin =
+      originHeader ??
+      (forwardedProto && forwardedHost ? `${forwardedProto}://${forwardedHost}` : null) ??
+      'http://localhost:3000';
     const stripe = getStripeClient();
 
     const session = await stripe.checkout.sessions.create({
