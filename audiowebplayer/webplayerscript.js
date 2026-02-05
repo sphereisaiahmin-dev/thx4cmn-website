@@ -1,3 +1,4 @@
+<!-- ARCHIVAL REFERENCE ONLY: do not use as runtime source of truth. -->
 <!-- Load Tone.js and Doto font -->
 <script src="https://cdn.jsdelivr.net/npm/tone@14.8.39/build/Tone.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Doto:wght@500&display=swap" rel="stylesheet">
@@ -416,13 +417,6 @@ nextBtn.onclick = () => {
   resetReverse();
 };
 
-  // Speed
-  speedCtl.oninput=e=>{
-    if(!player.buffer||!player.buffer.loaded) return;
-    player.playbackRate=+e.target.value;
-    speedVal.textContent=(+e.target.value).toFixed(2);
-  };
-  
 const reverseBtn = document.getElementById('reverse');
 let isReversing = false;
 
@@ -463,8 +457,10 @@ function speedToSlider(speed) {
 }
 
 speedCtl.oninput = e => {
+  if (!player || !player.buffer || !player.buffer.loaded) return;
   const newRate = sliderToSpeed(+e.target.value);
   player.playbackRate = newRate;
+  if (speedVal) speedVal.textContent = newRate.toFixed(2);
 };
 
 

@@ -91,6 +91,11 @@ export const useWebPlayer = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const engineRef = useRef<WebPlayerEngine | null>(null);
   const autoPlayRef = useRef(false);
+  const reverseStateRef = useRef(initialState.isReversed);
+
+  useEffect(() => {
+    reverseStateRef.current = state.isReversed;
+  }, [state.isReversed]);
 
   const fetchSignedUrl = useCallback(async (key: string) => {
     const response = await fetch(`/api/music/signed-url?key=${encodeURIComponent(key)}`);
@@ -132,9 +137,7 @@ export const useWebPlayer = () => {
 
       try {
         await loadWithRetry(false);
-        if (state.isReversed) {
-          await engineRef.current?.setReversed(true);
-        }
+        await engineRef.current?.setReversed(reverseStateRef.current);
         dispatch({ type: 'set-status', payload: 'ready' });
         dispatch({ type: 'set-duration', payload: engineRef.current?.getDuration() ?? 0 });
         dispatch({ type: 'set-current-time', payload: engineRef.current?.getCurrentTime() ?? 0 });
@@ -162,7 +165,7 @@ export const useWebPlayer = () => {
         });
       }
     },
-    [fetchSignedUrl, state.isReversed],
+    [fetchSignedUrl],
   );
 
   const loadTracks = useCallback(async () => {
@@ -266,6 +269,7 @@ export const useWebPlayer = () => {
     const nextValue = !state.isReversed;
     try {
       await engineRef.current.setReversed(nextValue);
+      reverseStateRef.current = nextValue;
       dispatch({ type: 'set-reversed', payload: nextValue });
     } catch (error) {
       console.error('[WebPlayer] Reverse toggle failed.', error);
@@ -279,6 +283,7 @@ export const useWebPlayer = () => {
   const handlePrev = useCallback(() => {
     if (!state.tracks.length) return;
     autoPlayRef.current = state.isPlaying;
+    reverseStateRef.current = false;
     engineRef.current?.pause();
     engineRef.current?.setPlaybackRate(initialState.playbackRate);
     dispatch({ type: 'set-playing', payload: false });
@@ -291,6 +296,7 @@ export const useWebPlayer = () => {
   const handleNext = useCallback(() => {
     if (!state.tracks.length) return;
     autoPlayRef.current = state.isPlaying;
+    reverseStateRef.current = false;
     engineRef.current?.pause();
     engineRef.current?.setPlaybackRate(initialState.playbackRate);
     dispatch({ type: 'set-playing', payload: false });

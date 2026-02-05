@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getSignedDownloadUrl } from '@/lib/r2';
+import { LOCAL_FIXTURE_PREFIX, toFixtureSignedUrl } from '@/lib/webplayer/fixture';
 
 export const runtime = 'nodejs';
 
@@ -14,8 +15,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Missing key.' }, { status: 400 });
   }
 
-  if (!key.startsWith(MUSIC_PREFIX) || !key.toLowerCase().endsWith('.mp3')) {
+  const isR2MusicKey = key.startsWith(MUSIC_PREFIX) && key.toLowerCase().endsWith('.mp3');
+  const isLocalFixtureKey = key.startsWith(LOCAL_FIXTURE_PREFIX) && key.toLowerCase().endsWith('.mp3');
+
+  if (!isR2MusicKey && !(process.env.NODE_ENV !== 'production' && isLocalFixtureKey)) {
     return NextResponse.json({ error: 'Invalid key.' }, { status: 400 });
+  }
+
+  if (process.env.NODE_ENV !== 'production' && isLocalFixtureKey) {
+    return NextResponse.json({ url: toFixtureSignedUrl(key) });
   }
 
   try {
