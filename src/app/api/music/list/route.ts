@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { listR2Objects } from '@/lib/r2';
+import { localFixtureTrack } from '@/lib/webplayer/fixture';
 
 export const runtime = 'nodejs';
 
@@ -23,6 +24,10 @@ export async function GET() {
 
     return NextResponse.json({ tracks });
   } catch (error) {
+    if (process.env.NODE_ENV !== 'production') {
+      return NextResponse.json({ tracks: [localFixtureTrack], source: 'local-fixture' });
+    }
+
     const message = error instanceof Error ? error.message : 'Unable to list tracks.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

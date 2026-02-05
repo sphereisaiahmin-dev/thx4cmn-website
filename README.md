@@ -73,3 +73,20 @@ product entitlement is created when Stripe sends `checkout.session.completed`.
 The web audio player loads its track list from `/api/music/list` and requests short-lived signed
 URLs from `/api/music/signed-url` for playback. The server signs the URLs using the same R2
 credentials listed in `.env.example`, so keep those secrets server-only.
+
+## Web player local verification
+
+Run a single end-to-end verification command:
+
+```bash
+npm run verify:webplayer
+```
+
+This boots the app locally, uses Playwright in headless Chromium, and checks:
+- play/pause
+- reverse toggling while playing and paused
+- next/prev after reverse interactions
+- rpm slider range mapping
+- no `Loading track...` status on reverse-only toggles
+
+For local/dev environments without R2 credentials, the music API automatically falls back to the local fixture track at `audiowebplayer/Dreams Come True.mp3`.
