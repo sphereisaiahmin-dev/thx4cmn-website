@@ -9,6 +9,9 @@ class ReverseTransportProcessor extends AudioWorkletProcessor {
     this.direction = 1;
     this.rate = 1;
     this.playing = false;
+    this.loopStartFrame = null;
+    this.loopEndFrame = null;
+    this.loopEnabled = false;
     this.telemetryCounter = 0;
 
     this.port.onmessage = (event) => {
@@ -34,6 +37,28 @@ class ReverseTransportProcessor extends AudioWorkletProcessor {
         case 'SET_PLAYING':
           this.playing = Boolean(message.playing);
           break;
+        case 'SET_LOOP':
+          this.loopStartFrame =
+            Number.isFinite(message.startFrame) && message.startFrame !== null
+              ? clampFrame(Number(message.startFrame), this.length)
+              : null;
+          this.loopEndFrame =
+            Number.isFinite(message.endFrame) && message.endFrame !== null
+              ? clampFrame(Number(message.endFrame), this.length)
+              : null;
+          this.loopEnabled =
+            Boolean(message.enabled) &&
+            this.loopStartFrame !== null &&
+            this.loopEndFrame !== null &&
+            this.loopEndFrame > this.loopStartFrame;
+          if (this.loopEnabled) {
+            if (this.playheadFrame < this.loopStartFrame) {
+              this.playheadFrame = this.loopStartFrame;
+            } else if (this.playheadFrame > this.loopEndFrame) {
+              this.playheadFrame = this.loopEndFrame;
+            }
+          }
+          break;
         default:
           break;
       }
@@ -49,9 +74,29 @@ class ReverseTransportProcessor extends AudioWorkletProcessor {
     const sampleRateRatio = this.trackSampleRate / sampleRate;
     const frameStep = this.direction * this.rate * sampleRateRatio;
 
+    const loopActive =
+      this.loopEnabled &&
+      this.loopStartFrame !== null &&
+      this.loopEndFrame !== null &&
+      this.loopEndFrame > this.loopStartFrame;
+
     for (let i = 0; i < frameCount; i += 1) {
-      const atBoundary =
-        this.direction === -1 ? this.playheadFrame <= 0 : this.playheadFrame >= this.length - 1;
+      if (loopActive) {
+        if (this.direction === -1 && this.playheadFrame <= this.loopStartFrame) {
+          this.playheadFrame = this.loopEndFrame;
+          this.port.postMessage({ type: 'LOOPED', frame: this.playheadFrame });
+        } else if (this.direction === 1 && this.playheadFrame >= this.loopEndFrame) {
+          this.playheadFrame = this.loopStartFrame;
+          this.port.postMessage({ type: 'LOOPED', frame: this.playheadFrame });
+        }
+      }
+
+      const atBoundary = loopActive
+        ? false
+        : this.direction === -1
+        ? this.playheadFrame <= 0
+        : this.playheadFrame >= this.length - 1;
+
       if (!hasTrack || !this.playing || atBoundary) {
         for (let outCh = 0; outCh < output.length; outCh += 1) {
           output[outCh][i] = 0;
