@@ -32,6 +32,14 @@ a {
   animation: nav-rgb-cycle 1.2s linear infinite;
 }
 
+.cart-count {
+  animation: cart-rgb-cycle 2.6s linear infinite;
+}
+
+.store-page .add-to-cart-button {
+  animation: store-rgb-cycle 1.6s linear infinite;
+}
+
 @keyframes nav-rgb-cycle {
   0% {
     color: rgb(255, 0, 0);
@@ -44,5 +52,39 @@ a {
   }
   100% {
     color: rgb(255, 0, 0);
+  }
+}
+
+@keyframes cart-rgb-cycle {
+  0% {
+    color: rgb(220, 70, 70);
+  }
+  33% {
+    color: rgb(70, 180, 90);
+  }
+  66% {
+    color: rgb(80, 130, 220);
+  }
+  100% {
+    color: rgb(220, 70, 70);
+  }
+}
+
+@keyframes store-rgb-cycle {
+  0% {
+    color: rgb(255, 80, 80);
+    border-color: rgb(255, 80, 80);
+  }
+  33% {
+    color: rgb(80, 220, 120);
+    border-color: rgb(80, 220, 120);
+  }
+  66% {
+    color: rgb(90, 160, 255);
+    border-color: rgb(90, 160, 255);
+  }
+  100% {
+    color: rgb(255, 80, 80);
+    border-color: rgb(255, 80, 80);
   }
 }

@@ -1,9 +1,11 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { formatCurrency } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
+
+const CHECKOUT_STORAGE_KEY = 'thx4cmn:checkout-url';
 
 export default function CartPage() {
   const items = useCartStore((state) => state.items);
@@ -11,12 +13,36 @@ export default function CartPage() {
   const removeItem = useCartStore((state) => state.removeItem);
   const clear = useCartStore((state) => state.clear);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingCheckoutUrl, setPendingCheckoutUrl] = useState<string | null>(null);
   const total = useMemo(
     () => items.reduce((sum, item) => sum + item.priceCents * item.quantity, 0),
     [items],
   );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const storedUrl = window.localStorage.getItem(CHECKOUT_STORAGE_KEY);
+    if (storedUrl) {
+      setPendingCheckoutUrl(storedUrl);
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (items.length > 0) return;
+    setPendingCheckoutUrl(null);
+    setIsLoading(false);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
+    }
+  }, [items.length]);
 
   const handleCheckout = async () => {
+    if (isLoading || items.length === 0) return;
+    if (pendingCheckoutUrl) {
+      setIsLoading(true);
+      window.location.href = pendingCheckoutUrl;
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await fetch('/api/stripe/checkout', {
@@ -44,10 +70,18 @@ export default function CartPage() {
 
       const { url } = await response.json();
       if (url) {
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem(CHECKOUT_STORAGE_KEY, url);
+        }
+        setPendingCheckoutUrl(url);
         window.location.href = url;
       }
     } catch (error) {
       console.error(error);
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
+      }
+      setPendingCheckoutUrl(null);
       setIsLoading(false);
     }
   };
@@ -110,7 +144,7 @@ export default function CartPage() {
                 disabled={isLoading}
                 className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isLoading ? 'Redirecting…' : 'Checkout'}
+                {isLoading ? 'Redirecting…' : pendingCheckoutUrl ? 'Resume checkout' : 'Checkout'}
               </button>
               <button
                 type="button"
