@@ -22,7 +22,7 @@ export default function ProductPage({ params }: ProductPageProps) {
   }
 
   return (
-    <section className="space-y-6">
+    <section className="store-page space-y-6">
       <Link href="/store" className="text-xs uppercase tracking-[0.3em] text-black/60">
         ← Back to store
       </Link>

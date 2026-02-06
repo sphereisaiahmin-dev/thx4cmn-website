@@ -36,7 +36,7 @@ export const ProductCard = ({ product }: ProductCardProps) => {
           <button
             type="button"
             onClick={handleAdd}
-            className="rounded-full border border-black/30 px-4 py-2 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10"
+            className="add-to-cart-button rounded-full border border-black/30 px-4 py-2 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10"
           >
             Add to cart
           </button>

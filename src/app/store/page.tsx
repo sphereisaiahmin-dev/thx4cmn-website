@@ -3,7 +3,7 @@ import { products } from '@/data/products';
 
 export default function StorePage() {
   return (
-    <section className="space-y-10">
+    <section className="store-page space-y-10">
       <div className="space-y-3">
         <p className="text-xs uppercase tracking-[0.4em] text-black/60">Store</p>
         <h1 className="text-3xl uppercase tracking-[0.3em]">Latest drops</h1>
