@@ -18,9 +18,15 @@ interface ProductModelRigProps {
   onToggle: () => void;
 }
 
+const scaleByModelUrl: Record<string, number> = {
+  '/api/3d/samplepack.glb': 20,
+  '/api/3d/thxc.glb': 0.0227,
+};
+
 const ProductModel = ({ modelUrl }: { modelUrl: string }) => {
   const { scene } = useGLTF(modelUrl);
-  return <primitive object={scene} />;
+  const scale = scaleByModelUrl[modelUrl] ?? 1;
+  return <primitive object={scene} scale={scale} />;
 };
 
 const ProductModelRig = ({ modelUrl, autoRotate, onToggle }: ProductModelRigProps) => {
