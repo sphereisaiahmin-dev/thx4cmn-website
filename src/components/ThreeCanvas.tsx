@@ -16,9 +16,9 @@ export const ThreeCanvas = ({
   ...props
 }: PropsWithChildren<ThreeCanvasProps>) => {
   return (
-    <div className={containerClassName}>
+    <div className={containerClassName ?? className ?? 'h-full w-full'}>
       <Canvas
-        className={className}
+        className={['h-full w-full', className].filter(Boolean).join(' ')}
         dpr={[1, 2]}
         gl={{ antialias: true, alpha: true }}
         {...props}
