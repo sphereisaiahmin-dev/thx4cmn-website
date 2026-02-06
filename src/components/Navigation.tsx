@@ -85,14 +85,14 @@ export const Navigation = () => {
           ))}
           <button
             type="button"
-            className="nav-link relative"
+            className="nav-link inline-flex items-center gap-2"
             aria-expanded={isMiniCartOpen}
             aria-controls="mini-cart"
             onClick={() => setMiniCartOpen(true)}
           >
-            CART
+            <span>CART</span>
             {totalQuantity > 0 ? (
-              <span className="cart-count absolute -right-3 -top-2 font-semibold text-[0.7rem]">
+              <span className="cart-count inline-flex min-w-[1.25rem] items-center justify-center rounded-full border border-current px-1 text-[0.65rem] font-semibold leading-none">
                 {totalQuantity}
               </span>
             ) : null}

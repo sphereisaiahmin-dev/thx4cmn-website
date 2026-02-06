@@ -95,7 +95,7 @@ export const AudioPlayer = () => {
     const updateCollapsed = (nextValue: boolean) => {
       setIsCollapsed((prev) => (prev === nextValue ? prev : nextValue));
     };
-    if (pathname === '/cart') {
+    if (pathname === '/cart' || pathname === '/store' || pathname === '/music') {
       updateCollapsed(true);
     } else if (pathname === '/') {
       updateCollapsed(false);
