@@ -8,10 +8,11 @@ import { MathUtils, type Group } from 'three';
 import { ThreeCanvas } from './ThreeCanvas';
 
 const LOGO_MODEL_URL = '/api/3d/thx4cmnlogo.glb';
+const LOGO_SCALE = 2;
 
 const LogoModel = () => {
   const { scene } = useGLTF(LOGO_MODEL_URL);
-  return <primitive object={scene} scale={1} />;
+  return <primitive object={scene} scale={LOGO_SCALE} />;
 };
 
 const LogoRig = () => {
