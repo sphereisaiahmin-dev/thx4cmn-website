@@ -32,18 +32,15 @@ export const ProductCard = ({ product }: ProductCardProps) => {
   };
 
   return (
-    <div className="flex h-full flex-col justify-between gap-6 rounded-2xl border border-black/10 bg-black/5 p-6">
-      <div className="space-y-4">
+    <div className="flex h-full min-h-0 flex-col justify-between gap-6 border border-black/10 bg-black/5 p-6">
+      <div className="flex min-h-0 flex-1 flex-col gap-6">
         <div className="space-y-3">
           <h3 className="text-lg uppercase tracking-[0.25em]">{product.name}</h3>
           <p className="text-sm text-black/70">{product.description}</p>
         </div>
         {modelUrl ? (
-          <div className="rounded-2xl bg-white/70 p-3">
-            <ProductModelScene modelUrl={modelUrl} className="h-52 w-full" />
-            <p className="mt-2 text-[0.55rem] uppercase tracking-[0.35em] text-black/50">
-              Click model to toggle rotation
-            </p>
+          <div className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white/70 p-3">
+            <ProductModelScene modelUrl={modelUrl} className="h-full w-full" />
           </div>
         ) : null}
       </div>
