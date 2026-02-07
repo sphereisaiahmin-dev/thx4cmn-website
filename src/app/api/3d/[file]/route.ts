@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const allowedFiles = new Set(['thx4cmnlogo.glb', 'samplepack.glb', 'thxc.glb']);
+const allowedFiles = new Set([
+  'thx4cmnlogo.glb',
+  'thx4cmnlogoheader.glb',
+  'samplepack.glb',
+  'thxc.glb',
+]);
 
 export const runtime = 'nodejs';
 
@@ -15,7 +20,8 @@ export async function GET(
     return new Response('Not found', { status: 404 });
   }
 
-  const filePath = path.join(process.cwd(), '3dfiles', file);
+  const resolvedFile = file === 'thx4cmnlogoheader.glb' ? 'thx4cmnlogo.glb' : file;
+  const filePath = path.join(process.cwd(), '3dfiles', resolvedFile);
 
   try {
     const data = await readFile(filePath);

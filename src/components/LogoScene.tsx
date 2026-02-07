@@ -8,6 +8,7 @@ import { MathUtils, type Group } from 'three';
 import { ThreeCanvas } from './ThreeCanvas';
 
 const LOGO_MODEL_URL = '/api/3d/thx4cmnlogo.glb';
+const HEADER_LOGO_MODEL_URL = '/api/3d/thx4cmnlogoheader.glb';
 const LOGO_SCALE = 2;
 
 type PointerPosition = {
@@ -15,12 +16,12 @@ type PointerPosition = {
   y: number;
 };
 
-const LogoModel = () => {
-  const { scene } = useGLTF(LOGO_MODEL_URL);
+const LogoModel = ({ modelUrl }: { modelUrl: string }) => {
+  const { scene } = useGLTF(modelUrl);
   return <primitive object={scene} scale={LOGO_SCALE} />;
 };
 
-const LogoRig = () => {
+const LogoRig = ({ modelUrl }: { modelUrl: string }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
 
@@ -58,7 +59,7 @@ const LogoRig = () => {
   return (
     <group ref={groupRef}>
       <Center>
-        <LogoModel />
+        <LogoModel modelUrl={modelUrl} />
       </Center>
     </group>
   );
@@ -66,9 +67,13 @@ const LogoRig = () => {
 
 interface LogoSceneProps {
   className?: string;
+  modelUrl?: string;
 }
 
-export const LogoScene = ({ className = 'h-[320px] w-full' }: LogoSceneProps) => {
+export const LogoScene = ({
+  className = 'h-[320px] w-full',
+  modelUrl = LOGO_MODEL_URL,
+}: LogoSceneProps) => {
   return (
     <ThreeCanvas
       className={className}
@@ -77,10 +82,11 @@ export const LogoScene = ({ className = 'h-[320px] w-full' }: LogoSceneProps) =>
       <ambientLight intensity={0.8} />
       <directionalLight position={[4, 4, 4]} intensity={1.2} />
       <Suspense fallback={<Html center className="text-xs text-black/50">Loading logo…</Html>}>
-        <LogoRig />
+        <LogoRig modelUrl={modelUrl} />
       </Suspense>
     </ThreeCanvas>
   );
 };
 
 useGLTF.preload(LOGO_MODEL_URL);
+useGLTF.preload(HEADER_LOGO_MODEL_URL);
