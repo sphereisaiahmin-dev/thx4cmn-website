@@ -9,6 +9,7 @@ import { ThreeCanvas } from './ThreeCanvas';
 
 const LOGO_MODEL_URL = '/api/3d/thx4cmnlogo.glb';
 const LOGO_SCALE = 2;
+const LOGO_DEPTH_SCALE = LOGO_SCALE * 2;
 
 type PointerPosition = {
   x: number;
@@ -17,7 +18,9 @@ type PointerPosition = {
 
 const LogoModel = () => {
   const { scene } = useGLTF(LOGO_MODEL_URL);
-  return <primitive object={scene} scale={LOGO_SCALE} />;
+  return (
+    <primitive object={scene} scale={[LOGO_SCALE, LOGO_SCALE, LOGO_DEPTH_SCALE]} />
+  );
 };
 
 const LogoRig = () => {
