@@ -45,10 +45,14 @@ const LogoRig = () => {
   );
 };
 
-export const LogoScene = () => {
+interface LogoSceneProps {
+  className?: string;
+}
+
+export const LogoScene = ({ className = 'h-[320px] w-full' }: LogoSceneProps) => {
   return (
     <ThreeCanvas
-      className="h-[320px] w-full"
+      className={className}
       camera={{ position: [0, 0, 4.6], fov: 40 }}
     >
       <ambientLight intensity={0.8} />
