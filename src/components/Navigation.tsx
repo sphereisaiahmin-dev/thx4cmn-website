@@ -2,10 +2,12 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 
 import { formatCurrency } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
 import { useUiStore } from '@/store/ui';
+import { LogoScene } from './LogoScene';
 
 const navItems = [
   { href: '/', label: 'Home' },
@@ -19,6 +21,8 @@ export const Navigation = () => {
   const isMiniCartOpen = useUiStore((state) => state.isMiniCartOpen);
   const setMiniCartOpen = useUiStore((state) => state.setMiniCartOpen);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
+  const pathname = usePathname();
+  const isHome = pathname === '/';
   const totalQuantity = useMemo(
     () => items.reduce((total, item) => total + item.quantity, 0),
     [items],
@@ -71,11 +75,14 @@ export const Navigation = () => {
       <header className="flex items-center justify-between border-b border-black/10 py-6">
         <Link href="/" className="relative flex h-10 w-28 items-center justify-center overflow-visible">
           <span className="sr-only">thx4cmn</span>
-          <iframe
-            title="thx4cmn logo"
-            src="https://thx4cmnlogo.netlify.app/"
-            className="pointer-events-none absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 border-0"
-          />
+          <div
+            className={`absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 transition-opacity duration-200 ${
+              isHome ? 'pointer-events-none opacity-0' : 'opacity-100'
+            }`}
+            aria-hidden={isHome}
+          >
+            <LogoScene className="h-full w-full" />
+          </div>
         </Link>
         <nav className="flex items-center gap-6 text-xs uppercase tracking-[0.3em]">
           {navItems.map((item) => (

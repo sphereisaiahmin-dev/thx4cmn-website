@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import dynamic from 'next/dynamic';
 import { Footer } from '@/components/Footer';
+import { HomeLogoBackground } from '@/components/HomeLogoBackground';
 import { Navigation } from '@/components/Navigation';
 
 import './globals.css';
@@ -23,6 +24,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <HomeLogoBackground />
         <div className="flex min-h-screen w-full flex-col px-6">
           <Navigation />
           <AudioPlayer />
