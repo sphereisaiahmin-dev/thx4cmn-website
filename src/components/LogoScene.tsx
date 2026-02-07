@@ -3,12 +3,17 @@
 import { Center, Html, useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { Suspense, useEffect, useRef } from 'react';
-import { MathUtils, type Group, type Vector2Like } from 'three';
+import { MathUtils, type Group } from 'three';
 
 import { ThreeCanvas } from './ThreeCanvas';
 
 const LOGO_MODEL_URL = '/api/3d/thx4cmnlogo.glb';
 const LOGO_SCALE = 2;
+
+type PointerPosition = {
+  x: number;
+  y: number;
+};
 
 const LogoModel = () => {
   const { scene } = useGLTF(LOGO_MODEL_URL);
@@ -17,7 +22,7 @@ const LogoModel = () => {
 
 const LogoRig = () => {
   const groupRef = useRef<Group>(null);
-  const pointerRef = useRef<Vector2Like>({ x: 0, y: 0 });
+  const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
