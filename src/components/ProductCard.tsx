@@ -3,6 +3,7 @@
 import Link from 'next/link';
 
 import { ProductModelScene } from '@/components/ProductModelScene';
+import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
 import { formatCurrency } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
@@ -10,11 +11,6 @@ import { useCartStore } from '@/store/cart';
 interface ProductCardProps {
   product: Product;
 }
-
-const modelUrlsByProductId: Record<string, string> = {
-  'sample-pack': '/api/3d/samplepack.glb',
-  'midi-device': '/api/3d/thxc.glb',
-};
 
 export const ProductCard = ({ product }: ProductCardProps) => {
   const addItem = useCartStore((state) => state.addItem);

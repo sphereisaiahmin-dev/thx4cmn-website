@@ -95,7 +95,7 @@ export const AudioPlayer = () => {
     const updateCollapsed = (nextValue: boolean) => {
       setIsCollapsed((prev) => (prev === nextValue ? prev : nextValue));
     };
-    if (pathname === '/cart' || pathname === '/store' || pathname === '/music') {
+    if (pathname === '/cart' || pathname === '/store' || pathname === '/projects') {
       updateCollapsed(true);
     } else if (pathname === '/') {
       updateCollapsed(false);
@@ -123,6 +123,7 @@ export const AudioPlayer = () => {
           type="button"
           className="audio-player__collapse-button"
           onClick={() => setIsCollapsed((prev) => !prev)}
+          data-collapsed={isCollapsed}
           aria-expanded={!isCollapsed}
           aria-label={isCollapsed ? 'Expand player' : 'Collapse player'}
         >
