@@ -62,6 +62,8 @@ export default function DevicePage() {
   });
   const readBufferRef = useRef('');
   const isConnected = status === 'connected' && Boolean(port);
+  const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
 
   const appendLog = (message: string) => {
     setLog((prev) => [message, ...prev].slice(0, 20));
@@ -131,9 +133,11 @@ export default function DevicePage() {
 
       const nextWriter = connectedPort.writable?.getWriter() ?? null;
       setWriter(nextWriter);
+      writerRef.current = nextWriter;
 
       const nextReader = connectedPort.readable?.getReader() ?? null;
       setReader(nextReader);
+      readerRef.current = nextReader;
 
       if (nextWriter) {
         await sendRawMessage('ping\n', nextWriter);
@@ -162,7 +166,8 @@ export default function DevicePage() {
   };
 
   const handleSendConfiguration = async () => {
-    if (!writer) {
+    const activeWriter = writerRef.current ?? writer;
+    if (!activeWriter) {
       appendLog('Connect to a device before sending configuration.');
       return;
     }
@@ -172,19 +177,16 @@ export default function DevicePage() {
         Object.entries(modifierChords).map(([key, value]) => [key, value]),
       ),
     };
-    await sendJsonPayload(payload);
+    await sendRawMessage(`${JSON.stringify(payload)}\n`, activeWriter);
     appendLog('Sent full configuration payload.');
   };
 
   useEffect(() => {
     return () => {
-      reader?.cancel().catch(() => null);
-      writer?.releaseLock();
-      setReader(null);
-      setWriter(null);
-      setPort(null);
+      readerRef.current?.cancel().catch(() => null);
+      writerRef.current?.releaseLock();
     };
-  }, [reader, writer]);
+  }, []);
 
   return (
     <section className="space-y-8">
@@ -256,7 +258,7 @@ export default function DevicePage() {
             <button
               type="button"
               onClick={handleSendConfiguration}
-              disabled={!isConnected}
+              disabled={!isConnected || !writer}
               className="rounded-full border border-black/30 px-4 py-2 text-[10px] uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-60"
             >
               Send to device
