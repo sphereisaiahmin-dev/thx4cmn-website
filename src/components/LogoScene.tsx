@@ -11,18 +11,20 @@ const LOGO_MODEL_VERSION = '2024-10-04';
 export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
 export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
+export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
+const MAX_ROTATION = MathUtils.degToRad(90);
 
 type PointerPosition = {
   x: number;
   y: number;
 };
 
-const LogoModel = ({ modelUrl }: { modelUrl: string }) => {
+const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const { scene } = useGLTF(modelUrl);
-  return <primitive object={scene} scale={LOGO_SCALE} />;
+  return <primitive object={scene} scale={scale} />;
 };
 
-const LogoRig = ({ modelUrl }: { modelUrl: string }) => {
+const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
 
@@ -42,8 +44,8 @@ const LogoRig = ({ modelUrl }: { modelUrl: string }) => {
   useFrame(() => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * 0.35, -0.4, 0.4);
-    const targetY = MathUtils.clamp(pointerRef.current.x * 0.45, -0.6, 0.6);
+    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
+    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
 
     groupRef.current.rotation.x = MathUtils.lerp(
       groupRef.current.rotation.x,
@@ -60,7 +62,7 @@ const LogoRig = ({ modelUrl }: { modelUrl: string }) => {
   return (
     <group ref={groupRef}>
       <Center>
-        <LogoModel modelUrl={modelUrl} />
+        <LogoModel modelUrl={modelUrl} scale={scale} />
       </Center>
     </group>
   );
@@ -69,11 +71,13 @@ const LogoRig = ({ modelUrl }: { modelUrl: string }) => {
 interface LogoSceneProps {
   className?: string;
   modelUrl?: string;
+  modelScale?: number;
 }
 
 export const LogoScene = ({
   className = 'h-[320px] w-full',
   modelUrl = LOGO_MODEL_URL,
+  modelScale = LOGO_SCALE,
 }: LogoSceneProps) => {
   return (
     <ThreeCanvas
@@ -81,9 +85,9 @@ export const LogoScene = ({
       camera={{ position: [0, 0, 8.5], fov: 40 }}
     >
       <ambientLight intensity={0.8} />
-      <directionalLight position={[4, 4, 4]} intensity={1.2} />
+      <directionalLight position={[4, 0, 4]} intensity={1.2} />
       <Suspense fallback={<Html center className="text-xs text-black/50">Loading logo…</Html>}>
-        <LogoRig modelUrl={modelUrl} />
+        <LogoRig modelUrl={modelUrl} scale={modelScale} />
       </Suspense>
     </ThreeCanvas>
   );
