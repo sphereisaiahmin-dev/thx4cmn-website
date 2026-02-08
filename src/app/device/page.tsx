@@ -267,8 +267,9 @@ export default function DevicePage() {
         writerRef.current.releaseLock();
         writerRef.current = null;
       }
-      if (port) {
-        await port.close();
+      const existingPort = port;
+      if (existingPort) {
+        await existingPort.close();
         setPort(null);
       }
       setStatus('connecting');
