@@ -55,10 +55,17 @@ export default function DevicePage() {
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null);
   const readBufferRef = useRef('');
+  const pingResolverRef = useRef<((value: boolean) => void) | null>(null);
+  const pingTimeoutRef = useRef<number | null>(null);
 
   const appendLog = (message: string) => {
     setLog((prev) => [message, ...prev].slice(0, 20));
   };
+
+  const sleep = (duration: number) =>
+    new Promise<void>((resolve) => {
+      window.setTimeout(resolve, duration);
+    });
 
   const isModifierKey = (keyIndex: number) => MODIFIER_KEYS.includes(keyIndex);
 
@@ -95,6 +102,14 @@ export default function DevicePage() {
     }
     if (trimmed === 'pong') {
       appendLog('Received pong response.');
+      if (pingResolverRef.current) {
+        pingResolverRef.current(true);
+        pingResolverRef.current = null;
+      }
+      if (pingTimeoutRef.current) {
+        window.clearTimeout(pingTimeoutRef.current);
+        pingTimeoutRef.current = null;
+      }
       return;
     }
     if (trimmed === 'ok') {
@@ -148,6 +163,15 @@ export default function DevicePage() {
         const { value, done } = await reader.read();
         if (done) {
           appendLog('Device reader closed.');
+          setStatus('error');
+          setPort(null);
+          setWriter(null);
+          writerRef.current?.releaseLock();
+          writerRef.current = null;
+          if (pingResolverRef.current) {
+            pingResolverRef.current(false);
+            pingResolverRef.current = null;
+          }
           break;
         }
         if (value) {
@@ -170,8 +194,21 @@ export default function DevicePage() {
     }
   };
 
+  const ensureWriter = () => {
+    if (writerRef.current) {
+      return writerRef.current;
+    }
+    if (port?.writable) {
+      const nextWriter = port.writable.getWriter();
+      setWriter(nextWriter);
+      writerRef.current = nextWriter;
+      return nextWriter;
+    }
+    return null;
+  };
+
   const sendMessage = async (message: string) => {
-    const activeWriter = writerRef.current ?? writer;
+    const activeWriter = ensureWriter() ?? writer;
     if (!activeWriter) {
       appendLog('No active serial writer. Connect the device first.');
       return false;
@@ -183,9 +220,35 @@ export default function DevicePage() {
     } catch (error) {
       appendLog('Failed to send data to device.');
       console.error(error);
+      try {
+        activeWriter.releaseLock();
+      } catch (releaseError) {
+        console.error(releaseError);
+      }
+      if (writerRef.current === activeWriter) {
+        writerRef.current = null;
+      }
+      setWriter(null);
       return false;
     }
   };
+
+  const waitForPong = (timeoutMs: number) =>
+    new Promise<boolean>((resolve) => {
+      if (pingResolverRef.current) {
+        pingResolverRef.current(false);
+      }
+      pingResolverRef.current = resolve;
+      if (pingTimeoutRef.current) {
+        window.clearTimeout(pingTimeoutRef.current);
+      }
+      pingTimeoutRef.current = window.setTimeout(() => {
+        if (pingResolverRef.current === resolve) {
+          pingResolverRef.current = null;
+          resolve(false);
+        }
+      }, timeoutMs);
+    });
 
   const handleConnect = async () => {
     const serial = getSerial();
@@ -196,6 +259,19 @@ export default function DevicePage() {
     }
 
     try {
+      if (readerRef.current) {
+        await readerRef.current.cancel();
+        readerRef.current = null;
+      }
+      if (writerRef.current) {
+        writerRef.current.releaseLock();
+        writerRef.current = null;
+      }
+      const existingPort = port;
+      if (existingPort) {
+        await existingPort.close();
+        setPort(null);
+      }
       setStatus('connecting');
       appendLog('Requesting device access...');
       const port = await serial.requestPort();
@@ -209,16 +285,19 @@ export default function DevicePage() {
       setStatus('connected');
 
       void startReader(port);
-      if (activeWriter) {
-        const encoder = new TextEncoder();
-        await activeWriter.write(encoder.encode('ping\n'));
+      await sleep(1000);
+      const pingSent = await sendMessage('ping\n');
+      if (pingSent) {
+        appendLog('Sent ping payload.');
+        const pongReceived = await waitForPong(4000);
+        if (!pongReceived) {
+          appendLog('No pong response yet. Device may still be booting.');
+        }
       }
-      appendLog('Sent ping payload.');
-      if (activeWriter) {
-        const encoder = new TextEncoder();
-        await activeWriter.write(encoder.encode('state\n'));
+      const stateSent = await sendMessage('state\n');
+      if (stateSent) {
+        appendLog('Requested current device state.');
       }
-      appendLog('Requested current device state.');
     } catch (error) {
       console.error(error);
       setStatus('error');
