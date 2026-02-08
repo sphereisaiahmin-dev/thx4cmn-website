@@ -152,11 +152,6 @@ export default function DevicePage() {
 
   const updateBaseColor = (nextColor: [number, number, number]) => {
     setBaseColor(nextColor);
-    if (writer) {
-      sendJsonPayload({ baseColor: nextColor }).then(() => {
-        appendLog(`Sent base color update: ${nextColor.join(', ')}`);
-      });
-    }
   };
 
   const updateModifierChord = (keyIndex: number, chordName: string) => {
@@ -164,11 +159,21 @@ export default function DevicePage() {
       ...prev,
       [keyIndex]: chordName,
     }));
-    if (writer) {
-      sendJsonPayload({ chords: { [keyIndex]: chordName } }).then(() => {
-        appendLog(`Sent chord update: ${keyIndex} → ${chordName}`);
-      });
+  };
+
+  const handleSendConfiguration = async () => {
+    if (!writer) {
+      appendLog('Connect to a device before sending configuration.');
+      return;
     }
+    const payload = {
+      baseColor,
+      chords: Object.fromEntries(
+        Object.entries(modifierChords).map(([key, value]) => [key, value]),
+      ),
+    };
+    await sendJsonPayload(payload);
+    appendLog('Sent full configuration payload.');
   };
 
   useEffect(() => {
@@ -246,7 +251,17 @@ export default function DevicePage() {
         </div>
 
         <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
-          <h2 className="text-sm uppercase tracking-[0.3em] text-black/70">Editor</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm uppercase tracking-[0.3em] text-black/70">Editor</h2>
+            <button
+              type="button"
+              onClick={handleSendConfiguration}
+              disabled={!isConnected}
+              className="rounded-full border border-black/30 px-4 py-2 text-[10px] uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Send to device
+            </button>
+          </div>
           {selectedKey === null ? (
             <p className="mt-4 text-xs text-black/60">Select a key to edit its settings.</p>
           ) : MODIFIER_KEYS.has(selectedKey) ? (
