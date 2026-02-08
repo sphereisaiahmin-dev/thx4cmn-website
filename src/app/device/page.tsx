@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type SerialConnectionState = 'idle' | 'connecting' | 'connected' | 'error';
 type SerialPortLike = {
@@ -59,6 +59,17 @@ export default function DevicePage() {
   const appendLog = (message: string) => {
     setLog((prev) => [message, ...prev].slice(0, 20));
   };
+
+  const resetConnection = useCallback(() => {
+    void readerRef.current?.cancel();
+    readerRef.current = null;
+    writerRef.current?.releaseLock();
+    writerRef.current = null;
+    writer?.releaseLock();
+    setWriter(null);
+    setPort(null);
+    setStatus('idle');
+  }, [writer]);
 
   const isModifierKey = (keyIndex: number) => MODIFIER_KEYS.includes(keyIndex);
 
@@ -148,6 +159,7 @@ export default function DevicePage() {
         const { value, done } = await reader.read();
         if (done) {
           appendLog('Device reader closed.');
+          resetConnection();
           break;
         }
         if (value) {
@@ -164,6 +176,7 @@ export default function DevicePage() {
     } catch (error) {
       appendLog('Reader error: unable to process device output.');
       console.error(error);
+      resetConnection();
     } finally {
       reader.releaseLock();
       readerRef.current = null;
@@ -183,11 +196,16 @@ export default function DevicePage() {
     } catch (error) {
       appendLog('Failed to send data to device.');
       console.error(error);
+      resetConnection();
       return false;
     }
   };
 
   const handleConnect = async () => {
+    if (status !== 'idle') {
+      appendLog('Device connection already in progress.');
+      return;
+    }
     const serial = getSerial();
     if (!serial) {
       appendLog('Web Serial not supported in this browser.');
@@ -202,6 +220,7 @@ export default function DevicePage() {
       appendLog('Opening serial connection...');
       await port.open({ baudRate: 115200 });
       const activeWriter = port.writable?.getWriter() ?? null;
+      readBufferRef.current = '';
       setPort(port);
       setWriter(activeWriter);
       writerRef.current = activeWriter;
@@ -307,11 +326,9 @@ export default function DevicePage() {
 
   useEffect(() => {
     return () => {
-      void readerRef.current?.cancel();
-      writer?.releaseLock();
-      writerRef.current?.releaseLock();
+      resetConnection();
     };
-  }, [writer]);
+  }, [resetConnection]);
 
   return (
     <section className="space-y-6">
