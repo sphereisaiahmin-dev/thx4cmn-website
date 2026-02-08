@@ -58,7 +58,7 @@ export default function DevicePage() {
     <section className="space-y-8">
       <div className="space-y-3">
         <p className="text-xs uppercase tracking-[0.4em] text-black/60">Device</p>
-        <h1 className="text-3xl uppercase tracking-[0.3em]">Chord device beta</h1>
+        <h1 className="text-3xl uppercase tracking-[0.3em]">thx-c</h1>
         <p className="max-w-2xl text-sm text-black/70">
           This beta tool will configure LED palettes and chord mappings for the handheld
           thx4cmn MIDI device. The full protocol will land in a future release.

@@ -36,7 +36,6 @@ export const ProductCard = ({ product }: ProductCardProps) => {
       <div className="flex min-h-0 flex-1 flex-col gap-4 md:gap-6">
         <div className="space-y-2 md:space-y-3">
           <h3 className="text-base uppercase tracking-[0.25em] md:text-lg">{product.name}</h3>
-          <p className="text-xs text-black/70 md:text-sm">{product.description}</p>
         </div>
         {modelUrl ? (
           <div className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white/70 p-2 md:p-3">
