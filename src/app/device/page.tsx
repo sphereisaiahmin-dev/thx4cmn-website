@@ -308,10 +308,10 @@ export default function DevicePage() {
   useEffect(() => {
     return () => {
       void readerRef.current?.cancel();
-      writer?.releaseLock();
       writerRef.current?.releaseLock();
+      writer?.releaseLock();
     };
-  }, [writer]);
+  }, []);
 
   return (
     <section className="space-y-6">
