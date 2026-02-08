@@ -12,8 +12,8 @@ import { useUiStore } from '@/store/ui';
 const navItems = [
   { href: '/', label: 'Home' },
   { href: '/store', label: 'Store' },
-  { href: '/music', label: 'Music' },
-  { href: '/device', label: 'Device' },
+  { href: '/projects', label: 'Projects' },
+  { href: '/device', label: 'thx-c' },
 ];
 
 export const Navigation = () => {
@@ -76,7 +76,7 @@ export const Navigation = () => {
         <Link href="/" className="relative flex h-10 w-28 items-center justify-center overflow-visible">
           <span className="sr-only">thx4cmn</span>
           <div
-            className={`pointer-events-none absolute inset-0 transition-opacity duration-200 ${
+            className={`pointer-events-none absolute inset-0 transition-opacity duration-100 ${
               isHome ? 'opacity-0' : 'opacity-100'
             }`}
             aria-hidden={isHome}
@@ -161,7 +161,7 @@ export const Navigation = () => {
             <div className="flex flex-col gap-3">
               <Link
                 href="/cart"
-                className="nav-link inline-flex w-full items-center justify-center border border-black px-4 py-3 text-xs uppercase tracking-[0.3em]"
+                className="nav-link inline-flex w-full items-center justify-center px-4 py-3 text-xs uppercase tracking-[0.3em]"
                 onClick={() => setMiniCartOpen(false)}
               >
                 View cart
@@ -170,7 +170,7 @@ export const Navigation = () => {
                 type="button"
                 onClick={handleCheckout}
                 disabled={items.length === 0 || isCheckoutLoading}
-                className="inline-flex w-full items-center justify-center border border-black/30 px-4 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-60"
+                className="nav-link inline-flex w-full items-center justify-center px-4 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isCheckoutLoading ? 'Redirecting…' : 'Checkout'}
               </button>

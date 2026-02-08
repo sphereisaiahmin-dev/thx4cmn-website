@@ -71,8 +71,13 @@
   letter-spacing: 0.2em;
   color: inherit;
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease;
+  transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
   white-space: nowrap;
+  transform: rotate(90deg);
+}
+
+.audio-player__collapse-button[data-collapsed='true'] {
+  transform: rotate(0deg);
 }
 
 .audio-player__collapse-button:hover {

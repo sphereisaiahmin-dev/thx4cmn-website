@@ -85,7 +85,7 @@ export const LogoScene = ({
       camera={{ position: [0, 0, 8.5], fov: 40 }}
     >
       <ambientLight intensity={0.8} />
-      <directionalLight position={[4, 0, 4]} intensity={1.2} />
+      <directionalLight position={[-3, 0, 4]} intensity={1.2} />
       <Suspense fallback={<Html center className="text-xs text-black/50">Loading logo…</Html>}>
         <LogoRig modelUrl={modelUrl} scale={modelScale} />
       </Suspense>
