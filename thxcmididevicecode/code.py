@@ -223,6 +223,13 @@ def handle_serial_message(message):
     if message == "ping":
         usb_cdc.data.write(b"pong\n")
         return
+    if message == "state":
+        state_payload = {
+            "baseColor": list(base_note_color),
+            "chords": {str(key): value for key, value in modifier_chord_types.items()},
+        }
+        usb_cdc.data.write((json.dumps(state_payload) + "\n").encode("utf-8"))
+        return
     try:
         payload = json.loads(message)
     except ValueError:
