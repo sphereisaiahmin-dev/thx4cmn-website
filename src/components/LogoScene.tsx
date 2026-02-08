@@ -7,8 +7,9 @@ import { MathUtils, type Group } from 'three';
 
 import { ThreeCanvas } from './ThreeCanvas';
 
-const LOGO_MODEL_URL = '/api/3d/thx4cmnlogo.glb';
-const HEADER_LOGO_MODEL_URL = '/api/3d/thx4cmnlogoheader.glb';
+const LOGO_MODEL_VERSION = '2024-10-04';
+export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
+export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
 
 type PointerPosition = {

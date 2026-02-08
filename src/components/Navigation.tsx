@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { formatCurrency } from '@/lib/format';
-import { LogoScene } from '@/components/LogoScene';
+import { HEADER_LOGO_MODEL_URL, LogoScene } from '@/components/LogoScene';
 import { useCartStore } from '@/store/cart';
 import { useUiStore } from '@/store/ui';
 
@@ -15,8 +15,6 @@ const navItems = [
   { href: '/music', label: 'Music' },
   { href: '/device', label: 'Device' },
 ];
-
-const HEADER_LOGO_MODEL_URL = '/api/3d/thx4cmnlogoheader.glb';
 
 export const Navigation = () => {
   const pathname = usePathname();
