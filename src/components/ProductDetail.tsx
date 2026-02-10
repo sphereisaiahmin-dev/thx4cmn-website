@@ -35,11 +35,11 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
       <div className="rounded-3xl border border-black/10 bg-black/5 p-4 md:p-6">
         {modelUrl ? (
-          <div className="flex min-h-[320px] flex-col rounded-2xl bg-white/70 p-2 md:min-h-[420px] md:p-3">
+          <div className="mx-auto flex aspect-[3/4] w-full max-w-[360px] flex-col rounded-2xl bg-white/70 p-2 md:max-w-[380px] md:p-3">
             <ProductModelScene modelUrl={modelUrl} className="h-full w-full" />
           </div>
         ) : (
-          <div className="flex min-h-[320px] items-center justify-center rounded-2xl bg-white/70 text-sm text-black/50 md:min-h-[420px]">
+          <div className="mx-auto flex aspect-[3/4] w-full max-w-[360px] items-center justify-center rounded-2xl bg-white/70 text-sm text-black/50 md:max-w-[380px]">
             3D preview unavailable.
           </div>
         )}
