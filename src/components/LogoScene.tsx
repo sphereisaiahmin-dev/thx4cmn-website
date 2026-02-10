@@ -3,7 +3,7 @@
 import { Center, Html, useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { Suspense, useEffect, useRef } from 'react';
-import { MathUtils, type Group } from 'three';
+import { MathUtils, type Group, type Vector3Tuple } from 'three';
 
 import { ThreeCanvas } from './ThreeCanvas';
 
@@ -72,17 +72,21 @@ interface LogoSceneProps {
   className?: string;
   modelUrl?: string;
   modelScale?: number;
+  cameraPosition?: Vector3Tuple;
+  cameraFov?: number;
 }
 
 export const LogoScene = ({
   className = 'h-[320px] w-full',
   modelUrl = LOGO_MODEL_URL,
   modelScale = LOGO_SCALE,
+  cameraPosition = [0, 0, 8.5],
+  cameraFov = 40,
 }: LogoSceneProps) => {
   return (
     <ThreeCanvas
       className={className}
-      camera={{ position: [0, 0, 8.5], fov: 40 }}
+      camera={{ position: cameraPosition, fov: cameraFov }}
     >
       <ambientLight intensity={0.8} />
       <directionalLight position={[-3, 0, 4]} intensity={1.2} />

@@ -339,9 +339,16 @@
 
 .audio-player__transport-controls {
   display: flex;
-  justify-content: flex-end;
-  align-items: center;
+  justify-content: space-between;
+  align-items: flex-end;
   gap: 8px;
+}
+
+.audio-player__reverse-corner {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  min-width: 72px;
 }
 
 .audio-player__loop-controls {
@@ -382,12 +389,14 @@
   background: currentColor;
   color: rgba(255, 255, 255, 0.9);
   animation: nav-rgb-cycle 1.2s linear infinite;
+  animation-delay: 0s;
 }
 
 .audio-player__dot.loop-section {
   background: currentColor;
   color: rgba(255, 255, 255, 0.7);
   animation: nav-rgb-cycle 1.2s linear infinite;
+  animation-delay: 0s;
 }
 
 .audio-player__dot.loop-marker--both {

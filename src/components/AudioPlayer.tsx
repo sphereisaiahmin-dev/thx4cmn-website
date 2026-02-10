@@ -220,15 +220,17 @@ export const AudioPlayer = () => {
             </div>
           </div>
           <div className="audio-player__transport-controls">
-            <button
-              type="button"
-              className={`audio-player__reverse-button ${state.isReversed ? 'active' : ''}`}
-              onClick={handleReverseToggle}
-              disabled={controlsDisabled || isLoading}
-              aria-pressed={state.isReversed}
-            >
-              reverse
-            </button>
+            <div className="audio-player__reverse-corner">
+              <button
+                type="button"
+                className={`audio-player__reverse-button ${state.isReversed ? 'active' : ''}`}
+                onClick={handleReverseToggle}
+                disabled={controlsDisabled || isLoading}
+                aria-pressed={state.isReversed}
+              >
+                reverse
+              </button>
+            </div>
             <div className="audio-player__loop-controls" aria-label="Loop controls">
               <button
                 type="button"
