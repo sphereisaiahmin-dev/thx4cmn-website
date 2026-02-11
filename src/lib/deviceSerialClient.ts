@@ -121,6 +121,7 @@ const DEFAULT_BACKOFF_BASE_MS = 250;
 
 const MODIFIER_KEYS = ['12', '13', '14', '15'] as const;
 const NOTE_KEYS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'] as const;
+const DEVICE_MESSAGE_TYPES = ['hello', 'hello_ack', 'error', 'apply_config', 'ack', 'nack'] as const;
 const CHORDS = new Set<ChordName>(['maj', 'min', 'maj7', 'min7', 'maj9', 'min9', 'maj79', 'min79']);
 const PRESETS = new Set<NotePresetId>(['piano', 'aurora_scene', 'sunset_scene', 'ocean_scene']);
 
@@ -151,6 +152,10 @@ const createRequestId = () => {
 const isObject = (value: unknown): value is EnvelopePayload =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const isDeviceMessageType = (value: unknown): value is DeviceMessageType =>
+  typeof value === 'string' &&
+  (DEVICE_MESSAGE_TYPES as readonly string[]).includes(value);
+
 const extractIdFromCandidate = (candidate: unknown): string | null => {
   if (!isObject(candidate)) {
     return null;
@@ -169,7 +174,7 @@ const validateEnvelope = (candidate: unknown): DeviceEnvelope | null => {
   if (v !== DEVICE_PROTOCOL_VERSION) {
     return null;
   }
-  if (typeof type !== 'string') {
+  if (!isDeviceMessageType(type)) {
     return null;
   }
   if (typeof id !== 'string' || id.length === 0) {
