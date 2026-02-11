@@ -12,7 +12,11 @@ export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
 export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
 export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
-const MAX_ROTATION = MathUtils.degToRad(90);
+const POINTER_ROTATION = MathUtils.degToRad(18);
+const FULL_ROTATION = MathUtils.degToRad(360);
+const BASE_X_SPEED = MathUtils.degToRad(26);
+const BASE_Y_SPEED = MathUtils.degToRad(34);
+const SPIN_ACCELERATION = 1.4;
 
 type PointerPosition = {
   x: number;
@@ -27,6 +31,8 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const rotationRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const velocityRef = useRef<PointerPosition>({ x: 0, y: 0 });
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -41,22 +47,30 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((state, delta) => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
+    velocityRef.current.x = MathUtils.damp(velocityRef.current.x, BASE_X_SPEED, SPIN_ACCELERATION, delta);
+    velocityRef.current.y = MathUtils.damp(velocityRef.current.y, BASE_Y_SPEED, SPIN_ACCELERATION, delta);
 
-    groupRef.current.rotation.x = MathUtils.lerp(
-      groupRef.current.rotation.x,
-      targetX,
-      0.08,
+    rotationRef.current.x = MathUtils.euclideanModulo(
+      rotationRef.current.x + velocityRef.current.x * delta,
+      FULL_ROTATION,
     );
-    groupRef.current.rotation.y = MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetY,
-      0.08,
+    rotationRef.current.y = MathUtils.euclideanModulo(
+      rotationRef.current.y + velocityRef.current.y * delta,
+      FULL_ROTATION,
     );
+
+    const pointerX = MathUtils.clamp(-pointerRef.current.y * POINTER_ROTATION, -POINTER_ROTATION, POINTER_ROTATION);
+    const pointerY = MathUtils.clamp(pointerRef.current.x * POINTER_ROTATION, -POINTER_ROTATION, POINTER_ROTATION);
+
+    // Tiny incommensurate offsets keep the motion from appearing to lock at quarter/half turns.
+    const microOffsetX = Math.sin(state.clock.elapsedTime * 0.63 + 0.31) * 0.015;
+    const microOffsetY = Math.sin(state.clock.elapsedTime * 0.79 + 0.67) * 0.015;
+
+    groupRef.current.rotation.x = rotationRef.current.x + pointerX + microOffsetX;
+    groupRef.current.rotation.y = rotationRef.current.y + pointerY + microOffsetY;
   });
 
   return (
