@@ -32,19 +32,19 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   };
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
-      <div className="rounded-3xl border border-black/10 bg-black/5 p-4 md:p-6">
+    <div className="grid gap-6 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)] lg:items-start lg:gap-4">
+      <div className="mx-auto w-full max-w-[360px] rounded-3xl border border-black/10 bg-black/5 p-3 md:p-4 lg:mx-0">
         {modelUrl ? (
-          <div className="flex min-h-[320px] flex-col rounded-2xl bg-white/70 p-2 md:min-h-[420px] md:p-3">
+          <div className="flex aspect-[3/4] w-full items-center justify-center rounded-2xl bg-white/70 p-3 md:p-4">
             <ProductModelScene modelUrl={modelUrl} className="h-full w-full" />
           </div>
         ) : (
-          <div className="flex min-h-[320px] items-center justify-center rounded-2xl bg-white/70 text-sm text-black/50 md:min-h-[420px]">
+          <div className="flex aspect-[3/4] w-full items-center justify-center rounded-2xl bg-white/70 p-3 text-sm text-black/50 md:p-4">
             3D preview unavailable.
           </div>
         )}
       </div>
-      <div className="space-y-6">
+      <div className="space-y-5">
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.4em] text-black/60">{product.type}</p>
           <h1 className="text-3xl uppercase tracking-[0.3em]">{product.name}</h1>
