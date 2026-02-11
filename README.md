@@ -90,3 +90,25 @@ This boots the app locally, uses Playwright in headless Chromium, and checks:
 - no `Loading track...` status on reverse-only toggles
 
 For local/dev environments without R2 credentials, the music API automatically falls back to the local fixture track at `audiowebplayer/Dreams Come True.mp3`.
+
+## Device protocol v1 tests
+
+Protocol spec: `docs/device-protocol-v1.md`
+
+Run website serial-client tests:
+
+```bash
+npm run test:device-serial
+```
+
+Run firmware parser tests:
+
+```bash
+npm run test:device-firmware
+```
+
+Run both:
+
+```bash
+npm run test:device-protocol
+```

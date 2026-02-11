@@ -1,4 +1,3 @@
-import json
 import math
 import time
 
@@ -14,10 +13,14 @@ import adafruit_midi
 from adafruit_midi.note_off import NoteOff
 from adafruit_midi.note_on import NoteOn
 
+from protocol_v1 import PROTOCOL_VERSION, process_serial_chunk
+
 keybow = Keybow2040(Hardware())
 keys = keybow.keys
 
 BRIGHTNESS_SCALE = 0.9
+FIRMWARE_VERSION = "1.0.0"
+DEVICE_NAME = "thx-c pico midi"
 
 NOTE_KEY_INDICES = tuple(range(12))
 MODIFIER_KEY_INDICES = (12, 13, 14, 15)
@@ -60,6 +63,12 @@ alt_mode_active = False
 octave_offset = 0
 velocity_index = 0
 serial_buffer = bytearray()
+protocol_capabilities = {
+    "device": DEVICE_NAME,
+    "protocolVersion": PROTOCOL_VERSION,
+    "features": ["handshake"],
+    "firmwareVersion": FIRMWARE_VERSION,
+}
 
 CHORD_INTERVALS_BY_NAME = {
     "maj": (0, 4, 7),
@@ -195,69 +204,24 @@ def emergency_note_off():
     clear_active_chord_notes()
 
 
-def clamp_color_value(value):
-    return max(0, min(255, int(value)))
-
-
-def set_base_note_color(color_values):
-    for i, value in enumerate(color_values[:3]):
-        base_note_color[i] = clamp_color_value(value)
-    for index in NOTE_KEY_INDICES:
-        if index not in active_chord_notes:
-            set_led_scaled(index, *base_note_color)
-
-
-def update_modifier_chord_types(chord_map):
-    for key, chord_name in chord_map.items():
-        try:
-            index = int(key)
-        except (TypeError, ValueError):
-            continue
-        if index in MODIFIER_KEY_INDICES and chord_name in CHORD_INTERVALS_BY_NAME:
-            modifier_chord_types[index] = chord_name
-
-
-def handle_serial_message(message):
-    if not message:
-        return
-    if message == "ping":
-        usb_cdc.data.write(b"pong\n")
-        return
-    try:
-        payload = json.loads(message)
-    except ValueError:
-        return
-    if not isinstance(payload, dict):
-        return
-    chord_map = payload.get("chords")
-    if isinstance(chord_map, dict):
-        update_modifier_chord_types(chord_map)
-    base_color = payload.get("baseColor")
-    if isinstance(base_color, (list, tuple)) and len(base_color) >= 3:
-        set_base_note_color(base_color)
-    usb_cdc.data.write(b"ok\n")
+def protocol_now_ms():
+    return int(time.time() * 1000)
 
 
 def poll_serial():
     if usb_cdc.data is None or not usb_cdc.data.connected:
         return
+
+    chunk = b""
     waiting = usb_cdc.data.in_waiting
     if waiting:
-        serial_buffer.extend(usb_cdc.data.read(waiting))
-    if serial_buffer == b"ping":
-        serial_buffer.clear()
-        handle_serial_message("ping")
-        return
-    while b"\n" in serial_buffer or b"\r" in serial_buffer:
-        for separator in (b"\n", b"\r"):
-            if separator in serial_buffer:
-                line, _, remainder = serial_buffer.partition(separator)
-                serial_buffer.clear()
-                serial_buffer.extend(remainder)
-                break
-        else:
-            break
-        handle_serial_message(line.decode("utf-8").strip())
+        chunk = usb_cdc.data.read(waiting) or b""
+
+    responses = process_serial_chunk(
+        serial_buffer, chunk, protocol_capabilities, protocol_now_ms()
+    )
+    for response in responses:
+        usb_cdc.data.write(response)
 
 
 def chord_intervals():

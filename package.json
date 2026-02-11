@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "format": "prettier --write .",
-    "verify:webplayer": "node scripts/verify-webplayer.mjs"
+    "verify:webplayer": "node scripts/verify-webplayer.mjs",
+    "test:device-serial": "node --test --experimental-strip-types tests/deviceSerialClient.test.ts",
+    "test:device-firmware": "python3 -m unittest thxcmididevicecode.test_protocol_v1",
+    "test:device-protocol": "npm run test:device-serial && npm run test:device-firmware"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.637.0",
