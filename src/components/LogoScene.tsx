@@ -12,7 +12,13 @@ export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
 export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
 export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
-const MAX_ROTATION = MathUtils.degToRad(90);
+const BASE_ROTATION_SPEED_X = MathUtils.degToRad(1.5);
+const BASE_ROTATION_SPEED_Y = MathUtils.degToRad(4);
+const MAX_MOUSE_SPEED_BIAS_X = MathUtils.degToRad(2.5);
+const MAX_MOUSE_SPEED_BIAS_Y = MathUtils.degToRad(6);
+const BASE_ACCELERATION = 0.06;
+const MAX_ACCELERATION = 0.14;
+const POINTER_SMOOTHING = 0.07;
 
 type PointerPosition = {
   x: number;
@@ -27,6 +33,11 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const smoothedPointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const angularVelocityRef = useRef<PointerPosition>({
+    x: BASE_ROTATION_SPEED_X,
+    y: BASE_ROTATION_SPEED_Y,
+  });
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -41,22 +52,54 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
+    smoothedPointerRef.current.x = MathUtils.lerp(
+      smoothedPointerRef.current.x,
+      pointerRef.current.x,
+      POINTER_SMOOTHING,
+    );
+    smoothedPointerRef.current.y = MathUtils.lerp(
+      smoothedPointerRef.current.y,
+      pointerRef.current.y,
+      POINTER_SMOOTHING,
+    );
 
-    groupRef.current.rotation.x = MathUtils.lerp(
-      groupRef.current.rotation.x,
-      targetX,
-      0.08,
+    const pointerMagnitude = Math.min(
+      1,
+      Math.hypot(smoothedPointerRef.current.x, smoothedPointerRef.current.y),
     );
-    groupRef.current.rotation.y = MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetY,
-      0.08,
+    const speedScale = 1 + pointerMagnitude * 0.4;
+
+    const targetVelocityX =
+      BASE_ROTATION_SPEED_X * speedScale +
+      smoothedPointerRef.current.y * MAX_MOUSE_SPEED_BIAS_X;
+    const targetVelocityY =
+      BASE_ROTATION_SPEED_Y * speedScale +
+      smoothedPointerRef.current.x * MAX_MOUSE_SPEED_BIAS_Y;
+
+    const acceleration = MathUtils.lerp(
+      BASE_ACCELERATION,
+      MAX_ACCELERATION,
+      pointerMagnitude,
     );
+    const easedAcceleration = MathUtils.clamp(acceleration * delta * 60, 0, 1);
+
+    angularVelocityRef.current.x = MathUtils.lerp(
+      angularVelocityRef.current.x,
+      targetVelocityX,
+      easedAcceleration,
+    );
+    angularVelocityRef.current.y = MathUtils.lerp(
+      angularVelocityRef.current.y,
+      targetVelocityY,
+      easedAcceleration,
+    );
+
+    // Keep the current phase and momentum continuous; only velocity is influenced by mouse input.
+    groupRef.current.rotation.x += angularVelocityRef.current.x * delta;
+    groupRef.current.rotation.y += angularVelocityRef.current.y * delta;
   });
 
   return (
