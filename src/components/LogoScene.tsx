@@ -12,7 +12,14 @@ export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
 export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
 export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
-const MAX_ROTATION = MathUtils.degToRad(90);
+const BASE_X_SPIN = 1.15;
+const BASE_Y_SPIN = 0.42;
+const POINTER_FORCE = 8.4;
+const EDGE_FORCE_THRESHOLD = 0.72;
+const EDGE_RETURN_BOOST = 12.5;
+const HOME_PULL = 2.25;
+const TOWARD_HOME_ACCEL = 1.45;
+const AWAY_FROM_HOME_ACCEL = 0.62;
 
 type PointerPosition = {
   x: number;
@@ -27,11 +34,15 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const pointerTargetRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const velocityRef = useRef<PointerPosition>({ x: 0, y: 0 });
+
+  const wrapRotation = (value: number) => MathUtils.euclideanModulo(value + Math.PI, Math.PI * 2) - Math.PI;
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
-      pointerRef.current.x = (event.clientX / window.innerWidth) * 2 - 1;
-      pointerRef.current.y = -((event.clientY / window.innerHeight) * 2 - 1);
+      pointerTargetRef.current.x = (event.clientX / window.innerWidth) * 2 - 1;
+      pointerTargetRef.current.y = -((event.clientY / window.innerHeight) * 2 - 1);
     };
 
     window.addEventListener('pointermove', handlePointerMove);
@@ -41,21 +52,47 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
+    const pointerLerpFactor = 1 - Math.exp(-delta * 12);
+    pointerRef.current.x = MathUtils.lerp(pointerRef.current.x, pointerTargetRef.current.x, pointerLerpFactor);
+    pointerRef.current.y = MathUtils.lerp(pointerRef.current.y, pointerTargetRef.current.y, pointerLerpFactor);
 
-    groupRef.current.rotation.x = MathUtils.lerp(
-      groupRef.current.rotation.x,
-      targetX,
-      0.08,
+    const edgeDistance = Math.max(Math.abs(pointerRef.current.x), Math.abs(pointerRef.current.y));
+    // Edge force ramps sharply as the cursor approaches canvas limits.
+    const edgeForce = MathUtils.clamp((edgeDistance - EDGE_FORCE_THRESHOLD) / (1 - EDGE_FORCE_THRESHOLD), 0, 1) ** 2;
+
+    const rotationX = wrapRotation(groupRef.current.rotation.x);
+    const rotationY = wrapRotation(groupRef.current.rotation.y);
+
+    const pointerForceX = -pointerRef.current.y * POINTER_FORCE * (1 + edgeForce * 1.3);
+    const pointerForceY = pointerRef.current.x * POINTER_FORCE * (1 + edgeForce * 1.3);
+    // Magnetic return spin pushes the logo back toward home orientation, especially near edges.
+    const returnForceX = -rotationX * (HOME_PULL + edgeForce * EDGE_RETURN_BOOST);
+    const returnForceY = -rotationY * (HOME_PULL + edgeForce * EDGE_RETURN_BOOST);
+
+    const totalForceX = pointerForceX + returnForceX;
+    const totalForceY = pointerForceY + returnForceY;
+
+    const movingTowardHomeX = rotationX * velocityRef.current.x < 0;
+    const movingTowardHomeY = rotationY * velocityRef.current.y < 0;
+    const accelX = movingTowardHomeX ? TOWARD_HOME_ACCEL : AWAY_FROM_HOME_ACCEL;
+    const accelY = movingTowardHomeY ? TOWARD_HOME_ACCEL : AWAY_FROM_HOME_ACCEL;
+
+    velocityRef.current.x += totalForceX * accelX * delta;
+    velocityRef.current.y += totalForceY * accelY * delta;
+
+    const damping = Math.exp(-delta * (5.5 + edgeForce * 1.8));
+    velocityRef.current.x *= damping;
+    velocityRef.current.y *= damping;
+
+    // Keep continuous asymmetric base spin: X faster than Y.
+    groupRef.current.rotation.x = wrapRotation(
+      groupRef.current.rotation.x + (BASE_X_SPIN + velocityRef.current.x) * delta,
     );
-    groupRef.current.rotation.y = MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetY,
-      0.08,
+    groupRef.current.rotation.y = wrapRotation(
+      groupRef.current.rotation.y + (BASE_Y_SPIN + velocityRef.current.y) * delta,
     );
   });
 
