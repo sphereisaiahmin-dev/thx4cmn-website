@@ -182,7 +182,13 @@ const validateEnvelope = (candidate: unknown): DeviceEnvelope | null => {
     return null;
   }
 
-  return candidate as DeviceEnvelope;
+  return {
+    v: DEVICE_PROTOCOL_VERSION,
+    type,
+    id,
+    ts,
+    payload,
+  };
 };
 
 const validateHelloAckPayload = (payload: EnvelopePayload): payload is HelloAckPayload => {
