@@ -52,15 +52,40 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const accelerationRef = useRef<PointerPosition>({ x: 0, y: 0 });
 
   useEffect(() => {
+    const resetPointer = () => {
+      pointerRef.current.x = 0;
+      pointerRef.current.y = 0;
+    };
+
     const handlePointerMove = (event: PointerEvent) => {
       pointerRef.current.x = (event.clientX / window.innerWidth) * 2 - 1;
       pointerRef.current.y = -((event.clientY / window.innerHeight) * 2 - 1);
     };
 
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        resetPointer();
+      }
+    };
+
+    const handlePointerOut = (event: PointerEvent) => {
+      if (!event.relatedTarget) {
+        resetPointer();
+      }
+    };
+
     window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerout', handlePointerOut);
+    window.addEventListener('pointercancel', resetPointer);
+    window.addEventListener('blur', resetPointer);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerout', handlePointerOut);
+      window.removeEventListener('pointercancel', resetPointer);
+      window.removeEventListener('blur', resetPointer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
