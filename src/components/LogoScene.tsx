@@ -12,7 +12,18 @@ export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
 export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
 export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
-const MAX_ROTATION = MathUtils.degToRad(90);
+
+// Axis speed asymmetry: X keeps a faster baseline spin while Y remains slower.
+const BASE_ANGULAR_VELOCITY_X = 1.2;
+const BASE_ANGULAR_VELOCITY_Y = 0.45;
+const MOUSE_ACCELERATION = 7.5;
+const MOUSE_SPEED_MULTIPLIER = 1.35;
+const EDGE_THRESHOLD = 0.72;
+const EDGE_ACCELERATION_BOOST = 26;
+const RETURN_TO_HOME_STIFFNESS = 2.2;
+const EDGE_RETURN_BOOST = 18;
+const ANGULAR_DAMPING = 3.8;
+const MAX_MOUSE_ACCELERATION = 35;
 
 type PointerPosition = {
   x: number;
@@ -27,6 +38,7 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const velocityRef = useRef<PointerPosition>({ x: 0, y: 0 });
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -41,22 +53,41 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
+    const pointerX = pointerRef.current.x;
+    const pointerY = pointerRef.current.y;
+    const distanceFromCenter = MathUtils.clamp(Math.hypot(pointerX, pointerY), 0, 1);
+    const edgeDistance = Math.max(Math.abs(pointerX), Math.abs(pointerY));
+    const edgeBlend = MathUtils.smoothstep(edgeDistance, EDGE_THRESHOLD, 1);
+    const mouseResponse = 0.4 + distanceFromCenter * MOUSE_SPEED_MULTIPLIER;
 
-    groupRef.current.rotation.x = MathUtils.lerp(
-      groupRef.current.rotation.x,
-      targetX,
-      0.08,
+    const velocity = velocityRef.current;
+    const rotation = groupRef.current.rotation;
+
+    // Edge-force behavior: near canvas boundaries, amplify rotational acceleration aggressively.
+    const mouseAccelX = MathUtils.clamp(
+      (-pointerY * MOUSE_ACCELERATION * mouseResponse) + (-rotation.x * EDGE_ACCELERATION_BOOST * edgeBlend),
+      -MAX_MOUSE_ACCELERATION,
+      MAX_MOUSE_ACCELERATION,
     );
-    groupRef.current.rotation.y = MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetY,
-      0.08,
+    const mouseAccelY = MathUtils.clamp(
+      (pointerX * MOUSE_ACCELERATION * mouseResponse) + (-rotation.y * EDGE_ACCELERATION_BOOST * edgeBlend),
+      -MAX_MOUSE_ACCELERATION,
+      MAX_MOUSE_ACCELERATION,
     );
+
+    // Return-to-origin spin logic: stronger home-pull at edges drives fast corrective spin without snapping.
+    const returnStrength = RETURN_TO_HOME_STIFFNESS + edgeBlend * EDGE_RETURN_BOOST;
+    const accelX = mouseAccelX - rotation.x * returnStrength - velocity.x * ANGULAR_DAMPING;
+    const accelY = mouseAccelY - rotation.y * returnStrength - velocity.y * ANGULAR_DAMPING;
+
+    velocity.x += accelX * delta;
+    velocity.y += accelY * delta;
+
+    rotation.x += (BASE_ANGULAR_VELOCITY_X + velocity.x) * delta;
+    rotation.y += (BASE_ANGULAR_VELOCITY_Y + velocity.y) * delta;
   });
 
   return (
