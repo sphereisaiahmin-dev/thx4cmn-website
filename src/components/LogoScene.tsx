@@ -19,6 +19,24 @@ type PointerPosition = {
   y: number;
 };
 
+type AngularVelocity = {
+  x: number;
+  y: number;
+};
+
+// Axis speed asymmetry: X keeps a faster baseline spin than Y.
+const BASE_ANGULAR_VELOCITY_X = 0.55;
+const BASE_ANGULAR_VELOCITY_Y = 0.22;
+const BASE_SPEED_MIN_SCALE_NEAR_HOME = 0.45;
+const BASE_SPEED_MAX_SCALE_AWAY_FROM_HOME = 1.2;
+
+const POINTER_ACCELERATION_X = 2.8;
+const POINTER_ACCELERATION_Y = 2.3;
+const EDGE_THRESHOLD = 0.82;
+const EDGE_ACCELERATION_BOOST = 3.8;
+const BASE_RETURN_TO_ORIGIN_FORCE = 0.9;
+const EDGE_RETURN_TO_ORIGIN_FORCE = 2.7;
+
 const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const { scene } = useGLTF(modelUrl);
   return <primitive object={scene} scale={scale} />;
@@ -27,6 +45,7 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const velocityRef = useRef<AngularVelocity>({ x: BASE_ANGULAR_VELOCITY_X, y: BASE_ANGULAR_VELOCITY_Y });
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -41,22 +60,55 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
+    const rotation = groupRef.current.rotation;
+    const pointerX = pointerRef.current.x;
+    const pointerY = pointerRef.current.y;
 
-    groupRef.current.rotation.x = MathUtils.lerp(
-      groupRef.current.rotation.x,
-      targetX,
-      0.08,
+    const pointerDistanceFromCenter = Math.min(1, Math.hypot(pointerX, pointerY));
+    const pointerInfluence = pointerDistanceFromCenter ** 2;
+
+    const homeDistance = Math.min(1, Math.hypot(rotation.x, rotation.y) / MAX_ROTATION);
+    const homeSpeedScale = MathUtils.lerp(
+      BASE_SPEED_MIN_SCALE_NEAR_HOME,
+      BASE_SPEED_MAX_SCALE_AWAY_FROM_HOME,
+      homeDistance,
     );
-    groupRef.current.rotation.y = MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetY,
-      0.08,
+
+    const baseVelocityX = BASE_ANGULAR_VELOCITY_X * homeSpeedScale;
+    const baseVelocityY = BASE_ANGULAR_VELOCITY_Y * homeSpeedScale;
+
+    // Edge-force behavior: as the pointer nears canvas extents, acceleration gets aggressively boosted.
+    const edgeIntensity = MathUtils.clamp(
+      (pointerDistanceFromCenter - EDGE_THRESHOLD) / (1 - EDGE_THRESHOLD),
+      0,
+      1,
     );
+    const edgeBoost = 1 + edgeIntensity * EDGE_ACCELERATION_BOOST;
+
+    const accelerationX = (-pointerY * POINTER_ACCELERATION_X * pointerInfluence) * edgeBoost;
+    const accelerationY = (pointerX * POINTER_ACCELERATION_Y * pointerInfluence) * edgeBoost;
+
+    // Return-to-origin spin logic: stronger restoring torque near edges pushes motion back toward home pose.
+    const returnToOriginForce =
+      BASE_RETURN_TO_ORIGIN_FORCE + edgeIntensity * EDGE_RETURN_TO_ORIGIN_FORCE;
+
+    velocityRef.current.x += (accelerationX - rotation.x * returnToOriginForce) * delta;
+    velocityRef.current.y += (accelerationY - rotation.y * returnToOriginForce) * delta;
+
+    const responseScale = 1 + pointerInfluence * 2.5;
+    const baseSnap = 1 - Math.exp(-1.9 * responseScale * delta);
+    velocityRef.current.x = MathUtils.lerp(velocityRef.current.x, baseVelocityX, baseSnap);
+    velocityRef.current.y = MathUtils.lerp(velocityRef.current.y, baseVelocityY, baseSnap);
+
+    const damping = Math.exp(-(1.2 + pointerInfluence * 1.8) * delta);
+    velocityRef.current.x *= damping;
+    velocityRef.current.y *= damping;
+
+    rotation.x = MathUtils.clamp(rotation.x + velocityRef.current.x * delta, -MAX_ROTATION, MAX_ROTATION);
+    rotation.y = MathUtils.clamp(rotation.y + velocityRef.current.y * delta, -MAX_ROTATION, MAX_ROTATION);
   });
 
   return (
