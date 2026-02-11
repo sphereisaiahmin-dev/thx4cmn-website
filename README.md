@@ -95,6 +95,12 @@ For local/dev environments without R2 credentials, the music API automatically f
 
 Protocol spec: `docs/device-protocol-v1.md`
 
+Current config flow supports:
+
+- handshake (`hello`/`hello_ack`)
+- config push (`apply_config` -> `ack`/`nack`)
+- key grid assignment: `row1 0 4 8 12`, `row2 1 5 9 13`, `row3 2 6 10 14`, `row4 3 7 11 15`
+
 Run website serial-client tests:
 
 ```bash
