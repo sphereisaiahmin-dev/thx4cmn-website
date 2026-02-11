@@ -2,7 +2,7 @@
 
 import { Center, Html, useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { Suspense, useEffect, useRef } from 'react';
+import { Suspense, useRef } from 'react';
 import { MathUtils, type Group } from 'three';
 
 import { ThreeCanvas } from './ThreeCanvas';
@@ -12,12 +12,9 @@ export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
 export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
 export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
-const MAX_ROTATION = MathUtils.degToRad(90);
-
-type PointerPosition = {
-  x: number;
-  y: number;
-};
+const BASE_ROTATION_SPEED = MathUtils.degToRad(28);
+const MAX_ROTATION_SPEED = MathUtils.degToRad(34);
+const ACCELERATION = MathUtils.degToRad(6);
 
 const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const { scene } = useGLTF(modelUrl);
@@ -26,37 +23,31 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
-  const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const xAngleRef = useRef(0);
+  const yAngleRef = useRef(0);
+  const speedRef = useRef(BASE_ROTATION_SPEED);
+  const elapsedRef = useRef(0);
 
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      pointerRef.current.x = (event.clientX / window.innerWidth) * 2 - 1;
-      pointerRef.current.y = -((event.clientY / window.innerHeight) * 2 - 1);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-    };
-  }, []);
-
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
+    elapsedRef.current += delta;
 
-    groupRef.current.rotation.x = MathUtils.lerp(
-      groupRef.current.rotation.x,
-      targetX,
-      0.08,
+    // Smoothly ramp the angular speed to avoid a harsh instant jump on mount.
+    speedRef.current = Math.min(
+      MAX_ROTATION_SPEED,
+      speedRef.current + ACCELERATION * delta,
     );
-    groupRef.current.rotation.y = MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetY,
-      0.08,
-    );
+
+    const xModulation = 1 + Math.sin(elapsedRef.current * 0.55) * 0.06;
+    // Phase/ratio offset keeps X/Y from lining up on exact quarter/half turns.
+    const yModulation = 1 + Math.sin(elapsedRef.current * 0.67 + 0.37) * 0.06;
+
+    xAngleRef.current += speedRef.current * xModulation * delta;
+    yAngleRef.current += speedRef.current * 1.13 * yModulation * delta;
+
+    groupRef.current.rotation.x = xAngleRef.current;
+    groupRef.current.rotation.y = yAngleRef.current;
   });
 
   return (
