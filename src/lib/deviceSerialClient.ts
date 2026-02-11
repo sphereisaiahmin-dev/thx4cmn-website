@@ -1,3 +1,5 @@
+import type { ChordName, ModifierChordMap, NoteKeyPresetMap, NotePresetId } from './deviceConfig';
+
 export const DEVICE_PROTOCOL_VERSION = 1;
 export const DEVICE_PROTOCOL_MAX_FRAME_SIZE = 1024;
 
@@ -54,22 +56,24 @@ export interface DeviceErrorPayload extends EnvelopePayload {
 export interface DeviceErrorMessage extends DeviceEnvelope<'error', DeviceErrorPayload> {}
 
 export interface ApplyConfigPayload extends EnvelopePayload {
-  configId: string;
+  modifierChords: ModifierChordMap;
+  noteKeyColorPresets: NoteKeyPresetMap;
   idempotencyKey: string;
-  config: EnvelopePayload;
+  configVersion: number;
 }
 
 export interface ApplyConfigMessage extends DeviceEnvelope<'apply_config', ApplyConfigPayload> {}
 
 export interface AckPayload extends EnvelopePayload {
-  requestType: string;
+  requestType: 'apply_config';
   status: 'ok';
+  appliedConfigVersion: number;
 }
 
 export interface AckMessage extends DeviceEnvelope<'ack', AckPayload> {}
 
 export interface NackPayload extends EnvelopePayload {
-  requestType: string;
+  requestType: 'apply_config';
   code: string;
   reason: string;
   retryable: boolean;
@@ -102,6 +106,7 @@ export interface DeviceSerialClientOptions {
   clientName?: string;
   requestTimeoutMs?: number;
   handshakeAttempts?: number;
+  applyConfigAttempts?: number;
   backoffBaseMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -111,7 +116,13 @@ export interface DeviceSerialClientOptions {
 const DEFAULT_BAUD_RATE = 115200;
 const DEFAULT_REQUEST_TIMEOUT_MS = 1200;
 const DEFAULT_HANDSHAKE_ATTEMPTS = 3;
+const DEFAULT_APPLY_CONFIG_ATTEMPTS = 3;
 const DEFAULT_BACKOFF_BASE_MS = 250;
+
+const MODIFIER_KEYS = ['12', '13', '14', '15'] as const;
+const NOTE_KEYS = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'] as const;
+const CHORDS = new Set<ChordName>(['maj', 'min', 'maj7', 'min7', 'maj9', 'min9', 'maj79', 'min79']);
+const PRESETS = new Set<NotePresetId>(['piano', 'aurora_scene', 'sunset_scene', 'ocean_scene']);
 
 const getDefaultSerial = (): SerialLike | null => {
   if (typeof navigator === 'undefined' || !('serial' in navigator)) {
@@ -140,6 +151,15 @@ const createRequestId = () => {
 const isObject = (value: unknown): value is EnvelopePayload =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+const extractIdFromCandidate = (candidate: unknown): string | null => {
+  if (!isObject(candidate)) {
+    return null;
+  }
+
+  const id = candidate.id;
+  return typeof id === 'string' && id.length > 0 ? id : null;
+};
+
 const validateEnvelope = (candidate: unknown): DeviceEnvelope | null => {
   if (!isObject(candidate)) {
     return null;
@@ -165,15 +185,6 @@ const validateEnvelope = (candidate: unknown): DeviceEnvelope | null => {
   return candidate as DeviceEnvelope;
 };
 
-const extractIdFromCandidate = (candidate: unknown): string | null => {
-  if (!isObject(candidate)) {
-    return null;
-  }
-
-  const id = candidate.id;
-  return typeof id === 'string' && id.length > 0 ? id : null;
-};
-
 const validateHelloAckPayload = (payload: EnvelopePayload): payload is HelloAckPayload => {
   const features = payload.features;
   return (
@@ -185,7 +196,52 @@ const validateHelloAckPayload = (payload: EnvelopePayload): payload is HelloAckP
   );
 };
 
-class DeviceClientError extends Error {
+const validateAckPayload = (payload: EnvelopePayload): payload is AckPayload => {
+  return (
+    payload.requestType === 'apply_config' &&
+    payload.status === 'ok' &&
+    typeof payload.appliedConfigVersion === 'number'
+  );
+};
+
+const validateNackPayload = (payload: EnvelopePayload): payload is NackPayload => {
+  return (
+    payload.requestType === 'apply_config' &&
+    typeof payload.code === 'string' &&
+    typeof payload.reason === 'string' &&
+    typeof payload.retryable === 'boolean'
+  );
+};
+
+const validateApplyConfigPayload = (payload: ApplyConfigPayload) => {
+  if (!payload.idempotencyKey || typeof payload.idempotencyKey !== 'string') {
+    return 'idempotencyKey must be a non-empty string.';
+  }
+
+  if (!Number.isFinite(payload.configVersion) || payload.configVersion < 1) {
+    return 'configVersion must be a positive number.';
+  }
+
+  const modifierChords = payload.modifierChords;
+  for (const key of MODIFIER_KEYS) {
+    const chord = modifierChords[key];
+    if (typeof chord !== 'string' || !CHORDS.has(chord as ChordName)) {
+      return `modifierChords.${key} is invalid.`;
+    }
+  }
+
+  const notePresets = payload.noteKeyColorPresets;
+  for (const key of NOTE_KEYS) {
+    const preset = notePresets[key];
+    if (typeof preset !== 'string' || !PRESETS.has(preset as NotePresetId)) {
+      return `noteKeyColorPresets.${key} is invalid.`;
+    }
+  }
+
+  return null;
+};
+
+export class DeviceClientError extends Error {
   code: string;
 
   constructor(code: string, message: string) {
@@ -208,6 +264,7 @@ export class DeviceSerialClient {
   private readonly clientName: string;
   private readonly requestTimeoutMs: number;
   private readonly handshakeAttempts: number;
+  private readonly applyConfigAttempts: number;
   private readonly backoffBaseMs: number;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -229,6 +286,7 @@ export class DeviceSerialClient {
     this.clientName = options.clientName ?? 'thx4cmn-website';
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.handshakeAttempts = options.handshakeAttempts ?? DEFAULT_HANDSHAKE_ATTEMPTS;
+    this.applyConfigAttempts = options.applyConfigAttempts ?? DEFAULT_APPLY_CONFIG_ATTEMPTS;
     this.backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
     this.now = options.now ?? (() => Date.now());
     this.sleep = options.sleep ?? defaultSleep;
@@ -239,7 +297,7 @@ export class DeviceSerialClient {
     return getDefaultSerial() !== null;
   }
 
-  emit(event: Omit<ProtocolEvent, 'timestamp'>) {
+  private emit(event: Omit<ProtocolEvent, 'timestamp'>) {
     this.onEvent?.({ ...event, timestamp: this.now() });
   }
 
@@ -272,7 +330,6 @@ export class DeviceSerialClient {
 
   async disconnect() {
     this.disposed = true;
-
     this.rejectAllPending(new DeviceClientError('connection_closed', 'Connection closed.'));
 
     if (this.reader) {
@@ -357,6 +414,86 @@ export class DeviceSerialClient {
     }
 
     throw lastError ?? new DeviceClientError('handshake_failed', 'Handshake failed.');
+  }
+
+  async sendApplyConfig(payload: ApplyConfigPayload) {
+    const validationError = validateApplyConfigPayload(payload);
+    if (validationError) {
+      throw new DeviceClientError('invalid_apply_config_payload', validationError);
+    }
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 1; attempt <= this.applyConfigAttempts; attempt += 1) {
+      this.emit({
+        level: 'info',
+        message: `apply_config attempt ${attempt}/${this.applyConfigAttempts}.`,
+      });
+
+      let response: AckMessage | NackMessage;
+      try {
+        response = await this.sendRequest<AckMessage | NackMessage>(
+          'apply_config',
+          payload,
+          ['ack', 'nack'],
+          this.requestTimeoutMs,
+        );
+      } catch (error) {
+        lastError = error as Error;
+        this.emit({
+          level: 'error',
+          message: `apply_config attempt ${attempt} failed: ${lastError.message}`,
+        });
+
+        if (attempt >= this.applyConfigAttempts) {
+          break;
+        }
+
+        const backoffMs = this.backoffBaseMs * 2 ** (attempt - 1);
+        await this.sleep(backoffMs);
+        continue;
+      }
+
+      if (response.type === 'ack') {
+        if (!validateAckPayload(response.payload)) {
+          lastError = new DeviceClientError('invalid_ack', 'ack payload is malformed.');
+        } else {
+          this.emit({
+            level: 'info',
+            message: `Config applied on device (version ${response.payload.appliedConfigVersion}).`,
+          });
+          return response;
+        }
+      } else if (!validateNackPayload(response.payload)) {
+        lastError = new DeviceClientError('invalid_nack', 'nack payload is malformed.');
+      } else {
+        const nackError = new DeviceClientError(
+          response.payload.code,
+          `Config rejected: ${response.payload.reason}`,
+        );
+        if (!response.payload.retryable) {
+          throw nackError;
+        }
+
+        lastError = nackError;
+        this.emit({
+          level: 'error',
+          message: `Retryable nack received (${response.payload.code}); retrying.`,
+        });
+      }
+
+      this.emit({
+        level: 'error',
+        message: `apply_config attempt ${attempt} failed: ${lastError.message}`,
+      });
+
+      if (attempt < this.applyConfigAttempts) {
+        const backoffMs = this.backoffBaseMs * 2 ** (attempt - 1);
+        await this.sleep(backoffMs);
+      }
+    }
+
+    throw lastError ?? new DeviceClientError('apply_config_failed', 'apply_config failed.');
   }
 
   private startReadLoop() {
