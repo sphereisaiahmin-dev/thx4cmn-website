@@ -1,8 +1,6 @@
 import math
 import time
 
-time.sleep(5)
-
 from keybow2040 import Keybow2040
 # from keybow_hardware.pim56x import PIM56X as Hardware # for Keybow 2040
 from keybow_hardware.pim551 import PIM551 as Hardware  # for Pico RGB Keypad Base
@@ -68,7 +66,8 @@ last_alt_press_time = None
 alt_mode_active = False
 octave_offset = 0
 velocity_index = 0
-serial_buffer = bytearray()
+data_serial_buffer = bytearray()
+console_serial_buffer = bytearray()
 note_key_presets = {index: "piano" for index in NOTE_KEY_INDICES}
 last_applied_idempotency_key = None
 last_applied_config_version = 0
@@ -259,6 +258,32 @@ def protocol_now_ms():
     return int(time.time() * 1000)
 
 
+def stream_connected(stream):
+    if stream is None:
+        return False
+    return bool(getattr(stream, "connected", False))
+
+
+def poll_serial_stream(stream, buffer):
+    if not stream_connected(stream):
+        return
+
+    waiting = int(getattr(stream, "in_waiting", 0) or 0)
+    chunk = b""
+    if waiting:
+        chunk = stream.read(waiting) or b""
+
+    responses = process_serial_chunk(
+        buffer,
+        chunk,
+        protocol_capabilities,
+        protocol_now_ms(),
+        handle_apply_config,
+    )
+    for response in responses:
+        stream.write(response)
+
+
 def apply_modifier_chords(chord_map):
     received_keys = set(chord_map.keys())
     if received_keys != EXPECTED_MODIFIER_KEY_STRINGS:
@@ -354,23 +379,10 @@ def handle_apply_config(payload):
 
 
 def poll_serial():
-    if usb_cdc.data is None or not usb_cdc.data.connected:
-        return
-
-    chunk = b""
-    waiting = usb_cdc.data.in_waiting
-    if waiting:
-        chunk = usb_cdc.data.read(waiting) or b""
-
-    responses = process_serial_chunk(
-        serial_buffer,
-        chunk,
-        protocol_capabilities,
-        protocol_now_ms(),
-        handle_apply_config,
-    )
-    for response in responses:
-        usb_cdc.data.write(response)
+    # Listen on both CDC channels so protocol works when either Data or Control
+    # serial interface is selected by the host OS.
+    poll_serial_stream(usb_cdc.data, data_serial_buffer)
+    poll_serial_stream(getattr(usb_cdc, "console", None), console_serial_buffer)
 
 
 def chord_intervals():

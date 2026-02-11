@@ -107,6 +107,7 @@ export interface DeviceSerialClientOptions {
   requestTimeoutMs?: number;
   handshakeAttempts?: number;
   applyConfigAttempts?: number;
+  connectSettleMs?: number;
   backoffBaseMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -114,9 +115,10 @@ export interface DeviceSerialClientOptions {
 }
 
 const DEFAULT_BAUD_RATE = 115200;
-const DEFAULT_REQUEST_TIMEOUT_MS = 1200;
-const DEFAULT_HANDSHAKE_ATTEMPTS = 3;
+const DEFAULT_REQUEST_TIMEOUT_MS = 1500;
+const DEFAULT_HANDSHAKE_ATTEMPTS = 6;
 const DEFAULT_APPLY_CONFIG_ATTEMPTS = 3;
+const DEFAULT_CONNECT_SETTLE_MS = 350;
 const DEFAULT_BACKOFF_BASE_MS = 250;
 
 const MODIFIER_KEYS = ['12', '13', '14', '15'] as const;
@@ -276,6 +278,7 @@ export class DeviceSerialClient {
   private readonly requestTimeoutMs: number;
   private readonly handshakeAttempts: number;
   private readonly applyConfigAttempts: number;
+  private readonly connectSettleMs: number;
   private readonly backoffBaseMs: number;
   private readonly now: () => number;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -298,6 +301,7 @@ export class DeviceSerialClient {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.handshakeAttempts = options.handshakeAttempts ?? DEFAULT_HANDSHAKE_ATTEMPTS;
     this.applyConfigAttempts = options.applyConfigAttempts ?? DEFAULT_APPLY_CONFIG_ATTEMPTS;
+    this.connectSettleMs = options.connectSettleMs ?? DEFAULT_CONNECT_SETTLE_MS;
     this.backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
     this.now = options.now ?? (() => Date.now());
     this.sleep = options.sleep ?? defaultSleep;
@@ -335,6 +339,11 @@ export class DeviceSerialClient {
     this.reader = this.port.readable.getReader();
     this.disposed = false;
     this.startReadLoop();
+
+    if (this.connectSettleMs > 0) {
+      this.emit({ level: 'info', message: `Waiting ${this.connectSettleMs}ms for device readiness.` });
+      await this.sleep(this.connectSettleMs);
+    }
 
     this.emit({ level: 'info', message: 'Serial connection opened.' });
   }
