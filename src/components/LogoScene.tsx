@@ -12,7 +12,14 @@ export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
 export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
 export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
-const MAX_ROTATION = MathUtils.degToRad(90);
+const BASE_ROTATION_SPEED_X = MathUtils.degToRad(0.7);
+const BASE_ROTATION_SPEED_Y = MathUtils.degToRad(1.6);
+const MAX_DIRECTION_BIAS_X = MathUtils.degToRad(0.5);
+const MAX_DIRECTION_BIAS_Y = MathUtils.degToRad(1.1);
+const MAX_SPEED_BOOST = MathUtils.degToRad(0.9);
+const MIN_ACCEL_RESPONSE = 1.1;
+const MAX_ACCEL_RESPONSE = 2.6;
+const POINTER_SMOOTHING = 0.08;
 
 type PointerPosition = {
   x: number;
@@ -27,6 +34,12 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const smoothPointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  // Persist angular velocity so pointer changes only steer momentum, never restart rotation phase.
+  const rotationVelocityRef = useRef<PointerPosition>({
+    x: BASE_ROTATION_SPEED_X,
+    y: BASE_ROTATION_SPEED_Y,
+  });
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -41,21 +54,60 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-
-    groupRef.current.rotation.x = MathUtils.lerp(
-      groupRef.current.rotation.x,
-      targetX,
-      0.08,
+    smoothPointerRef.current.x = MathUtils.lerp(
+      smoothPointerRef.current.x,
+      pointerRef.current.x,
+      POINTER_SMOOTHING,
     );
-    groupRef.current.rotation.y = MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetY,
-      0.08,
+    smoothPointerRef.current.y = MathUtils.lerp(
+      smoothPointerRef.current.y,
+      pointerRef.current.y,
+      POINTER_SMOOTHING,
+    );
+
+    const pointerMagnitude = Math.min(
+      1,
+      Math.hypot(smoothPointerRef.current.x, smoothPointerRef.current.y),
+    );
+
+    const targetVelocityX =
+      BASE_ROTATION_SPEED_X +
+      smoothPointerRef.current.y * MAX_DIRECTION_BIAS_X +
+      smoothPointerRef.current.y * pointerMagnitude * MAX_SPEED_BOOST * 0.35;
+    const targetVelocityY =
+      BASE_ROTATION_SPEED_Y +
+      smoothPointerRef.current.x * MAX_DIRECTION_BIAS_Y +
+      smoothPointerRef.current.x * pointerMagnitude * MAX_SPEED_BOOST;
+
+    const accelResponse = MathUtils.lerp(
+      MIN_ACCEL_RESPONSE,
+      MAX_ACCEL_RESPONSE,
+      pointerMagnitude,
+    );
+    const step = 1 - Math.exp(-accelResponse * delta);
+
+    rotationVelocityRef.current.x = MathUtils.lerp(
+      rotationVelocityRef.current.x,
+      targetVelocityX,
+      step,
+    );
+    rotationVelocityRef.current.y = MathUtils.lerp(
+      rotationVelocityRef.current.y,
+      targetVelocityY,
+      step,
+    );
+
+    // Integrate continuously from current angles so interaction never resets the timeline.
+    groupRef.current.rotation.x = MathUtils.euclideanModulo(
+      groupRef.current.rotation.x + rotationVelocityRef.current.x * delta,
+      MathUtils.TAU,
+    );
+    groupRef.current.rotation.y = MathUtils.euclideanModulo(
+      groupRef.current.rotation.y + rotationVelocityRef.current.y * delta,
+      MathUtils.TAU,
     );
   });
 
