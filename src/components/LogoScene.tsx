@@ -143,6 +143,7 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     const pointerY = isPlayerInteractingRef.current ? 0 : pointerRef.current.y;
 
     const distanceFromCenter = Math.min(1, Math.hypot(pointerX, pointerY));
+    const proximityToCenter = MathUtils.clamp(1 - distanceFromCenter, 0, 1);
     const edgeDistance = Math.max(Math.abs(pointerX), Math.abs(pointerY));
     // Edge-force behavior: raise torque sharply near canvas bounds for energetic response.
     const edgeInfluence = MathUtils.clamp(
@@ -153,7 +154,7 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     const edgeBoost = edgeInfluence * edgeInfluence;
 
     const mouseForceScale =
-      MOUSE_FORCE_MULTIPLIER * (0.35 + distanceFromCenter * distanceFromCenter * 1.85);
+      MOUSE_FORCE_MULTIPLIER * (0.35 + proximityToCenter * proximityToCenter * 1.85);
     const mouseInfluence = MathUtils.clamp(1 - edgeBoost * EDGE_MOUSE_FORCE_FADE, 0, 1);
     const mouseForceX = -pointerY * mouseForceScale * mouseInfluence;
     const mouseForceY = pointerX * mouseForceScale * mouseInfluence;
