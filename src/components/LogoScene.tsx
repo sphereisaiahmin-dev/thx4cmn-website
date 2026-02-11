@@ -46,15 +46,32 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const accelerationRef = useRef<PointerPosition>({ x: 0, y: 0 });
 
   useEffect(() => {
+    const resetPointer = () => {
+      pointerRef.current.x = 0;
+      pointerRef.current.y = 0;
+    };
+
     const handlePointerMove = (event: PointerEvent) => {
       pointerRef.current.x = (event.clientX / window.innerWidth) * 2 - 1;
       pointerRef.current.y = -((event.clientY / window.innerHeight) * 2 - 1);
     };
 
+    const handlePointerLeaveViewport = (event: PointerEvent) => {
+      if (!event.relatedTarget) {
+        resetPointer();
+      }
+    };
+
     window.addEventListener('pointermove', handlePointerMove);
+    document.addEventListener('pointerleave', handlePointerLeaveViewport);
+    window.addEventListener('blur', resetPointer);
+    window.addEventListener('pointercancel', resetPointer);
 
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('pointerleave', handlePointerLeaveViewport);
+      window.removeEventListener('blur', resetPointer);
+      window.removeEventListener('pointercancel', resetPointer);
     };
   }, []);
 
