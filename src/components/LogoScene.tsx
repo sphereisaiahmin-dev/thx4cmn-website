@@ -13,6 +13,15 @@ export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MOD
 const LOGO_SCALE = 2;
 export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
 const MAX_ROTATION = MathUtils.degToRad(90);
+const BASE_SPIN_X = 1.2;
+const BASE_SPIN_Y = 0.42;
+const MOUSE_SPEED_X = 2.8;
+const MOUSE_SPEED_Y = 2.1;
+const MOUSE_ACCEL = 14;
+const VELOCITY_DAMPING = 4.5;
+const HOME_SPRING = 3.2;
+const EDGE_THRESHOLD = 0.72;
+const EDGE_RETURN_FORCE = 16;
 
 type PointerPosition = {
   x: number;
@@ -27,6 +36,11 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const angularVelocityRef = useRef<PointerPosition>({
+    // Axis speed asymmetry: X base spin is intentionally faster than Y.
+    x: BASE_SPIN_X,
+    y: BASE_SPIN_Y,
+  });
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -41,22 +55,44 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
+    const frameDelta = Math.min(delta, 0.05);
+    const pointerX = MathUtils.clamp(pointerRef.current.x, -1, 1);
+    const pointerY = MathUtils.clamp(pointerRef.current.y, -1, 1);
+    const centerDistance = Math.min(Math.hypot(pointerX, pointerY), 1.5);
+    const edgeDistance = Math.max(Math.abs(pointerX), Math.abs(pointerY));
+    const edgeFactor = MathUtils.clamp((edgeDistance - EDGE_THRESHOLD) / (1 - EDGE_THRESHOLD), 0, 1);
 
-    groupRef.current.rotation.x = MathUtils.lerp(
-      groupRef.current.rotation.x,
-      targetX,
-      0.08,
-    );
-    groupRef.current.rotation.y = MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetY,
-      0.08,
-    );
+    const velocity = angularVelocityRef.current;
+    const rotation = groupRef.current.rotation;
+
+    const targetVelocityX =
+      BASE_SPIN_X +
+      pointerY * MOUSE_SPEED_X * (0.7 + centerDistance) +
+      Math.sign(pointerY || 1) * edgeFactor * MOUSE_SPEED_X * 2.4;
+    const targetVelocityY =
+      BASE_SPIN_Y +
+      pointerX * MOUSE_SPEED_Y * (0.7 + centerDistance) +
+      Math.sign(pointerX || 1) * edgeFactor * MOUSE_SPEED_Y * 2.1;
+
+    const accelGain = MOUSE_ACCEL * (1 + centerDistance * 1.3 + edgeFactor * 2.2);
+    velocity.x += (targetVelocityX - velocity.x) * accelGain * frameDelta;
+    velocity.y += (targetVelocityY - velocity.y) * accelGain * frameDelta;
+
+    // Return-to-origin spin logic: spring + damping keeps motion continuous while pulling toward home pose.
+    velocity.x += (-rotation.x * HOME_SPRING - velocity.x * VELOCITY_DAMPING * 0.22) * frameDelta;
+    velocity.y += (-rotation.y * HOME_SPRING - velocity.y * VELOCITY_DAMPING * 0.22) * frameDelta;
+
+    // Edge-force behavior: near canvas edges, aggressively increase corrective torque toward origin.
+    if (edgeFactor > 0) {
+      velocity.x += -rotation.x * EDGE_RETURN_FORCE * edgeFactor * frameDelta;
+      velocity.y += -rotation.y * EDGE_RETURN_FORCE * edgeFactor * frameDelta;
+    }
+
+    rotation.x = MathUtils.clamp(rotation.x + velocity.x * frameDelta, -MAX_ROTATION, MAX_ROTATION);
+    rotation.y = MathUtils.clamp(rotation.y + velocity.y * frameDelta, -MAX_ROTATION, MAX_ROTATION);
   });
 
   return (
