@@ -92,6 +92,11 @@ export type ProtocolEventHandler = (event: ProtocolEvent) => void;
 export type SerialPortLike = {
   open: (options: { baudRate: number }) => Promise<void>;
   close?: () => Promise<void>;
+  setSignals?: (signals: {
+    dataTerminalReady?: boolean;
+    requestToSend?: boolean;
+    break?: boolean;
+  }) => Promise<void>;
   readable?: ReadableStream<Uint8Array> | null;
   writable?: WritableStream<Uint8Array> | null;
 };
@@ -115,10 +120,10 @@ export interface DeviceSerialClientOptions {
 }
 
 const DEFAULT_BAUD_RATE = 115200;
-const DEFAULT_REQUEST_TIMEOUT_MS = 1500;
-const DEFAULT_HANDSHAKE_ATTEMPTS = 6;
+const DEFAULT_REQUEST_TIMEOUT_MS = 2000;
+const DEFAULT_HANDSHAKE_ATTEMPTS = 8;
 const DEFAULT_APPLY_CONFIG_ATTEMPTS = 3;
-const DEFAULT_CONNECT_SETTLE_MS = 350;
+const DEFAULT_CONNECT_SETTLE_MS = 600;
 const DEFAULT_BACKOFF_BASE_MS = 250;
 
 const MODIFIER_KEYS = ['12', '13', '14', '15'] as const;
@@ -329,6 +334,7 @@ export class DeviceSerialClient {
 
     this.port = await this.serial.requestPort();
     await this.port.open({ baudRate: this.baudRate });
+    await this.trySetSerialSignals(this.port);
 
     if (!this.port.readable || !this.port.writable) {
       await this.disconnect();
@@ -346,6 +352,26 @@ export class DeviceSerialClient {
     }
 
     this.emit({ level: 'info', message: 'Serial connection opened.' });
+  }
+
+  private async trySetSerialSignals(port: SerialPortLike) {
+    if (!port.setSignals) {
+      return;
+    }
+
+    try {
+      await port.setSignals({
+        dataTerminalReady: true,
+        requestToSend: true,
+      });
+      this.emit({ level: 'info', message: 'Serial control signals asserted (DTR/RTS).' });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unable to set serial control signals; continuing without them.';
+      this.emit({ level: 'error', message });
+    }
   }
 
   async disconnect() {

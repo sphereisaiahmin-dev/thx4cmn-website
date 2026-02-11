@@ -104,6 +104,9 @@ export default function DevicePage() {
 
     const client = new DeviceSerialClient({
       onEvent: appendLog,
+      requestTimeoutMs: 2000,
+      handshakeAttempts: 8,
+      connectSettleMs: 600,
     });
 
     clientRef.current = client;
@@ -124,6 +127,9 @@ export default function DevicePage() {
       setStatus('error');
 
       appendError(error instanceof Error ? error.message : 'Unable to connect to device.');
+      appendInfo(
+        'If handshake fails repeatedly, reconnect and choose the CircuitPython CDC data interface for config traffic.',
+      );
 
       await client.disconnect();
       clientRef.current = null;

@@ -258,20 +258,21 @@ def protocol_now_ms():
     return int(time.time() * 1000)
 
 
-def stream_connected(stream):
-    if stream is None:
-        return False
-    return bool(getattr(stream, "connected", False))
-
-
 def poll_serial_stream(stream, buffer):
-    if not stream_connected(stream):
+    if stream is None:
         return
 
-    waiting = int(getattr(stream, "in_waiting", 0) or 0)
+    try:
+        waiting = int(getattr(stream, "in_waiting", 0) or 0)
+    except Exception:
+        return
+
     chunk = b""
     if waiting:
-        chunk = stream.read(waiting) or b""
+        try:
+            chunk = stream.read(waiting) or b""
+        except Exception:
+            return
 
     responses = process_serial_chunk(
         buffer,
@@ -281,7 +282,10 @@ def poll_serial_stream(stream, buffer):
         handle_apply_config,
     )
     for response in responses:
-        stream.write(response)
+        try:
+            stream.write(response)
+        except Exception:
+            break
 
 
 def apply_modifier_chords(chord_map):
