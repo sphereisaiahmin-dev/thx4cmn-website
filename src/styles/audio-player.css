@@ -310,6 +310,7 @@
 }
 
 .audio-player__reverse-button {
+  position: relative;
   padding: 4px 10px;
   font-size: 9px;
   text-transform: uppercase;
@@ -320,6 +321,12 @@
   color: inherit;
   cursor: pointer;
   transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.audio-player__reverse-button--corner {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
 }
 
 .audio-player__reverse-button.active {
@@ -342,6 +349,7 @@
   justify-content: flex-end;
   align-items: center;
   gap: 8px;
+  padding-left: 64px;
 }
 
 .audio-player__loop-controls {
@@ -399,5 +407,10 @@
     top: 84px;
     right: 16px;
     width: min(240px, calc(100vw - 32px));
+  }
+
+  .audio-player__reverse-button--corner {
+    left: 12px;
+    bottom: 10px;
   }
 }
