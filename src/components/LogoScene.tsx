@@ -29,6 +29,8 @@ const PLAYER_INTERACTION_RETURN_FORCE = 10;
 const MAGNETIC_PULL_TOWARD_ORIGIN = 3.8;
 const MAGNETIC_PULL_AWAY_FROM_ORIGIN = 1.35;
 const ROTATION_DAMPING = 2.2;
+const FORCE_SCALE = 2;
+const ACCELERATION_SCALE = 2;
 
 type PointerPosition = {
   x: number;
@@ -143,6 +145,7 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     const pointerY = isPlayerInteractingRef.current ? 0 : pointerRef.current.y;
 
     const distanceFromCenter = Math.min(1, Math.hypot(pointerX, pointerY));
+    const proximityToCenter = MathUtils.clamp(1 - distanceFromCenter, 0, 1);
     const edgeDistance = Math.max(Math.abs(pointerX), Math.abs(pointerY));
     // Edge-force behavior: raise torque sharply near canvas bounds for energetic response.
     const edgeInfluence = MathUtils.clamp(
@@ -153,10 +156,10 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     const edgeBoost = edgeInfluence * edgeInfluence;
 
     const mouseForceScale =
-      MOUSE_FORCE_MULTIPLIER * (0.35 + distanceFromCenter * distanceFromCenter * 1.85);
+      MOUSE_FORCE_MULTIPLIER * (0.35 + proximityToCenter * proximityToCenter * 1.85);
     const mouseInfluence = MathUtils.clamp(1 - edgeBoost * EDGE_MOUSE_FORCE_FADE, 0, 1);
-    const mouseForceX = -pointerY * mouseForceScale * mouseInfluence;
-    const mouseForceY = pointerX * mouseForceScale * mouseInfluence;
+    const mouseForceX = -pointerY * mouseForceScale * mouseInfluence * FORCE_SCALE;
+    const mouseForceY = pointerX * mouseForceScale * mouseInfluence * FORCE_SCALE;
 
     const toOriginX = -normalizedRotationX;
     const toOriginY = -normalizedRotationY;
@@ -188,19 +191,21 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
       isPlayerInteractingRef.current ? toOriginY * PLAYER_INTERACTION_RETURN_FORCE : 0;
 
     const targetAccelerationX =
-      (BASE_X_ANGULAR_VELOCITY - velocityRef.current.x) * BASE_VELOCITY_PULL +
-      mouseForceX +
-      magneticForceX +
-      edgeReturnForceX +
-      edgeBrakeX +
-      playerInteractionReturnX;
+      ((BASE_X_ANGULAR_VELOCITY - velocityRef.current.x) * BASE_VELOCITY_PULL +
+        mouseForceX +
+        magneticForceX +
+        edgeReturnForceX +
+        edgeBrakeX +
+        playerInteractionReturnX) *
+      ACCELERATION_SCALE;
     const targetAccelerationY =
-      (BASE_Y_ANGULAR_VELOCITY - velocityRef.current.y) * BASE_VELOCITY_PULL +
-      mouseForceY +
-      magneticForceY +
-      edgeReturnForceY +
-      edgeBrakeY +
-      playerInteractionReturnY;
+      ((BASE_Y_ANGULAR_VELOCITY - velocityRef.current.y) * BASE_VELOCITY_PULL +
+        mouseForceY +
+        magneticForceY +
+        edgeReturnForceY +
+        edgeBrakeY +
+        playerInteractionReturnY) *
+      ACCELERATION_SCALE;
 
     const accelSmoothing = 1 - Math.exp(-MOUSE_ACCEL_RESPONSE * delta);
     accelerationRef.current.x = MathUtils.lerp(
