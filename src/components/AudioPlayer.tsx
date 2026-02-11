@@ -30,6 +30,7 @@ export const AudioPlayer = () => {
   const [gradientPosition, setGradientPosition] = useState({ x: 50, y: 50 });
   const [isDspOpen, setIsDspOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [loopSyncNonce, setLoopSyncNonce] = useState(0);
   const isDspVisible = isDspOpen && !isCollapsed;
 
   const safeDuration = Number.isFinite(state.duration) ? state.duration : 0;
@@ -102,6 +103,13 @@ export const AudioPlayer = () => {
     }
   }, [pathname]);
 
+  useEffect(() => {
+    if (state.loopStart === null || state.loopEnd === null) {
+      return;
+    }
+    setLoopSyncNonce((prev) => prev + 1);
+  }, [state.loopEnd, state.loopStart]);
+
   return (
     <div
       className={`audio-player ${isDspOpen ? 'audio-player--expanded' : ''} ${
@@ -158,7 +166,11 @@ export const AudioPlayer = () => {
               return (
                 <button
                   type="button"
-                  key={position}
+                  key={
+                    isLoopSection || isLoopStart || isLoopEnd
+                      ? `${position}-${loopSyncNonce}`
+                      : `${position}`
+                  }
                   className={`audio-player__dot ${isActive ? 'active' : ''} ${
                     isLoopSection ? 'loop-section' : ''
                   } ${
