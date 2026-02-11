@@ -30,6 +30,7 @@ export const AudioPlayer = () => {
   const [gradientPosition, setGradientPosition] = useState({ x: 50, y: 50 });
   const [isDspOpen, setIsDspOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [loopRgbSyncToken, setLoopRgbSyncToken] = useState(0);
   const isDspVisible = isDspOpen && !isCollapsed;
 
   const safeDuration = Number.isFinite(state.duration) ? state.duration : 0;
@@ -55,6 +56,12 @@ export const AudioPlayer = () => {
     loopStartIndex !== null && loopEndIndex !== null ? Math.min(loopStartIndex, loopEndIndex) : null;
   const loopSectionEnd =
     loopStartIndex !== null && loopEndIndex !== null ? Math.max(loopStartIndex, loopEndIndex) : null;
+
+  useEffect(() => {
+    if (loopStartIndex !== null && loopEndIndex !== null) {
+      setLoopRgbSyncToken((prev) => prev + 1);
+    }
+  }, [loopEndIndex, loopStartIndex]);
 
   const isLoading = state.status === 'loading-list' || state.status === 'loading-track';
   const rpmSliderValue = useMemo(() => {
@@ -158,7 +165,7 @@ export const AudioPlayer = () => {
               return (
                 <button
                   type="button"
-                  key={position}
+                  key={`${position}-${loopRgbSyncToken}`}
                   className={`audio-player__dot ${isActive ? 'active' : ''} ${
                     isLoopSection ? 'loop-section' : ''
                   } ${
