@@ -32,19 +32,19 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   };
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] lg:items-start">
-      <div className="rounded-3xl border border-black/10 bg-black/5 p-4 md:p-6">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-start">
+      <div className="rounded-3xl border border-black/10 bg-black/5 p-4 md:p-5">
         {modelUrl ? (
-          <div className="flex min-h-[320px] flex-col rounded-2xl bg-white/70 p-2 md:min-h-[420px] md:p-3">
+          <div className="mx-auto flex aspect-[3/4] w-full max-w-[360px] min-h-[360px] flex-col rounded-[2.25rem] border border-black/15 bg-white/70 p-3 md:min-h-[480px] md:p-4">
             <ProductModelScene modelUrl={modelUrl} className="h-full w-full" />
           </div>
         ) : (
-          <div className="flex min-h-[320px] items-center justify-center rounded-2xl bg-white/70 text-sm text-black/50 md:min-h-[420px]">
+          <div className="mx-auto flex aspect-[3/4] w-full max-w-[360px] min-h-[360px] items-center justify-center rounded-[2.25rem] border border-black/15 bg-white/70 text-sm text-black/50 md:min-h-[480px]">
             3D preview unavailable.
           </div>
         )}
       </div>
-      <div className="space-y-6">
+      <div className="space-y-5 lg:-ml-2">
         <div className="space-y-2">
           <p className="text-xs uppercase tracking-[0.4em] text-black/60">{product.type}</p>
           <h1 className="text-3xl uppercase tracking-[0.3em]">{product.name}</h1>

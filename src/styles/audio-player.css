@@ -378,16 +378,12 @@
   cursor: not-allowed;
 }
 
-.audio-player__dot.loop-marker {
+.audio-player__dot.loop-marker,
+.audio-player__dot.loop-section {
   background: currentColor;
   color: rgba(255, 255, 255, 0.9);
   animation: nav-rgb-cycle 1.2s linear infinite;
-}
-
-.audio-player__dot.loop-section {
-  background: currentColor;
-  color: rgba(255, 255, 255, 0.7);
-  animation: nav-rgb-cycle 1.2s linear infinite;
+  animation-delay: 0s;
 }
 
 .audio-player__dot.loop-marker--both {
