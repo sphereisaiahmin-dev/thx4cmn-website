@@ -60,7 +60,7 @@ export const ProductModelScene = ({ modelUrl, className }: ProductModelSceneProp
   const [autoRotate, setAutoRotate] = useState(true);
 
   return (
-    <ThreeCanvas className={className ?? 'h-48 w-full'} camera={{ position: [0, 0, 3.2], fov: 45 }}>
+    <ThreeCanvas className={className ?? 'h-48 w-full'} camera={{ position: [0, 0, 3.8], fov: 42 }}>
       <ambientLight intensity={0.7} />
       <directionalLight position={[3, 3, 4]} intensity={1.1} />
       <directionalLight position={[-3, -2, 2]} intensity={0.6} />
