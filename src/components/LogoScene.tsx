@@ -22,6 +22,10 @@ const MOUSE_FORCE_MULTIPLIER = 12;
 const MOUSE_ACCEL_RESPONSE = 8;
 const EDGE_THRESHOLD = 0.72;
 const EDGE_RETURN_FORCE = 16;
+const EDGE_MOUSE_FORCE_FADE = 1;
+const EDGE_VELOCITY_BRAKE = 14;
+const EDGE_MAGNETIC_PULL = 8.4;
+const PLAYER_INTERACTION_RETURN_FORCE = 10;
 const MAGNETIC_PULL_TOWARD_ORIGIN = 3.8;
 const MAGNETIC_PULL_AWAY_FROM_ORIGIN = 1.35;
 const ROTATION_DAMPING = 2.2;
@@ -44,17 +48,82 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     y: BASE_Y_ANGULAR_VELOCITY,
   });
   const accelerationRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const isPlayerInteractingRef = useRef(false);
 
   useEffect(() => {
+    const resetPointer = () => {
+      pointerRef.current.x = 0;
+      pointerRef.current.y = 0;
+    };
+
+    const isInsideAudioPlayer = (target: EventTarget | null) =>
+      target instanceof Element && Boolean(target.closest('.audio-player'));
+
     const handlePointerMove = (event: PointerEvent) => {
+      if (isInsideAudioPlayer(event.target)) {
+        isPlayerInteractingRef.current = true;
+        resetPointer();
+        return;
+      }
+
+      isPlayerInteractingRef.current = false;
       pointerRef.current.x = (event.clientX / window.innerWidth) * 2 - 1;
       pointerRef.current.y = -((event.clientY / window.innerHeight) * 2 - 1);
     };
 
+    const handlePointerDown = (event: PointerEvent) => {
+      if (isInsideAudioPlayer(event.target)) {
+        isPlayerInteractingRef.current = true;
+        resetPointer();
+      }
+    };
+
+    const handlePointerUp = () => {
+      isPlayerInteractingRef.current = false;
+    };
+
+    const handlePointerLeaveViewport = (event: PointerEvent) => {
+      if (!event.relatedTarget) {
+        resetPointer();
+      }
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      if (isInsideAudioPlayer(event.target)) {
+        isPlayerInteractingRef.current = true;
+        resetPointer();
+      }
+    };
+
+    const handleFocusOut = (event: FocusEvent) => {
+      if (!isInsideAudioPlayer(event.relatedTarget)) {
+        isPlayerInteractingRef.current = false;
+      }
+    };
+
+    const handleWindowBlur = () => {
+      isPlayerInteractingRef.current = false;
+      resetPointer();
+    };
+
     window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('pointerup', handlePointerUp, true);
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('focusout', handleFocusOut);
+    document.addEventListener('pointerleave', handlePointerLeaveViewport);
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('pointercancel', handleWindowBlur);
 
     return () => {
       window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('pointerup', handlePointerUp, true);
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('focusout', handleFocusOut);
+      document.removeEventListener('pointerleave', handlePointerLeaveViewport);
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('pointercancel', handleWindowBlur);
     };
   }, []);
 
@@ -70,14 +139,11 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
       TAU,
     ) - Math.PI;
 
-    const distanceFromCenter = Math.min(
-      1,
-      Math.hypot(pointerRef.current.x, pointerRef.current.y),
-    );
-    const edgeDistance = Math.max(
-      Math.abs(pointerRef.current.x),
-      Math.abs(pointerRef.current.y),
-    );
+    const pointerX = isPlayerInteractingRef.current ? 0 : pointerRef.current.x;
+    const pointerY = isPlayerInteractingRef.current ? 0 : pointerRef.current.y;
+
+    const distanceFromCenter = Math.min(1, Math.hypot(pointerX, pointerY));
+    const edgeDistance = Math.max(Math.abs(pointerX), Math.abs(pointerY));
     // Edge-force behavior: raise torque sharply near canvas bounds for energetic response.
     const edgeInfluence = MathUtils.clamp(
       (edgeDistance - EDGE_THRESHOLD) / (1 - EDGE_THRESHOLD),
@@ -88,8 +154,9 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
 
     const mouseForceScale =
       MOUSE_FORCE_MULTIPLIER * (0.35 + distanceFromCenter * distanceFromCenter * 1.85);
-    const mouseForceX = -pointerRef.current.y * mouseForceScale;
-    const mouseForceY = pointerRef.current.x * mouseForceScale;
+    const mouseInfluence = MathUtils.clamp(1 - edgeBoost * EDGE_MOUSE_FORCE_FADE, 0, 1);
+    const mouseForceX = -pointerY * mouseForceScale * mouseInfluence;
+    const mouseForceY = pointerX * mouseForceScale * mouseInfluence;
 
     const toOriginX = -normalizedRotationX;
     const toOriginY = -normalizedRotationY;
@@ -97,30 +164,43 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     const movingTowardOriginY = velocityRef.current.y * toOriginY > 0;
 
     // Return-to-origin spin logic: stronger pull toward home pose when heading back, softer when drifting away.
-    const magneticForceX =
-      toOriginX *
-      (movingTowardOriginX
-        ? MAGNETIC_PULL_TOWARD_ORIGIN
-        : MAGNETIC_PULL_AWAY_FROM_ORIGIN);
-    const magneticForceY =
-      toOriginY *
-      (movingTowardOriginY
-        ? MAGNETIC_PULL_TOWARD_ORIGIN
-        : MAGNETIC_PULL_AWAY_FROM_ORIGIN);
+    const towardOriginPull = MathUtils.lerp(
+      MAGNETIC_PULL_TOWARD_ORIGIN,
+      EDGE_MAGNETIC_PULL,
+      edgeBoost,
+    );
+    const awayFromOriginPull = MathUtils.lerp(
+      MAGNETIC_PULL_AWAY_FROM_ORIGIN,
+      MAGNETIC_PULL_TOWARD_ORIGIN,
+      edgeBoost,
+    );
+
+    const magneticForceX = toOriginX * (movingTowardOriginX ? towardOriginPull : awayFromOriginPull);
+    const magneticForceY = toOriginY * (movingTowardOriginY ? towardOriginPull : awayFromOriginPull);
 
     const edgeReturnForceX = toOriginX * EDGE_RETURN_FORCE * edgeBoost;
     const edgeReturnForceY = toOriginY * EDGE_RETURN_FORCE * edgeBoost;
+    const edgeBrakeX = -velocityRef.current.x * EDGE_VELOCITY_BRAKE * edgeBoost;
+    const edgeBrakeY = -velocityRef.current.y * EDGE_VELOCITY_BRAKE * edgeBoost;
+    const playerInteractionReturnX =
+      isPlayerInteractingRef.current ? toOriginX * PLAYER_INTERACTION_RETURN_FORCE : 0;
+    const playerInteractionReturnY =
+      isPlayerInteractingRef.current ? toOriginY * PLAYER_INTERACTION_RETURN_FORCE : 0;
 
     const targetAccelerationX =
       (BASE_X_ANGULAR_VELOCITY - velocityRef.current.x) * BASE_VELOCITY_PULL +
       mouseForceX +
       magneticForceX +
-      edgeReturnForceX;
+      edgeReturnForceX +
+      edgeBrakeX +
+      playerInteractionReturnX;
     const targetAccelerationY =
       (BASE_Y_ANGULAR_VELOCITY - velocityRef.current.y) * BASE_VELOCITY_PULL +
       mouseForceY +
       magneticForceY +
-      edgeReturnForceY;
+      edgeReturnForceY +
+      edgeBrakeY +
+      playerInteractionReturnY;
 
     const accelSmoothing = 1 - Math.exp(-MOUSE_ACCEL_RESPONSE * delta);
     accelerationRef.current.x = MathUtils.lerp(
