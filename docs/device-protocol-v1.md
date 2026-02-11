@@ -43,15 +43,60 @@ Validation is strict:
 ### Host -> Device
 
 - `hello`
+- `apply_config`
 
 `hello.payload`:
 
 - `client` (string): host client identifier.
 - `requestedProtocolVersion` (number): must be `1`.
 
+`apply_config.payload`:
+
+- `modifierChords` (object): key-to-chord map for modifier keys `"12"`, `"13"`, `"14"`, `"15"`.
+- `noteKeyColorPresets` (object): key-to-preset map for note keys `"0"` through `"11"`.
+- `idempotencyKey` (string): client-generated idempotency key.
+- `configVersion` (number): host config revision.
+
+Expected UI/display key assignment:
+
+- `row1: 0 4 8 12`
+- `row2: 1 5 9 13`
+- `row3: 2 6 10 14`
+- `row4: 3 7 11 15`
+
+Supported chord values:
+
+- `maj`, `min`, `maj7`, `min7`, `maj9`, `min9`, `maj79`, `min79`
+
+Chord voicings (all include 5th):
+
+- `maj: (0,4,7)`
+- `min: (0,3,7)`
+- `maj7: (0,4,7,11)`
+- `min7: (0,3,7,10)`
+- `maj9: (0,4,7,14)`
+- `min9: (0,3,7,14)`
+- `maj79: (0,4,7,11,14)`
+- `min79: (0,3,7,10,14)`
+
+Supported note preset values:
+
+- `piano`
+- `aurora_scene`
+- `sunset_scene`
+- `ocean_scene`
+
+`piano` preset key coloring:
+
+- black keys (note indices `1,3,6,8,10`) use dark blue.
+- white keys (note indices `0,2,4,5,7,9,11`) use white.
+
 ### Device -> Host
 
 - `hello_ack`
+- `ack`
+- `nack`
+- `error`
 
 `hello_ack.payload`:
 
@@ -60,7 +105,18 @@ Validation is strict:
 - `features` (array<string>): supported feature flags.
 - `firmwareVersion` (string): firmware version string.
 
-- `error`
+`ack.payload`:
+
+- `requestType` (string): currently `"apply_config"`.
+- `status` (string): `"ok"`.
+- `appliedConfigVersion` (number): applied device config version.
+
+`nack.payload`:
+
+- `requestType` (string): currently `"apply_config"`.
+- `code` (string): machine-readable rejection code.
+- `reason` (string): human-readable summary.
+- `retryable` (boolean): whether retry is recommended.
 
 `error.payload`:
 
@@ -80,7 +136,7 @@ Validation is strict:
 ## Correlation Rules
 
 - Host always sends request ids (`id`).
-- Device responses (`hello_ack` or `error`) must echo the same `id` whenever request parsing reached the envelope stage.
+- Device responses (`hello_ack`, `ack`, `nack`, or `error`) must echo the same `id` whenever request parsing reached the envelope stage.
 - If parsing fails before a valid `id` is available, device should use `id: "unmatched"`.
 
 ## Compatibility Mode

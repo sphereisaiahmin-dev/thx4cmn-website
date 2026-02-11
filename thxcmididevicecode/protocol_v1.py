@@ -8,7 +8,6 @@ ERROR_MALFORMED_FRAME = "malformed_frame"
 ERROR_UNSUPPORTED_VERSION = "unsupported_version"
 ERROR_UNSUPPORTED_TYPE = "unsupported_type"
 
-
 def make_envelope(message_type, message_id, payload, ts_ms):
     return {
         "v": PROTOCOL_VERSION,
@@ -24,6 +23,33 @@ def make_error(message_id, code, message, details, ts_ms):
     if details is not None:
         payload["details"] = details
     return make_envelope("error", message_id, payload, ts_ms)
+
+
+def make_ack(message_id, request_type, applied_config_version, ts_ms):
+    return make_envelope(
+        "ack",
+        message_id,
+        {
+            "requestType": request_type,
+            "status": "ok",
+            "appliedConfigVersion": applied_config_version,
+        },
+        ts_ms,
+    )
+
+
+def make_nack(message_id, request_type, code, reason, retryable, ts_ms):
+    return make_envelope(
+        "nack",
+        message_id,
+        {
+            "requestType": request_type,
+            "code": code,
+            "reason": reason,
+            "retryable": retryable,
+        },
+        ts_ms,
+    )
 
 
 def encode_frame(frame):
@@ -109,36 +135,134 @@ def _validate_hello_payload(payload):
     return True, None, None
 
 
-def dispatch_message(envelope, capabilities, ts_ms):
+def _validate_apply_config_payload(payload):
+    if not _is_object(payload):
+        return False, "apply_config payload must be an object."
+
+    modifier_chords = payload.get("modifierChords")
+    if not _is_object(modifier_chords):
+        return False, "apply_config payload.modifierChords must be an object."
+
+    for key, value in modifier_chords.items():
+        if not isinstance(key, str) or not key:
+            return False, "apply_config payload.modifierChords keys must be strings."
+        if not isinstance(value, str) or not value:
+            return False, "apply_config payload.modifierChords values must be strings."
+
+    note_key_color_presets = payload.get("noteKeyColorPresets")
+    if not _is_object(note_key_color_presets):
+        return False, "apply_config payload.noteKeyColorPresets must be an object."
+
+    for key, value in note_key_color_presets.items():
+        if not isinstance(key, str) or not key:
+            return False, "apply_config payload.noteKeyColorPresets keys must be strings."
+        if not isinstance(value, str) or not value:
+            return False, "apply_config payload.noteKeyColorPresets values must be strings."
+
+    idempotency_key = payload.get("idempotencyKey")
+    if not isinstance(idempotency_key, str) or not idempotency_key:
+        return False, "apply_config payload.idempotencyKey must be a non-empty string."
+
+    config_version = payload.get("configVersion")
+    if not isinstance(config_version, int):
+        return False, "apply_config payload.configVersion must be a number."
+
+    if config_version < 1:
+        return False, "apply_config payload.configVersion must be >= 1."
+
+    return True, None
+
+
+def _dispatch_apply_config(message_id, payload, ts_ms, apply_config_handler):
+    valid_payload, payload_error = _validate_apply_config_payload(payload)
+    if not valid_payload:
+        return make_error(
+            message_id,
+            ERROR_MALFORMED_FRAME,
+            payload_error,
+            {"type": "apply_config"},
+            ts_ms,
+        )
+
+    if apply_config_handler is None:
+        return make_nack(
+            message_id,
+            "apply_config",
+            "not_supported",
+            "apply_config is not implemented on this device.",
+            False,
+            ts_ms,
+        )
+
+    try:
+        result = apply_config_handler(payload)
+    except Exception as exc:
+        return make_nack(
+            message_id,
+            "apply_config",
+            "apply_failed",
+            "Unable to apply configuration: %s" % exc,
+            True,
+            ts_ms,
+        )
+
+    if not _is_object(result):
+        return make_nack(
+            message_id,
+            "apply_config",
+            "apply_failed",
+            "apply_config handler returned invalid result.",
+            True,
+            ts_ms,
+        )
+
+    if result.get("ok"):
+        applied_version = result.get("appliedConfigVersion", payload["configVersion"])
+        return make_ack(message_id, "apply_config", applied_version, ts_ms)
+
+    return make_nack(
+        message_id,
+        "apply_config",
+        result.get("code", "invalid_config"),
+        result.get("reason", "Configuration was rejected."),
+        bool(result.get("retryable", False)),
+        ts_ms,
+    )
+
+
+def dispatch_message(envelope, capabilities, ts_ms, apply_config_handler=None):
     message_id = envelope["id"]
     message_type = envelope["type"]
     payload = envelope["payload"]
 
-    if message_type != "hello":
-        return make_error(
-            message_id,
-            ERROR_UNSUPPORTED_TYPE,
-            "Unsupported message type.",
-            {"type": message_type},
-            ts_ms,
+    if message_type == "hello":
+        valid_payload, payload_error_code, payload_error_message = _validate_hello_payload(
+            payload
         )
+        if not valid_payload:
+            return make_error(
+                message_id,
+                payload_error_code,
+                payload_error_message,
+                {"type": message_type},
+                ts_ms,
+            )
 
-    valid_payload, payload_error_code, payload_error_message = _validate_hello_payload(
-        payload
+        return make_envelope("hello_ack", message_id, capabilities, ts_ms)
+
+    if message_type == "apply_config":
+        return _dispatch_apply_config(message_id, payload, ts_ms, apply_config_handler)
+
+    return make_error(
+        message_id,
+        ERROR_UNSUPPORTED_TYPE,
+        "Unsupported message type.",
+        {"type": message_type},
+        ts_ms,
     )
-    if not valid_payload:
-        return make_error(
-            message_id,
-            payload_error_code,
-            payload_error_message,
-            {"type": message_type},
-            ts_ms,
-        )
-
-    return make_envelope("hello_ack", message_id, capabilities, ts_ms)
 
 
-def process_line(line_text, capabilities, ts_ms):
+def process_line(line_text, capabilities, ts_ms, apply_config_handler=None):
     try:
         envelope = json.loads(line_text)
     except ValueError:
@@ -155,10 +279,10 @@ def process_line(line_text, capabilities, ts_ms):
     if not valid:
         return make_error(message_id, error_code, error_message, None, ts_ms)
 
-    return dispatch_message(envelope, capabilities, ts_ms)
+    return dispatch_message(envelope, capabilities, ts_ms, apply_config_handler)
 
 
-def process_serial_chunk(buffer, chunk, capabilities, ts_ms):
+def process_serial_chunk(buffer, chunk, capabilities, ts_ms, apply_config_handler=None):
     if chunk:
         buffer.extend(chunk)
 
@@ -222,7 +346,7 @@ def process_serial_chunk(buffer, chunk, capabilities, ts_ms):
             )
             continue
 
-        response = process_line(line_text, capabilities, ts_ms)
+        response = process_line(line_text, capabilities, ts_ms, apply_config_handler)
         responses.append(encode_frame(response))
 
     if len(buffer) > MAX_FRAME_SIZE:
