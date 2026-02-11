@@ -5,7 +5,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { formatCurrency } from '@/lib/format';
-import { HEADER_LOGO_MODEL_URL, HEADER_LOGO_SCALE, LogoScene } from '@/components/LogoScene';
+import {
+  HEADER_LOGO_FORCE_SCALE,
+  HEADER_LOGO_MODEL_URL,
+  HEADER_LOGO_ROTATION_SCALE,
+  HEADER_LOGO_SCALE,
+  LogoScene,
+} from '@/components/LogoScene';
 import { useCartStore } from '@/store/cart';
 import { useUiStore } from '@/store/ui';
 
@@ -81,7 +87,13 @@ export const Navigation = () => {
             }`}
             aria-hidden={isHome}
           >
-            <LogoScene className="h-10 w-28" modelUrl={HEADER_LOGO_MODEL_URL} modelScale={HEADER_LOGO_SCALE} />
+            <LogoScene
+              className="h-10 w-28"
+              modelUrl={HEADER_LOGO_MODEL_URL}
+              modelScale={HEADER_LOGO_SCALE}
+              forceScale={HEADER_LOGO_FORCE_SCALE}
+              rotationScale={HEADER_LOGO_ROTATION_SCALE}
+            />
           </div>
         </Link>
         <nav className="flex items-center gap-6 text-xs uppercase tracking-[0.3em]">

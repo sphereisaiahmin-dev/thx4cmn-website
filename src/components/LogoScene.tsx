@@ -30,7 +30,10 @@ const MAGNETIC_PULL_TOWARD_ORIGIN = 3.8;
 const MAGNETIC_PULL_AWAY_FROM_ORIGIN = 1.35;
 const ROTATION_DAMPING = 2.2;
 const FORCE_SCALE = 2;
+const ROTATION_SCALE = 1;
 const ACCELERATION_SCALE = 2;
+export const HEADER_LOGO_FORCE_SCALE = FORCE_SCALE * 0.25;
+export const HEADER_LOGO_ROTATION_SCALE = ROTATION_SCALE * 0.25;
 
 type PointerPosition = {
   x: number;
@@ -42,7 +45,17 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
   return <primitive object={scene} scale={scale} />;
 };
 
-const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
+const LogoRig = ({
+  modelUrl,
+  scale,
+  forceScale,
+  rotationScale,
+}: {
+  modelUrl: string;
+  scale: number;
+  forceScale: number;
+  rotationScale: number;
+}) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
   const velocityRef = useRef<PointerPosition>({
@@ -158,8 +171,8 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     const mouseForceScale =
       MOUSE_FORCE_MULTIPLIER * (0.35 + proximityToCenter * proximityToCenter * 1.85);
     const mouseInfluence = MathUtils.clamp(1 - edgeBoost * EDGE_MOUSE_FORCE_FADE, 0, 1);
-    const mouseForceX = -pointerY * mouseForceScale * mouseInfluence * FORCE_SCALE;
-    const mouseForceY = pointerX * mouseForceScale * mouseInfluence * FORCE_SCALE;
+    const mouseForceX = -pointerY * mouseForceScale * mouseInfluence * forceScale;
+    const mouseForceY = pointerX * mouseForceScale * mouseInfluence * forceScale;
 
     const toOriginX = -normalizedRotationX;
     const toOriginY = -normalizedRotationY;
@@ -227,11 +240,11 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     velocityRef.current.y *= damping;
 
     groupRef.current.rotation.x = MathUtils.euclideanModulo(
-      groupRef.current.rotation.x + velocityRef.current.x * delta + Math.PI,
+      groupRef.current.rotation.x + velocityRef.current.x * delta * rotationScale + Math.PI,
       TAU,
     ) - Math.PI;
     groupRef.current.rotation.y = MathUtils.euclideanModulo(
-      groupRef.current.rotation.y + velocityRef.current.y * delta + Math.PI,
+      groupRef.current.rotation.y + velocityRef.current.y * delta * rotationScale + Math.PI,
       TAU,
     ) - Math.PI;
   });
@@ -249,12 +262,16 @@ interface LogoSceneProps {
   className?: string;
   modelUrl?: string;
   modelScale?: number;
+  forceScale?: number;
+  rotationScale?: number;
 }
 
 export const LogoScene = ({
   className = 'h-[320px] w-full',
   modelUrl = LOGO_MODEL_URL,
   modelScale = LOGO_SCALE,
+  forceScale = FORCE_SCALE,
+  rotationScale = ROTATION_SCALE,
 }: LogoSceneProps) => {
   return (
     <ThreeCanvas
@@ -264,7 +281,12 @@ export const LogoScene = ({
       <ambientLight intensity={0.8} />
       <directionalLight position={[-3, 0, 4]} intensity={1.2} />
       <Suspense fallback={<Html center className="text-xs text-black/50">Loading logo…</Html>}>
-        <LogoRig modelUrl={modelUrl} scale={modelScale} />
+        <LogoRig
+          modelUrl={modelUrl}
+          scale={modelScale}
+          forceScale={forceScale}
+          rotationScale={rotationScale}
+        />
       </Suspense>
     </ThreeCanvas>
   );
