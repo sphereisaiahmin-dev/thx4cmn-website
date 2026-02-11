@@ -2,50 +2,65 @@ const tagStyles = {
   music: 'bg-red-100 text-red-700',
   media: 'bg-blue-100 text-blue-700',
   marketing: 'bg-green-100 text-green-700',
+  design: 'bg-purple-100 text-purple-700',
 };
 
 type ProjectTag = keyof typeof tagStyles;
 
 type Project = {
   title: string;
-  tag: ProjectTag;
-  contributor?: string;
+  tags: ProjectTag[];
+  details?: string[];
 };
 
 const projects: Project[] = [
   {
-    title: 'Caught Up In The Game - Casey Veggies',
-    tag: 'music',
+    title: 'CAUGHT UP IN THE GAME DISC 2- CASEY VEGGIES',
+    tags: ['music'],
+    details: [
+      'Track 7 “Pink Slip” ft. Ab-Soul / AP x FOCUS',
+      'Track 10 “Weight Up” ft. Ay Ay SnaggLay / Therealwikked',
+    ],
   },
   {
-    title: 'universe sonic sinema episode 1: in the beggining - G.O.O.D Music',
-    tag: 'music',
+    title: 'UNIVERSE SONIC SINEMA EPISODE 1: IN THE BEGGINING - G.O.O.D MUSIC - MALIK YUSEF',
+    tags: ['music'],
+    details: [
+      'Grammy Nominated for Best Spoken Word Poetry Album',
+      'Produced/Engineered Tracks 3,11,12, &19',
+    ],
   },
   {
-    title: 'Life is Beautiful',
-    tag: 'media',
+    title: 'LIFE IS BEAUTIFUL',
+    tags: ['media', 'marketing', 'design'],
+    details: ['Immersive experience and activation'],
   },
   {
-    title: 'Say I Wasnt - Cash Kidd , E-40',
-    tag: 'music',
-    contributor: 'buubackwards',
+    title: 'SAY I WASNT - CASH KIDD ft. E-40',
+    tags: ['music'],
+    details: ['produced by BUUBACKWARDS'],
   },
   {
-    title: 'Forgive Me For Being Turnt - Prince Tae',
-    tag: 'music',
+    title: 'FORGIVE ME FOR BEING TURNT - PRINCE TAE',
+    tags: ['music'],
+    details: ['Produced/Engineered tracks 1,3,5,7,9,&11'],
   },
   {
-    title: 'Muse Sessions',
-    tag: 'marketing',
+    title: 'MUSE SESSIONS -',
+    tags: ['marketing'],
   },
   {
-    title: 'Not The Weather - King Chip , Wiz Khalifa',
-    tag: 'music',
-    contributor: 'smokedoutpillowhead',
+    title: 'NOT THE WEATHER - KING CHIP / WIZ KHALIFA',
+    tags: ['music'],
+    details: ['produced by PILLOWHEAD'],
   },
   {
-    title: 'Omar Apollo - God Said No World Tour',
-    tag: 'media',
+    title: 'OMAR APOLLO - GOD SAID NO WORLD TOUR',
+    tags: ['media'],
+  },
+  {
+    title: 'M-AUDIO',
+    tags: ['marketing'],
   },
 ];
 
@@ -64,21 +79,28 @@ export default function ProjectsPage() {
         <ul className="space-y-4 text-sm uppercase tracking-[0.3em]">
           {projects.map((project) => (
             <li
-              key={`${project.title}-${project.tag}`}
+              key={`${project.title}-${project.tags.join('-')}`}
               className="border-b border-black/10 pb-3 last:border-b-0 last:pb-0"
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span>{project.title}</span>
-                <span
-                  className={`rounded-full px-3 py-1 text-[0.55rem] uppercase tracking-[0.3em] ${tagStyles[project.tag]}`}
-                >
-                  {project.tag}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {project.tags.map((tag) => (
+                    <span
+                      key={`${project.title}-${tag}`}
+                      className={`rounded-full px-3 py-1 text-[0.55rem] uppercase tracking-[0.3em] ${tagStyles[tag]}`}
+                    >
+                      ({tag})
+                    </span>
+                  ))}
+                </div>
               </div>
-              {project.contributor ? (
-                <p className="mt-2 text-xs uppercase tracking-[0.3em] text-black/50">
-                  {project.contributor}
-                </p>
+              {project.details?.length ? (
+                <ul className="mt-2 space-y-1 text-xs uppercase tracking-[0.3em] text-black/50">
+                  {project.details.map((detail) => (
+                    <li key={detail}>-{detail}</li>
+                  ))}
+                </ul>
               ) : null}
             </li>
           ))}
