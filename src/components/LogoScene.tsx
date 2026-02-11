@@ -12,7 +12,25 @@ export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
 export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
 export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
-const MAX_ROTATION = MathUtils.degToRad(90);
+const TAU = Math.PI * 2;
+
+// Axis speed asymmetry: keep X baseline spin noticeably faster than Y.
+const BASE_X_ANGULAR_VELOCITY = 1.1;
+const BASE_Y_ANGULAR_VELOCITY = 0.4;
+const BASE_VELOCITY_PULL = 5.2;
+const MOUSE_FORCE_MULTIPLIER = 12;
+const MOUSE_ACCEL_RESPONSE = 8;
+const EDGE_THRESHOLD = 0.66;
+const EDGE_RETURN_FORCE = 14;
+const MAGNETIC_PULL_TOWARD_ORIGIN = 3.8;
+const MAGNETIC_PULL_AWAY_FROM_ORIGIN = 1.35;
+const ROTATION_DAMPING = 2.2;
+
+const getDirectionalDistanceToOrigin = (angle: number, direction: number) => {
+  return direction >= 0
+    ? MathUtils.euclideanModulo(-angle, TAU)
+    : MathUtils.euclideanModulo(angle, TAU);
+};
 
 type PointerPosition = {
   x: number;
@@ -27,6 +45,11 @@ const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
   const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
+  const velocityRef = useRef<PointerPosition>({
+    x: BASE_X_ANGULAR_VELOCITY,
+    y: BASE_Y_ANGULAR_VELOCITY,
+  });
+  const accelerationRef = useRef<PointerPosition>({ x: 0, y: 0 });
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -41,22 +64,108 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     };
   }, []);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     if (!groupRef.current) return;
 
-    const targetX = MathUtils.clamp(-pointerRef.current.y * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
-    const targetY = MathUtils.clamp(pointerRef.current.x * MAX_ROTATION, -MAX_ROTATION, MAX_ROTATION);
+    const normalizedRotationX = MathUtils.euclideanModulo(
+      groupRef.current.rotation.x + Math.PI,
+      TAU,
+    ) - Math.PI;
+    const normalizedRotationY = MathUtils.euclideanModulo(
+      groupRef.current.rotation.y + Math.PI,
+      TAU,
+    ) - Math.PI;
 
-    groupRef.current.rotation.x = MathUtils.lerp(
-      groupRef.current.rotation.x,
-      targetX,
-      0.08,
+    const distanceFromCenter = Math.min(
+      1,
+      Math.hypot(pointerRef.current.x, pointerRef.current.y),
     );
-    groupRef.current.rotation.y = MathUtils.lerp(
-      groupRef.current.rotation.y,
-      targetY,
-      0.08,
+    const edgeDistance = Math.max(
+      Math.abs(pointerRef.current.x),
+      Math.abs(pointerRef.current.y),
     );
+    // Edge-force behavior: raise torque sharply near canvas bounds for energetic response.
+    const edgeInfluence = MathUtils.clamp(
+      (edgeDistance - EDGE_THRESHOLD) / (1 - EDGE_THRESHOLD),
+      0,
+      1,
+    );
+    const edgeBoost = edgeInfluence * edgeInfluence;
+
+    const mouseForceScale =
+      MOUSE_FORCE_MULTIPLIER * (0.35 + distanceFromCenter * distanceFromCenter * 1.85);
+    const mouseForceX = -pointerRef.current.y * mouseForceScale;
+    const mouseForceY = pointerRef.current.x * mouseForceScale;
+
+    const toOriginX = -normalizedRotationX;
+    const toOriginY = -normalizedRotationY;
+    const movingTowardOriginX = velocityRef.current.x * toOriginX > 0;
+    const movingTowardOriginY = velocityRef.current.y * toOriginY > 0;
+
+    // Return-to-origin spin logic: stronger pull toward home pose when heading back, softer when drifting away.
+    const magneticForceX =
+      toOriginX *
+      (movingTowardOriginX
+        ? MAGNETIC_PULL_TOWARD_ORIGIN
+        : MAGNETIC_PULL_AWAY_FROM_ORIGIN);
+    const magneticForceY =
+      toOriginY *
+      (movingTowardOriginY
+        ? MAGNETIC_PULL_TOWARD_ORIGIN
+        : MAGNETIC_PULL_AWAY_FROM_ORIGIN);
+
+    const directionX = Math.sign(velocityRef.current.x) || Math.sign(toOriginX) || 1;
+    const directionY = Math.sign(velocityRef.current.y) || Math.sign(toOriginY) || 1;
+    // Rotation-aware edge return: keep spinning forward in the current direction while adding strong corrective torque.
+    const edgeReturnForceX =
+      directionX *
+      getDirectionalDistanceToOrigin(normalizedRotationX, directionX) *
+      EDGE_RETURN_FORCE *
+      edgeBoost;
+    const edgeReturnForceY =
+      directionY *
+      getDirectionalDistanceToOrigin(normalizedRotationY, directionY) *
+      EDGE_RETURN_FORCE *
+      edgeBoost;
+
+    const targetAccelerationX =
+      (BASE_X_ANGULAR_VELOCITY - velocityRef.current.x) * BASE_VELOCITY_PULL +
+      mouseForceX +
+      magneticForceX +
+      edgeReturnForceX;
+    const targetAccelerationY =
+      (BASE_Y_ANGULAR_VELOCITY - velocityRef.current.y) * BASE_VELOCITY_PULL +
+      mouseForceY +
+      magneticForceY +
+      edgeReturnForceY;
+
+    const accelSmoothing = 1 - Math.exp(-MOUSE_ACCEL_RESPONSE * delta);
+    accelerationRef.current.x = MathUtils.lerp(
+      accelerationRef.current.x,
+      targetAccelerationX,
+      accelSmoothing,
+    );
+    accelerationRef.current.y = MathUtils.lerp(
+      accelerationRef.current.y,
+      targetAccelerationY,
+      accelSmoothing,
+    );
+
+    velocityRef.current.x += accelerationRef.current.x * delta;
+    velocityRef.current.y += accelerationRef.current.y * delta;
+
+    const damping = Math.exp(-ROTATION_DAMPING * delta);
+    velocityRef.current.x *= damping;
+    velocityRef.current.y *= damping;
+
+    groupRef.current.rotation.x = MathUtils.euclideanModulo(
+      groupRef.current.rotation.x + velocityRef.current.x * delta + Math.PI,
+      TAU,
+    ) - Math.PI;
+    groupRef.current.rotation.y = MathUtils.euclideanModulo(
+      groupRef.current.rotation.y + velocityRef.current.y * delta + Math.PI,
+      TAU,
+    ) - Math.PI;
   });
 
   return (
