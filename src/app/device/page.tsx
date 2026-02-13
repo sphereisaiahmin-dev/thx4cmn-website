@@ -13,13 +13,14 @@ import {
   DeviceConnectionState,
   DeviceSerialClient,
   DeviceState,
-  HelloAckPayload,
   ModifierKeyId,
   NotePresetMode,
-  ProtocolEvent,
 } from '@/lib/deviceSerialClient';
 
-type SessionLogEntry = ProtocolEvent;
+type SessionLogEntry = {
+  message: string;
+  timestamp: number;
+};
 
 const MAX_LOG_ENTRIES = 80;
 const KEEPALIVE_INTERVAL_MS = 4500;
@@ -251,22 +252,30 @@ const getPresetSpeedLabel = (section: AnimatedPresetSection) => `${PRESET_MODE_L
 export default function DevicePage() {
   const [status, setStatus] = useState<DeviceConnectionState>('idle');
   const [log, setLog] = useState<SessionLogEntry[]>([]);
-  const [helloAck, setHelloAck] = useState<HelloAckPayload | null>(null);
   const [deviceState, setDeviceState] = useState<DeviceState>(cloneState(DEFAULT_DEVICE_STATE));
   const [draftState, setDraftState] = useState<DeviceState>(cloneState(DEFAULT_DEVICE_STATE));
   const [selectedModifierKey, setSelectedModifierKey] = useState<ModifierKeyId | null>(null);
   const [isApplying, setIsApplying] = useState(false);
-  const [lastPingAt, setLastPingAt] = useState<number | null>(null);
   const [previewTick, setPreviewTick] = useState(0);
 
   const clientRef = useRef<DeviceSerialClient | null>(null);
   const statusRef = useRef<DeviceConnectionState>('idle');
   const keepaliveTimerRef = useRef<number | null>(null);
   const keepaliveFailuresRef = useRef(0);
+  const hasLoggedConnectionLostRef = useRef(false);
 
-  const appendLog = useCallback((entry: SessionLogEntry) => {
-    setLog((prev) => [entry, ...prev].slice(0, MAX_LOG_ENTRIES));
+  const appendLog = useCallback((message: string) => {
+    setLog((prev) => [{ message, timestamp: Date.now() }, ...prev].slice(0, MAX_LOG_ENTRIES));
   }, []);
+
+  const logConnectionLost = useCallback(() => {
+    if (hasLoggedConnectionLostRef.current) {
+      return;
+    }
+
+    hasLoggedConnectionLostRef.current = true;
+    appendLog('Connection lost. Reconnect your device.');
+  }, [appendLog]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
@@ -316,31 +325,18 @@ export default function DevicePage() {
       try {
         await client.ping();
         keepaliveFailuresRef.current = 0;
-        setLastPingAt(Date.now());
-      } catch (error) {
+      } catch {
         keepaliveFailuresRef.current += 1;
-
-        appendLog({
-          level: 'error',
-          message: `Keepalive failed (${keepaliveFailuresRef.current}/${KEEPALIVE_FAILURE_THRESHOLD}): ${
-            error instanceof Error ? error.message : 'Unknown ping failure.'
-          }`,
-          timestamp: Date.now(),
-        });
 
         if (keepaliveFailuresRef.current >= KEEPALIVE_FAILURE_THRESHOLD) {
           stopKeepalive();
           setStatus('error');
-          appendLog({
-            level: 'error',
-            message: 'Connection degraded after repeated ping failures. Disconnecting client.',
-            timestamp: Date.now(),
-          });
+          logConnectionLost();
           await disconnectClient();
         }
       }
     }, KEEPALIVE_INTERVAL_MS);
-  }, [appendLog, disconnectClient, stopKeepalive]);
+  }, [disconnectClient, logConnectionLost, stopKeepalive]);
 
   const handleConnect = useCallback(async () => {
     if (status === 'connecting' || status === 'handshaking') {
@@ -349,40 +345,30 @@ export default function DevicePage() {
 
     if (!DeviceSerialClient.isSupported()) {
       setStatus('error');
-      appendLog({
-        level: 'error',
-        message: 'Web Serial is not supported in this browser.',
-        timestamp: Date.now(),
-      });
+      appendLog('Web Serial is not supported in this browser.');
       return;
     }
 
     await disconnectClient();
 
     const client = new DeviceSerialClient({
-      onEvent: appendLog,
       onDisconnect: () => {
         stopKeepalive();
         setStatus('error');
-        appendLog({
-          level: 'error',
-          message: 'Device disconnected unexpectedly.',
-          timestamp: Date.now(),
-        });
+        logConnectionLost();
       },
     });
 
     clientRef.current = client;
     setStatus('connecting');
-    setHelloAck(null);
-    setLastPingAt(null);
+    hasLoggedConnectionLostRef.current = false;
+    appendLog('Connecting to thx-c...');
 
     try {
       await client.connect();
       setStatus('handshaking');
 
       const helloResponse = await client.handshake();
-      setHelloAck(helloResponse.payload);
       hydrateState(helloResponse.payload.state);
 
       const stateResponse = await client.getState();
@@ -390,49 +376,30 @@ export default function DevicePage() {
 
       setStatus('ready');
       startKeepalive();
+      appendLog('Connected to thx-c. Settings synced.');
     } catch (error) {
       console.error(error);
       setStatus('error');
-
-      appendLog({
-        level: 'error',
-        message: error instanceof Error ? error.message : 'Unable to connect to device.',
-        timestamp: Date.now(),
-      });
+      logConnectionLost();
 
       await disconnectClient();
     }
-  }, [appendLog, disconnectClient, hydrateState, startKeepalive, status, stopKeepalive]);
+  }, [
+    appendLog,
+    disconnectClient,
+    hydrateState,
+    logConnectionLost,
+    startKeepalive,
+    status,
+    stopKeepalive,
+  ]);
 
   const handleDisconnect = useCallback(async () => {
     await disconnectClient();
     setStatus('idle');
-    setLastPingAt(null);
-  }, [disconnectClient]);
-
-  const handleRefreshState = useCallback(async () => {
-    if (!clientRef.current || status !== 'ready') {
-      return;
-    }
-
-    try {
-      const state = await clientRef.current.getState();
-      hydrateState(state);
-      appendLog({
-        level: 'info',
-        message: 'Device state refreshed from hardware.',
-        timestamp: Date.now(),
-      });
-    } catch (error) {
-      appendLog({
-        level: 'error',
-        message: error instanceof Error ? error.message : 'Unable to refresh state.',
-        timestamp: Date.now(),
-      });
-      setStatus('error');
-      await disconnectClient();
-    }
-  }, [appendLog, disconnectClient, hydrateState, status]);
+    hasLoggedConnectionLostRef.current = false;
+    appendLog('Disconnected from thx-c.');
+  }, [appendLog, disconnectClient]);
 
   const handleApplyConfig = useCallback(async () => {
     if (!clientRef.current || status !== 'ready' || isApplying) {
@@ -449,19 +416,9 @@ export default function DevicePage() {
 
       hydrateState(response.state);
 
-      appendLog({
-        level: 'info',
-        message: `Configuration applied${
-          response.appliedConfigId ? ` (${response.appliedConfigId})` : ''
-        }.`,
-        timestamp: Date.now(),
-      });
-    } catch (error) {
-      appendLog({
-        level: 'error',
-        message: error instanceof Error ? error.message : 'Configuration apply failed.',
-        timestamp: Date.now(),
-      });
+      appendLog('Configuration updated on thx-c.');
+    } catch {
+      appendLog("Couldn't update configuration. Try again.");
     } finally {
       setIsApplying(false);
     }
@@ -555,6 +512,8 @@ export default function DevicePage() {
   }, [status]);
 
   const isBusy = status === 'connecting' || status === 'handshaking';
+  const statusLabel =
+    status === 'connecting' || status === 'handshaking' ? 'connecting...' : status;
   const hasDirtyConfig = useMemo(
     () => !statesEqual(deviceState, draftState),
     [deviceState, draftState],
@@ -576,8 +535,7 @@ export default function DevicePage() {
         <p className="text-xs uppercase tracking-[0.4em] text-black/60">Device</p>
         <h1 className="text-3xl uppercase tracking-[0.3em]">thx-c</h1>
         <p className="max-w-2xl text-sm text-black/70">
-          Connect over Web Serial, handshake with the Pico, and manage hardware state in sync with
-          thx-c.
+          change your colors, patterns, and chords here for your thx-c device.
         </p>
       </div>
 
@@ -600,38 +558,14 @@ export default function DevicePage() {
           Disconnect
         </button>
 
-        <button
-          type="button"
-          onClick={handleRefreshState}
-          disabled={status !== 'ready' || isBusy || isApplying}
-          className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Sync state
-        </button>
-
-        <span className="text-xs uppercase tracking-[0.3em] text-black/60">Status: {status}</span>
+        <span className="text-xs uppercase tracking-[0.3em] text-black/60">
+          Status: {statusLabel}
+        </span>
       </div>
-
-      {helloAck && (
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-6 text-xs text-black/70">
-          <h2 className="text-sm uppercase tracking-[0.3em]">Handshake</h2>
-          <p className="mt-3">Device: {helloAck.device}</p>
-          <p>Firmware: {helloAck.firmwareVersion}</p>
-          <p>Protocol: v{helloAck.protocolVersion}</p>
-          <p>Connection: thx-c</p>
-          <p>Features: {helloAck.features.join(', ')}</p>
-          {lastPingAt && <p>Last ping: {formatLogTimestamp(lastPingAt)}</p>}
-        </div>
-      )}
 
       <div className="grid gap-8 lg:grid-cols-[minmax(280px,420px)_minmax(280px,1fr)]">
         <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm uppercase tracking-[0.3em]">Keypad</h2>
-            <p className="text-[10px] uppercase tracking-[0.25em] text-black/55">
-              Right column = modifiers (15 to 12 top-down)
-            </p>
-          </div>
+          <h2 className="mb-4 text-sm uppercase tracking-[0.3em]">Keypad</h2>
 
           <div className="grid grid-cols-4 gap-3">
             {KEYPAD_LAYOUT.flat().map((keyIndex) => {
@@ -807,7 +741,7 @@ export default function DevicePage() {
               disabled={status !== 'ready' || !hasDirtyConfig || isApplying || isBusy}
               className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isApplying ? 'Applying…' : 'Apply configuration'}
+              {isApplying ? 'Applying…' : 'Apply'}
             </button>
 
             <button
@@ -816,7 +750,7 @@ export default function DevicePage() {
               disabled={!hasDirtyConfig || isApplying}
               className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Revert edits
+              Undo
             </button>
           </div>
         </div>
@@ -825,10 +759,10 @@ export default function DevicePage() {
       <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
         <h2 className="text-sm uppercase tracking-[0.3em]">Session log</h2>
         <div className="mt-4 space-y-2 text-xs text-black/70">
-          {log.length === 0 && <p>No activity yet.</p>}
+          {log.length === 0 && <p>No activity yet. Connect your thx-c to begin.</p>}
           {log.map((entry, index) => (
             <p key={`${entry.timestamp}-${index}`}>
-              [{formatLogTimestamp(entry.timestamp)}] {entry.level.toUpperCase()} {entry.message}
+              [{formatLogTimestamp(entry.timestamp)}] {entry.message}
             </p>
           ))}
         </div>
