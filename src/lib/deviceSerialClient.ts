@@ -84,6 +84,11 @@ export type DeviceMessageType =
   | 'get_state'
   | 'apply_config'
   | 'ping'
+  | 'firmware_begin'
+  | 'firmware_chunk'
+  | 'firmware_file_complete'
+  | 'firmware_commit'
+  | 'firmware_abort'
   | 'error'
   | 'ack'
   | 'nack';
@@ -152,6 +157,67 @@ export interface NackPayload extends EnvelopePayload {
 }
 
 export interface NackMessage extends DeviceEnvelope<'nack', NackPayload> {}
+
+export interface FirmwareFileDescriptor extends EnvelopePayload {
+  path: string;
+  size: number;
+  sha256: string;
+}
+
+export interface FirmwareBeginPayload extends EnvelopePayload {
+  sessionId: string;
+  targetVersion: string;
+  files: FirmwareFileDescriptor[];
+}
+
+export interface FirmwareChunkPayload extends EnvelopePayload {
+  sessionId: string;
+  path: string;
+  chunkIndex: number;
+  dataBase64: string;
+}
+
+export interface FirmwareFileCompletePayload extends EnvelopePayload {
+  sessionId: string;
+  path: string;
+  size: number;
+  sha256: string;
+}
+
+export interface FirmwareCommitPayload extends EnvelopePayload {
+  sessionId: string;
+  targetVersion: string;
+}
+
+export interface FirmwareAbortPayload extends EnvelopePayload {
+  sessionId: string;
+  reason?: string;
+}
+
+export interface DeviceFirmwarePackageFile {
+  path: string;
+  contentBase64: string;
+  sha256: string;
+}
+
+export interface DeviceFirmwarePackage {
+  version: string;
+  files: DeviceFirmwarePackageFile[];
+}
+
+export interface DeviceFirmwareFlashProgress {
+  type: 'begin' | 'chunk' | 'file_complete' | 'commit';
+  filePath?: string;
+  fileIndex?: number;
+  totalFiles: number;
+  chunkIndex?: number;
+  totalChunks?: number;
+}
+
+export interface DeviceFirmwareFlashOptions {
+  chunkSize?: number;
+  onProgress?: (progress: DeviceFirmwareFlashProgress) => void;
+}
 
 export interface ProtocolEvent {
   level: 'info' | 'error';
@@ -232,8 +298,10 @@ const isObject = (value: unknown): value is EnvelopePayload =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+const SHA256_HEX_PATTERN = /^[0-9a-fA-F]{64}$/;
 const MIN_PRESET_SPEED = NOTE_PRESET_SPEED_MIN;
 const MAX_PRESET_SPEED = NOTE_PRESET_SPEED_MAX;
+const DEFAULT_FIRMWARE_CHUNK_SIZE = 320;
 
 const isHexColor = (value: unknown): value is HexColor =>
   typeof value === 'string' && HEX_COLOR_PATTERN.test(value);
@@ -260,6 +328,42 @@ const normalizePresetSpeed = (value: unknown, fallback: number) => {
   }
 
   return value;
+};
+
+const isSha256Hex = (candidate: unknown): candidate is string =>
+  typeof candidate === 'string' && SHA256_HEX_PATTERN.test(candidate);
+
+const decodeBase64ToBytes = (value: string) => {
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(value, 'base64'));
+  }
+
+  if (typeof atob !== 'function') {
+    throw new DeviceClientError('base64_unsupported', 'No base64 decoder available.');
+  }
+
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
+const encodeBytesToBase64 = (bytes: Uint8Array) => {
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
+  }
+
+  if (typeof btoa !== 'function') {
+    throw new DeviceClientError('base64_unsupported', 'No base64 encoder available.');
+  }
+
+  let binary = '';
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
 };
 
 const cloneDeviceState = (state: DeviceState): DeviceState => ({
@@ -416,6 +520,48 @@ const tryNormalizeDeviceState = (candidate: unknown): DeviceState | null => {
 
 const normalizeDeviceState = (candidate: unknown): DeviceState =>
   tryNormalizeDeviceState(candidate) ?? cloneDeviceState(DEFAULT_DEVICE_STATE);
+
+const isFirmwarePath = (candidate: unknown): candidate is string =>
+  typeof candidate === 'string' && candidate.length > 0 && candidate.startsWith('/') && !candidate.includes('..');
+
+const normalizeFirmwareChunkSize = (candidate: number | undefined) => {
+  if (typeof candidate !== 'number' || !Number.isFinite(candidate)) {
+    return DEFAULT_FIRMWARE_CHUNK_SIZE;
+  }
+
+  const rounded = Math.floor(candidate);
+  if (rounded < 64) {
+    return 64;
+  }
+
+  if (rounded > 900) {
+    return 900;
+  }
+
+  return rounded;
+};
+
+const validateFirmwareFileDescriptor = (candidate: unknown): candidate is FirmwareFileDescriptor =>
+  isObject(candidate) &&
+  isFirmwarePath(candidate.path) &&
+  typeof candidate.size === 'number' &&
+  Number.isFinite(candidate.size) &&
+  candidate.size >= 0 &&
+  isSha256Hex(candidate.sha256);
+
+const validateFirmwarePackage = (candidate: unknown): candidate is DeviceFirmwarePackage =>
+  isObject(candidate) &&
+  typeof candidate.version === 'string' &&
+  Array.isArray(candidate.files) &&
+  candidate.files.length > 0 &&
+  candidate.files.every(
+    (file) =>
+      isObject(file) &&
+      isFirmwarePath(file.path) &&
+      typeof file.contentBase64 === 'string' &&
+      file.contentBase64.length > 0 &&
+      isSha256Hex(file.sha256),
+  );
 
 const validateEnvelope = (candidate: unknown): DeviceEnvelope | null => {
   if (!isObject(candidate)) {
@@ -732,6 +878,227 @@ export class DeviceSerialClient {
     return {
       pongTs: typeof payload.pongTs === 'number' ? payload.pongTs : undefined,
     };
+  }
+
+  async firmwareBegin(payload: FirmwareBeginPayload) {
+    if (
+      typeof payload.sessionId !== 'string' ||
+      payload.sessionId.length === 0 ||
+      typeof payload.targetVersion !== 'string' ||
+      payload.targetVersion.length === 0 ||
+      !Array.isArray(payload.files) ||
+      payload.files.length === 0 ||
+      !payload.files.every(validateFirmwareFileDescriptor)
+    ) {
+      throw new DeviceClientError('invalid_firmware_begin', 'Firmware begin payload is invalid.');
+    }
+
+    const response = await this.sendRequest<AckMessage>(
+      'firmware_begin',
+      {
+        sessionId: payload.sessionId,
+        targetVersion: payload.targetVersion,
+        files: payload.files,
+      },
+      ['ack'],
+      this.requestTimeoutMs,
+    );
+    this.expectAck(response, 'firmware_begin');
+  }
+
+  async firmwareChunk(payload: FirmwareChunkPayload) {
+    if (
+      typeof payload.sessionId !== 'string' ||
+      payload.sessionId.length === 0 ||
+      !isFirmwarePath(payload.path) ||
+      typeof payload.chunkIndex !== 'number' ||
+      !Number.isInteger(payload.chunkIndex) ||
+      payload.chunkIndex < 0 ||
+      typeof payload.dataBase64 !== 'string' ||
+      payload.dataBase64.length === 0
+    ) {
+      throw new DeviceClientError('invalid_firmware_chunk', 'Firmware chunk payload is invalid.');
+    }
+
+    const response = await this.sendRequest<AckMessage>(
+      'firmware_chunk',
+      {
+        sessionId: payload.sessionId,
+        path: payload.path,
+        chunkIndex: payload.chunkIndex,
+        dataBase64: payload.dataBase64,
+      },
+      ['ack'],
+      this.requestTimeoutMs,
+    );
+    this.expectAck(response, 'firmware_chunk');
+  }
+
+  async firmwareFileComplete(payload: FirmwareFileCompletePayload) {
+    if (
+      typeof payload.sessionId !== 'string' ||
+      payload.sessionId.length === 0 ||
+      !isFirmwarePath(payload.path) ||
+      typeof payload.size !== 'number' ||
+      !Number.isFinite(payload.size) ||
+      payload.size < 0 ||
+      !isSha256Hex(payload.sha256)
+    ) {
+      throw new DeviceClientError(
+        'invalid_firmware_file_complete',
+        'Firmware file completion payload is invalid.',
+      );
+    }
+
+    const response = await this.sendRequest<AckMessage>(
+      'firmware_file_complete',
+      {
+        sessionId: payload.sessionId,
+        path: payload.path,
+        size: payload.size,
+        sha256: payload.sha256,
+      },
+      ['ack'],
+      this.requestTimeoutMs,
+    );
+    this.expectAck(response, 'firmware_file_complete');
+  }
+
+  async firmwareCommit(payload: FirmwareCommitPayload) {
+    if (
+      typeof payload.sessionId !== 'string' ||
+      payload.sessionId.length === 0 ||
+      typeof payload.targetVersion !== 'string' ||
+      payload.targetVersion.length === 0
+    ) {
+      throw new DeviceClientError('invalid_firmware_commit', 'Firmware commit payload is invalid.');
+    }
+
+    const response = await this.sendRequest<AckMessage>(
+      'firmware_commit',
+      {
+        sessionId: payload.sessionId,
+        targetVersion: payload.targetVersion,
+      },
+      ['ack'],
+      this.requestTimeoutMs,
+    );
+    this.expectAck(response, 'firmware_commit');
+  }
+
+  async firmwareAbort(payload: FirmwareAbortPayload) {
+    if (typeof payload.sessionId !== 'string' || payload.sessionId.length === 0) {
+      throw new DeviceClientError('invalid_firmware_abort', 'Firmware abort payload is invalid.');
+    }
+
+    const response = await this.sendRequest<AckMessage>(
+      'firmware_abort',
+      {
+        sessionId: payload.sessionId,
+        reason: typeof payload.reason === 'string' ? payload.reason : undefined,
+      },
+      ['ack'],
+      this.requestTimeoutMs,
+    );
+    this.expectAck(response, 'firmware_abort');
+  }
+
+  async flashFirmwarePackage(
+    pkg: DeviceFirmwarePackage,
+    options: DeviceFirmwareFlashOptions = {},
+  ) {
+    if (!validateFirmwarePackage(pkg)) {
+      throw new DeviceClientError('invalid_firmware_package', 'Firmware package is invalid.');
+    }
+
+    const sessionId = createRequestId();
+    const chunkSize = normalizeFirmwareChunkSize(options.chunkSize);
+    const materializedFiles = pkg.files.map((file) => {
+      const bytes = decodeBase64ToBytes(file.contentBase64);
+      return {
+        path: file.path,
+        bytes,
+        size: bytes.byteLength,
+        sha256: file.sha256.toLowerCase(),
+      };
+    });
+
+    try {
+      options.onProgress?.({
+        type: 'begin',
+        totalFiles: materializedFiles.length,
+      });
+
+      await this.firmwareBegin({
+        sessionId,
+        targetVersion: pkg.version,
+        files: materializedFiles.map((file) => ({
+          path: file.path,
+          size: file.size,
+          sha256: file.sha256,
+        })),
+      });
+
+      for (let fileIndex = 0; fileIndex < materializedFiles.length; fileIndex += 1) {
+        const file = materializedFiles[fileIndex];
+        const totalChunks = Math.max(1, Math.ceil(file.bytes.byteLength / chunkSize));
+
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+          const start = chunkIndex * chunkSize;
+          const end = Math.min(start + chunkSize, file.bytes.byteLength);
+          const chunk = file.bytes.slice(start, end);
+          await this.firmwareChunk({
+            sessionId,
+            path: file.path,
+            chunkIndex,
+            dataBase64: encodeBytesToBase64(chunk),
+          });
+
+          options.onProgress?.({
+            type: 'chunk',
+            filePath: file.path,
+            fileIndex,
+            totalFiles: materializedFiles.length,
+            chunkIndex,
+            totalChunks,
+          });
+        }
+
+        await this.firmwareFileComplete({
+          sessionId,
+          path: file.path,
+          size: file.size,
+          sha256: file.sha256,
+        });
+
+        options.onProgress?.({
+          type: 'file_complete',
+          filePath: file.path,
+          fileIndex,
+          totalFiles: materializedFiles.length,
+        });
+      }
+
+      await this.firmwareCommit({
+        sessionId,
+        targetVersion: pkg.version,
+      });
+
+      options.onProgress?.({
+        type: 'commit',
+        totalFiles: materializedFiles.length,
+      });
+    } catch (error) {
+      try {
+        await this.firmwareAbort({
+          sessionId,
+          reason: 'Host-side transfer failed.',
+        });
+      } catch {
+        // Ignore abort failures after transfer errors.
+      }
+      throw error;
+    }
   }
 
   private expectAck(response: DeviceEnvelope, requestType: string): AckPayload {

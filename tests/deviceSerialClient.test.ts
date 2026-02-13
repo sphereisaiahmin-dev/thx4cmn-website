@@ -131,8 +131,8 @@ class MockSerial implements SerialLike {
 const buildHelloAckPayload = (state: unknown = baseState) => ({
   device: 'thx-c',
   protocolVersion: DEVICE_PROTOCOL_VERSION,
-  features: ['handshake', 'get_state', 'apply_config', 'ping', 'note_presets_v1'],
-  firmwareVersion: '2.4.0',
+  features: ['handshake', 'get_state', 'apply_config', 'ping', 'note_presets_v1', 'firmware_update_v1'],
+  firmwareVersion: '0.9.0',
   state,
 });
 
@@ -653,8 +653,85 @@ test('handshake recovers from serial preamble and late hello_ack correlation mis
   const helloAck = await client.handshake();
 
   assert.equal(helloAck.type, 'hello_ack');
-  assert.equal(helloAck.payload.firmwareVersion, '2.4.0');
+  assert.equal(helloAck.payload.firmwareVersion, '0.9.0');
   assert.ok(port.receivedHostFrames.length >= 2);
+
+  await client.disconnect();
+});
+
+test('flashFirmwarePackage sends firmware update sequence', async () => {
+  const stageA = encoder.encode('print("a")');
+  const stageB = encoder.encode('print("b")');
+
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (
+      frame.type === 'firmware_begin' ||
+      frame.type === 'firmware_chunk' ||
+      frame.type === 'firmware_file_complete' ||
+      frame.type === 'firmware_commit' ||
+      frame.type === 'firmware_abort'
+    ) {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          requestType: frame.type,
+          status: 'ok',
+        },
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  await client.flashFirmwarePackage({
+    version: '0.9.1',
+    files: [
+      {
+        path: '/code.py',
+        contentBase64: Buffer.from(stageA).toString('base64'),
+        sha256: 'a'.repeat(64),
+      },
+      {
+        path: '/protocol_v1.py',
+        contentBase64: Buffer.from(stageB).toString('base64'),
+        sha256: 'b'.repeat(64),
+      },
+    ],
+  });
+
+  const firmwareBeginFrames = port.receivedHostFrames.filter((frame) => frame.type === 'firmware_begin');
+  const firmwareChunkFrames = port.receivedHostFrames.filter((frame) => frame.type === 'firmware_chunk');
+  const firmwareCompleteFrames = port.receivedHostFrames.filter(
+    (frame) => frame.type === 'firmware_file_complete',
+  );
+  const firmwareCommitFrames = port.receivedHostFrames.filter((frame) => frame.type === 'firmware_commit');
+
+  assert.equal(firmwareBeginFrames.length, 1);
+  assert.ok(firmwareChunkFrames.length >= 2);
+  assert.equal(firmwareCompleteFrames.length, 2);
+  assert.equal(firmwareCommitFrames.length, 1);
 
   await client.disconnect();
 });

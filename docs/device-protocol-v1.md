@@ -99,6 +99,11 @@ Allowed chord values:
 - `get_state`
 - `apply_config`
 - `ping`
+- `firmware_begin`
+- `firmware_chunk`
+- `firmware_file_complete`
+- `firmware_commit`
+- `firmware_abort`
 
 #### `hello.payload`
 
@@ -118,6 +123,39 @@ Allowed chord values:
 #### `ping.payload`
 
 - Optional object payload. Empty object is valid.
+
+#### `firmware_begin.payload`
+
+- `sessionId` (string): host-generated firmware update session id.
+- `targetVersion` (string): version being applied.
+- `files` (array<object>): list of files to stage:
+  - `path` (string): absolute device path (for example `/code.py`).
+  - `size` (number): expected file size in bytes.
+  - `sha256` (string): expected lowercase/uppercase hex SHA-256 digest.
+
+#### `firmware_chunk.payload`
+
+- `sessionId` (string): active firmware update session id.
+- `path` (string): target firmware file path from `firmware_begin`.
+- `chunkIndex` (number): zero-based chunk sequence number.
+- `dataBase64` (string): base64 encoded binary payload for this chunk.
+
+#### `firmware_file_complete.payload`
+
+- `sessionId` (string): active firmware update session id.
+- `path` (string): target firmware file path.
+- `size` (number): final file size in bytes.
+- `sha256` (string): final SHA-256 digest for verification.
+
+#### `firmware_commit.payload`
+
+- `sessionId` (string): active firmware update session id.
+- `targetVersion` (string): version expected after commit/reboot.
+
+#### `firmware_abort.payload`
+
+- `sessionId` (string): active firmware update session id.
+- `reason` (string, optional): host-provided diagnostic text.
 
 ### Device -> Host
 
@@ -142,6 +180,7 @@ Allowed chord values:
   - `state` (`DeviceState`): returned for `get_state` and `apply_config`.
   - `appliedConfigId` (string): returned for `apply_config`.
   - `pongTs` (number): returned for `ping`.
+  - `resetQueued` (boolean): may be returned for `firmware_commit`.
 
 #### `nack.payload`
 
