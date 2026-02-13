@@ -88,3 +88,31 @@ a {
     border-color: rgb(255, 80, 80);
   }
 }
+
+.device-modifier-cycle {
+  animation: device-modifier-rgb-cycle 2s linear infinite;
+  animation-delay: calc(var(--modifier-delay, 0ms) * -1);
+}
+
+@keyframes device-modifier-rgb-cycle {
+  0% {
+    background-color: rgba(255, 75, 90, 0.92);
+    border-color: rgba(255, 75, 90, 0.96);
+    color: rgba(255, 255, 255, 0.96);
+  }
+  33% {
+    background-color: rgba(70, 205, 130, 0.92);
+    border-color: rgba(70, 205, 130, 0.96);
+    color: rgba(255, 255, 255, 0.96);
+  }
+  66% {
+    background-color: rgba(85, 155, 255, 0.92);
+    border-color: rgba(85, 155, 255, 0.96);
+    color: rgba(255, 255, 255, 0.96);
+  }
+  100% {
+    background-color: rgba(255, 75, 90, 0.92);
+    border-color: rgba(255, 75, 90, 0.96);
+    color: rgba(255, 255, 255, 0.96);
+  }
+}
