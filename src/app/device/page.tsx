@@ -1,17 +1,39 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { HexColorPicker } from 'react-colorful';
+import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  CHORD_TYPES,
+  DEFAULT_DEVICE_STATE,
+  MODIFIER_KEY_IDS,
+  NOTE_PRESET_MODES,
+  NOTE_PRESET_SPEED_MAX,
+  NOTE_PRESET_SPEED_MIN,
   DeviceConnectionState,
   DeviceSerialClient,
+  DeviceState,
   HelloAckPayload,
+  ModifierKeyId,
+  NotePresetMode,
   ProtocolEvent,
 } from '@/lib/deviceSerialClient';
 
 type SessionLogEntry = ProtocolEvent;
 
-const MAX_LOG_ENTRIES = 40;
+const MAX_LOG_ENTRIES = 80;
+const KEEPALIVE_INTERVAL_MS = 4500;
+const KEEPALIVE_FAILURE_THRESHOLD = 2;
+
+const KEYPAD_LAYOUT: number[][] = [
+  [0, 4, 8, 12],
+  [1, 5, 9, 13],
+  [2, 6, 10, 14],
+  [3, 7, 11, 15],
+];
+
+const BLACK_NOTE_KEY_INDICES = new Set([1, 3, 6, 8, 10]);
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 const formatLogTimestamp = (timestamp: number) =>
   new Date(timestamp).toLocaleTimeString(undefined, {
@@ -20,15 +42,232 @@ const formatLogTimestamp = (timestamp: number) =>
     second: '2-digit',
   });
 
+const normalizeHexColor = (value: string, fallback: string) => {
+  const trimmed = value.trim();
+  if (!HEX_COLOR_PATTERN.test(trimmed)) {
+    return fallback;
+  }
+
+  return trimmed.toLowerCase();
+};
+
+const clampPresetSpeed = (value: number) =>
+  Math.max(NOTE_PRESET_SPEED_MIN, Math.min(NOTE_PRESET_SPEED_MAX, value));
+
+const cloneState = (state: DeviceState): DeviceState => ({
+  notePreset: {
+    mode: state.notePreset.mode,
+    piano: {
+      whiteKeyColor: state.notePreset.piano.whiteKeyColor,
+      blackKeyColor: state.notePreset.piano.blackKeyColor,
+    },
+    gradient: {
+      colorA: state.notePreset.gradient.colorA,
+      colorB: state.notePreset.gradient.colorB,
+      speed: state.notePreset.gradient.speed,
+    },
+    rain: {
+      colorA: state.notePreset.rain.colorA,
+      colorB: state.notePreset.rain.colorB,
+      speed: state.notePreset.rain.speed,
+    },
+  },
+  modifierChords: {
+    '12': state.modifierChords['12'],
+    '13': state.modifierChords['13'],
+    '14': state.modifierChords['14'],
+    '15': state.modifierChords['15'],
+  },
+});
+
+const statesEqual = (a: DeviceState, b: DeviceState) =>
+  a.notePreset.mode === b.notePreset.mode &&
+  a.notePreset.piano.whiteKeyColor === b.notePreset.piano.whiteKeyColor &&
+  a.notePreset.piano.blackKeyColor === b.notePreset.piano.blackKeyColor &&
+  a.notePreset.gradient.colorA === b.notePreset.gradient.colorA &&
+  a.notePreset.gradient.colorB === b.notePreset.gradient.colorB &&
+  a.notePreset.gradient.speed === b.notePreset.gradient.speed &&
+  a.notePreset.rain.colorA === b.notePreset.rain.colorA &&
+  a.notePreset.rain.colorB === b.notePreset.rain.colorB &&
+  a.notePreset.rain.speed === b.notePreset.rain.speed &&
+  MODIFIER_KEY_IDS.every((keyId) => a.modifierChords[keyId] === b.modifierChords[keyId]);
+
+const parseHexColor = (hex: string) => ({
+  r: Number.parseInt(hex.slice(1, 3), 16),
+  g: Number.parseInt(hex.slice(3, 5), 16),
+  b: Number.parseInt(hex.slice(5, 7), 16),
+});
+
+const lerpChannel = (start: number, end: number, amount: number) =>
+  Math.round(start + (end - start) * amount);
+
+const lerpHex = (aHex: string, bHex: string, amount: number) => {
+  const a = parseHexColor(aHex);
+  const b = parseHexColor(bHex);
+  const clamped = Math.max(0, Math.min(1, amount));
+
+  const r = lerpChannel(a.r, b.r, clamped);
+  const g = lerpChannel(a.g, b.g, clamped);
+  const bChannel = lerpChannel(a.b, b.b, clamped);
+
+  return `rgb(${r}, ${g}, ${bChannel})`;
+};
+
+const isColorDark = (hex: string) => {
+  const { r, g, b } = parseHexColor(hex);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance < 0.5;
+};
+
+const getNotePreviewColor = (state: DeviceState, keyIndex: number, previewTick: number) => {
+  const mode = state.notePreset.mode;
+  if (mode === 'piano') {
+    if (BLACK_NOTE_KEY_INDICES.has(keyIndex)) {
+      return state.notePreset.piano.blackKeyColor;
+    }
+    return state.notePreset.piano.whiteKeyColor;
+  }
+
+  if (mode === 'gradient') {
+    const span = 11;
+    const base = keyIndex / span;
+    const offset = (previewTick * state.notePreset.gradient.speed * 0.25) % 1;
+    const blend = (base + offset) % 1;
+    return lerpHex(state.notePreset.gradient.colorA, state.notePreset.gradient.colorB, blend);
+  }
+
+  const phase = previewTick * state.notePreset.rain.speed + keyIndex * 0.9;
+  const blend = 0.5 + 0.5 * Math.sin(phase * 0.7 + Math.sin(phase * 0.21));
+  return lerpHex(state.notePreset.rain.colorA, state.notePreset.rain.colorB, blend);
+};
+
+type ColorPaletteFieldProps = {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+};
+
+function ColorPaletteField({ label, value, onChange }: ColorPaletteFieldProps) {
+  const textColorClass = isColorDark(value) ? 'text-white' : 'text-black';
+
+  return (
+    <div className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3">
+      <p className="text-xs uppercase tracking-[0.2em] text-black/70">{label}</p>
+      <div className="overflow-hidden rounded-lg border border-black/20">
+        <HexColorPicker color={value} onChange={(next) => onChange(normalizeHexColor(next, value))} />
+      </div>
+      <div className="flex items-center gap-2">
+        <span
+          className={`inline-flex h-8 min-w-[96px] items-center justify-center rounded-md border border-black/20 text-xs uppercase tracking-[0.2em] ${textColorClass}`}
+          style={{ backgroundColor: value }}
+        >
+          {value}
+        </span>
+        <input
+          type="text"
+          value={value}
+          onChange={(event) => onChange(normalizeHexColor(event.target.value, value))}
+          className="w-full rounded-md border border-black/25 bg-white px-2 py-1 text-sm uppercase tracking-[0.08em]"
+          spellCheck={false}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function DevicePage() {
   const [status, setStatus] = useState<DeviceConnectionState>('idle');
   const [log, setLog] = useState<SessionLogEntry[]>([]);
   const [helloAck, setHelloAck] = useState<HelloAckPayload | null>(null);
+  const [deviceState, setDeviceState] = useState<DeviceState>(cloneState(DEFAULT_DEVICE_STATE));
+  const [draftState, setDraftState] = useState<DeviceState>(cloneState(DEFAULT_DEVICE_STATE));
+  const [selectedModifierKey, setSelectedModifierKey] = useState<ModifierKeyId>('12');
+  const [isApplying, setIsApplying] = useState(false);
+  const [lastPingAt, setLastPingAt] = useState<number | null>(null);
+  const [previewTick, setPreviewTick] = useState(0);
+
   const clientRef = useRef<DeviceSerialClient | null>(null);
+  const statusRef = useRef<DeviceConnectionState>('idle');
+  const keepaliveTimerRef = useRef<number | null>(null);
+  const keepaliveFailuresRef = useRef(0);
 
   const appendLog = useCallback((entry: SessionLogEntry) => {
     setLog((prev) => [entry, ...prev].slice(0, MAX_LOG_ENTRIES));
   }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setPreviewTick((prev) => prev + 0.08);
+    }, 60);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  const stopKeepalive = useCallback(() => {
+    if (keepaliveTimerRef.current !== null) {
+      window.clearInterval(keepaliveTimerRef.current);
+      keepaliveTimerRef.current = null;
+    }
+    keepaliveFailuresRef.current = 0;
+  }, []);
+
+  const disconnectClient = useCallback(async () => {
+    stopKeepalive();
+
+    if (!clientRef.current) {
+      return;
+    }
+
+    const client = clientRef.current;
+    clientRef.current = null;
+    await client.disconnect();
+  }, [stopKeepalive]);
+
+  const hydrateState = useCallback((incoming: DeviceState) => {
+    const next = cloneState(incoming);
+    setDeviceState(next);
+    setDraftState(next);
+  }, []);
+
+  const startKeepalive = useCallback(() => {
+    stopKeepalive();
+
+    keepaliveTimerRef.current = window.setInterval(async () => {
+      const client = clientRef.current;
+      if (!client || statusRef.current !== 'ready') {
+        return;
+      }
+
+      try {
+        await client.ping();
+        keepaliveFailuresRef.current = 0;
+        setLastPingAt(Date.now());
+      } catch (error) {
+        keepaliveFailuresRef.current += 1;
+
+        appendLog({
+          level: 'error',
+          message: `Keepalive failed (${keepaliveFailuresRef.current}/${KEEPALIVE_FAILURE_THRESHOLD}): ${
+            error instanceof Error ? error.message : 'Unknown ping failure.'
+          }`,
+          timestamp: Date.now(),
+        });
+
+        if (keepaliveFailuresRef.current >= KEEPALIVE_FAILURE_THRESHOLD) {
+          stopKeepalive();
+          setStatus('error');
+          appendLog({
+            level: 'error',
+            message: 'Connection degraded after repeated ping failures. Disconnecting client.',
+            timestamp: Date.now(),
+          });
+          await disconnectClient();
+        }
+      }
+    }, KEEPALIVE_INTERVAL_MS);
+  }, [appendLog, disconnectClient, stopKeepalive]);
 
   const handleConnect = useCallback(async () => {
     if (status === 'connecting' || status === 'handshaking') {
@@ -45,26 +284,39 @@ export default function DevicePage() {
       return;
     }
 
-    if (clientRef.current) {
-      await clientRef.current.disconnect();
-      clientRef.current = null;
-    }
+    await disconnectClient();
 
     const client = new DeviceSerialClient({
       onEvent: appendLog,
+      onDisconnect: () => {
+        stopKeepalive();
+        setStatus('error');
+        appendLog({
+          level: 'error',
+          message: 'Device disconnected unexpectedly.',
+          timestamp: Date.now(),
+        });
+      },
     });
 
     clientRef.current = client;
-    setHelloAck(null);
     setStatus('connecting');
+    setHelloAck(null);
+    setLastPingAt(null);
 
     try {
       await client.connect();
       setStatus('handshaking');
 
-      const response = await client.handshake();
-      setHelloAck(response.payload);
+      const helloResponse = await client.handshake();
+      setHelloAck(helloResponse.payload);
+      hydrateState(helloResponse.payload.state);
+
+      const stateResponse = await client.getState();
+      hydrateState(stateResponse);
+
       setStatus('ready');
+      startKeepalive();
     } catch (error) {
       console.error(error);
       setStatus('error');
@@ -75,36 +327,180 @@ export default function DevicePage() {
         timestamp: Date.now(),
       });
 
-      await client.disconnect();
-      clientRef.current = null;
+      await disconnectClient();
     }
-  }, [appendLog, status]);
+  }, [appendLog, disconnectClient, hydrateState, startKeepalive, status, stopKeepalive]);
 
-  useEffect(() => {
-    return () => {
-      if (!clientRef.current) {
+  const handleDisconnect = useCallback(async () => {
+    await disconnectClient();
+    setStatus('idle');
+    setLastPingAt(null);
+  }, [disconnectClient]);
+
+  const handleRefreshState = useCallback(async () => {
+    if (!clientRef.current || status !== 'ready') {
+      return;
+    }
+
+    try {
+      const state = await clientRef.current.getState();
+      hydrateState(state);
+      appendLog({
+        level: 'info',
+        message: 'Device state refreshed from hardware.',
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      appendLog({
+        level: 'error',
+        message: error instanceof Error ? error.message : 'Unable to refresh state.',
+        timestamp: Date.now(),
+      });
+      setStatus('error');
+      await disconnectClient();
+    }
+  }, [appendLog, disconnectClient, hydrateState, status]);
+
+  const handleApplyConfig = useCallback(async () => {
+    if (!clientRef.current || status !== 'ready' || isApplying) {
+      return;
+    }
+
+    setIsApplying(true);
+
+    try {
+      const response = await clientRef.current.applyConfig(draftState, {
+        configId: `cfg-${Date.now()}`,
+        idempotencyKey: `idem-${Date.now()}`,
+      });
+
+      hydrateState(response.state);
+
+      appendLog({
+        level: 'info',
+        message: `Configuration applied${
+          response.appliedConfigId ? ` (${response.appliedConfigId})` : ''
+        }.`,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      appendLog({
+        level: 'error',
+        message: error instanceof Error ? error.message : 'Configuration apply failed.',
+        timestamp: Date.now(),
+      });
+    } finally {
+      setIsApplying(false);
+    }
+  }, [appendLog, draftState, hydrateState, isApplying, status]);
+
+  const handlePresetModeChange = useCallback((mode: NotePresetMode) => {
+    setDraftState((prev) => ({
+      ...prev,
+      notePreset: {
+        ...prev.notePreset,
+        mode,
+      },
+    }));
+  }, []);
+
+  const handlePianoColorChange = useCallback(
+    (field: 'whiteKeyColor' | 'blackKeyColor', color: string) => {
+      setDraftState((prev) => ({
+        ...prev,
+        notePreset: {
+          ...prev.notePreset,
+          piano: {
+            ...prev.notePreset.piano,
+            [field]: normalizeHexColor(color, prev.notePreset.piano[field]),
+          },
+        },
+      }));
+    },
+    [],
+  );
+
+  const handleAnimatedColorChange = useCallback(
+    (section: 'gradient' | 'rain', field: 'colorA' | 'colorB', color: string) => {
+      setDraftState((prev) => ({
+        ...prev,
+        notePreset: {
+          ...prev.notePreset,
+          [section]: {
+            ...prev.notePreset[section],
+            [field]: normalizeHexColor(color, prev.notePreset[section][field]),
+          },
+        },
+      }));
+    },
+    [],
+  );
+
+  const handlePresetSpeedChange = useCallback((section: 'gradient' | 'rain', rawValue: string) => {
+    const parsed = Number.parseFloat(rawValue);
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+
+    setDraftState((prev) => ({
+      ...prev,
+      notePreset: {
+        ...prev.notePreset,
+        [section]: {
+          ...prev.notePreset[section],
+          speed: clampPresetSpeed(parsed),
+        },
+      },
+    }));
+  }, []);
+
+  const handleModifierChordChange = useCallback(
+    (keyId: ModifierKeyId, chord: string) => {
+      if (!CHORD_TYPES.includes(chord as (typeof CHORD_TYPES)[number])) {
         return;
       }
 
-      void clientRef.current.disconnect();
-      clientRef.current = null;
+      setDraftState((prev) => ({
+        ...prev,
+        modifierChords: {
+          ...prev.modifierChords,
+          [keyId]: chord as DeviceState['modifierChords'][ModifierKeyId],
+        },
+      }));
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      void disconnectClient();
     };
-  }, []);
+  }, [disconnectClient]);
+
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const isBusy = status === 'connecting' || status === 'handshaking';
+  const hasDirtyConfig = useMemo(
+    () => !statesEqual(deviceState, draftState),
+    [deviceState, draftState],
+  );
+
+  const selectedModifierChord = draftState.modifierChords[selectedModifierKey];
 
   return (
     <section className="relative space-y-8">
       <div className="space-y-3">
         <p className="text-xs uppercase tracking-[0.4em] text-black/60">Device</p>
-        <h1 className="text-3xl uppercase tracking-[0.3em]">thx-c</h1>
+        <h1 className="text-3xl uppercase tracking-[0.3em]">thx.c - connection</h1>
         <p className="max-w-2xl text-sm text-black/70">
-          USB protocol v1 handshake is now required before any configuration updates. Use the
-          connect button to open the serial port and initialize a protocol session.
+          Connect over Web Serial, handshake with the Pico, and manage hardware state in sync with
+          thx.c - connection.
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-4">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={handleConnect}
@@ -113,6 +509,25 @@ export default function DevicePage() {
         >
           {status === 'ready' ? 'Reconnect device' : 'Connect device'}
         </button>
+
+        <button
+          type="button"
+          onClick={handleDisconnect}
+          disabled={!clientRef.current || isBusy}
+          className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Disconnect
+        </button>
+
+        <button
+          type="button"
+          onClick={handleRefreshState}
+          disabled={status !== 'ready' || isBusy || isApplying}
+          className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Sync state
+        </button>
+
         <span className="text-xs uppercase tracking-[0.3em] text-black/60">Status: {status}</span>
       </div>
 
@@ -122,9 +537,197 @@ export default function DevicePage() {
           <p className="mt-3">Device: {helloAck.device}</p>
           <p>Firmware: {helloAck.firmwareVersion}</p>
           <p>Protocol: v{helloAck.protocolVersion}</p>
+          <p>Connection: thx.c - connection</p>
           <p>Features: {helloAck.features.join(', ')}</p>
+          {lastPingAt && <p>Last ping: {formatLogTimestamp(lastPingAt)}</p>}
         </div>
       )}
+
+      <div className="grid gap-8 lg:grid-cols-[minmax(280px,420px)_minmax(280px,1fr)]">
+        <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-sm uppercase tracking-[0.3em]">Keypad</h2>
+            <p className="text-[10px] uppercase tracking-[0.25em] text-black/55">
+              Right column = modifiers
+            </p>
+          </div>
+
+          <div className="grid grid-cols-4 gap-3">
+            {KEYPAD_LAYOUT.flat().map((keyIndex) => {
+              const isModifier = keyIndex >= 12;
+              const keyId = `${keyIndex}` as ModifierKeyId;
+
+              if (isModifier) {
+                const delayMs = (keyIndex - 12) * 120;
+                const style = {
+                  '--modifier-delay': `${delayMs}ms`,
+                } as CSSProperties;
+
+                return (
+                  <button
+                    key={keyIndex}
+                    type="button"
+                    onClick={() => setSelectedModifierKey(keyId)}
+                    style={style}
+                    className={`device-modifier-cycle flex aspect-square flex-col items-center justify-center rounded-xl border text-xs uppercase tracking-[0.2em] transition ${
+                      selectedModifierKey === keyId
+                        ? 'border-black bg-black text-white shadow-[0_0_0_2px_rgba(0,0,0,0.35)]'
+                        : 'border-black/40 bg-black text-white'
+                    }`}
+                  >
+                    <span className="text-[10px] opacity-70">K{keyIndex}</span>
+                    <span className="mt-1 text-[11px]">{draftState.modifierChords[keyId]}</span>
+                  </button>
+                );
+              }
+
+              const previewColor = getNotePreviewColor(draftState, keyIndex, previewTick);
+              const noteTextClass =
+                previewColor.startsWith('#') && isColorDark(previewColor)
+                  ? 'text-white'
+                  : 'text-black';
+
+              return (
+                <div
+                  key={keyIndex}
+                  className={`flex aspect-square flex-col items-center justify-center rounded-xl border border-black/30 text-xs uppercase tracking-[0.2em] ${noteTextClass}`}
+                  style={{ backgroundColor: previewColor }}
+                >
+                  <span className="text-[10px] opacity-70">K{keyIndex}</span>
+                  <span className="mt-1 text-[11px]">N{keyIndex}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
+          <h2 className="text-sm uppercase tracking-[0.3em]">Configuration</h2>
+
+          <div className="mt-4 space-y-2">
+            <label className="text-xs uppercase tracking-[0.2em] text-black/70">Note key preset</label>
+            <select
+              value={draftState.notePreset.mode}
+              onChange={(event) => handlePresetModeChange(event.target.value as NotePresetMode)}
+              className="w-full rounded-lg border border-black/25 bg-white/80 px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
+            >
+              {NOTE_PRESET_MODES.map((mode) => (
+                <option key={mode} value={mode}>
+                  {mode}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {draftState.notePreset.mode === 'piano' && (
+            <div className="mt-4 grid gap-3">
+              <ColorPaletteField
+                label="White key color"
+                value={draftState.notePreset.piano.whiteKeyColor}
+                onChange={(color) => handlePianoColorChange('whiteKeyColor', color)}
+              />
+              <ColorPaletteField
+                label="Black key color"
+                value={draftState.notePreset.piano.blackKeyColor}
+                onChange={(color) => handlePianoColorChange('blackKeyColor', color)}
+              />
+            </div>
+          )}
+
+          {draftState.notePreset.mode === 'gradient' && (
+            <div className="mt-4 grid gap-3">
+              <ColorPaletteField
+                label="Gradient color A"
+                value={draftState.notePreset.gradient.colorA}
+                onChange={(color) => handleAnimatedColorChange('gradient', 'colorA', color)}
+              />
+              <ColorPaletteField
+                label="Gradient color B"
+                value={draftState.notePreset.gradient.colorB}
+                onChange={(color) => handleAnimatedColorChange('gradient', 'colorB', color)}
+              />
+              <label className="space-y-1 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70">
+                <span>Gradient speed</span>
+                <input
+                  type="range"
+                  min={NOTE_PRESET_SPEED_MIN}
+                  max={NOTE_PRESET_SPEED_MAX}
+                  step={0.1}
+                  value={draftState.notePreset.gradient.speed}
+                  onChange={(event) => handlePresetSpeedChange('gradient', event.target.value)}
+                  className="w-full"
+                />
+                <span className="text-[11px]">{draftState.notePreset.gradient.speed.toFixed(1)}x</span>
+              </label>
+            </div>
+          )}
+
+          {draftState.notePreset.mode === 'rain' && (
+            <div className="mt-4 grid gap-3">
+              <ColorPaletteField
+                label="Rain color A"
+                value={draftState.notePreset.rain.colorA}
+                onChange={(color) => handleAnimatedColorChange('rain', 'colorA', color)}
+              />
+              <ColorPaletteField
+                label="Rain color B"
+                value={draftState.notePreset.rain.colorB}
+                onChange={(color) => handleAnimatedColorChange('rain', 'colorB', color)}
+              />
+              <label className="space-y-1 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70">
+                <span>Rain speed</span>
+                <input
+                  type="range"
+                  min={NOTE_PRESET_SPEED_MIN}
+                  max={NOTE_PRESET_SPEED_MAX}
+                  step={0.1}
+                  value={draftState.notePreset.rain.speed}
+                  onChange={(event) => handlePresetSpeedChange('rain', event.target.value)}
+                  className="w-full"
+                />
+                <span className="text-[11px]">{draftState.notePreset.rain.speed.toFixed(1)}x</span>
+              </label>
+            </div>
+          )}
+
+          <div className="mt-6 space-y-2 rounded-xl border border-black/15 bg-white/70 p-3">
+            <p className="text-xs uppercase tracking-[0.2em] text-black/70">
+              Selected modifier key: {selectedModifierKey}
+            </p>
+            <select
+              value={selectedModifierChord}
+              onChange={(event) => handleModifierChordChange(selectedModifierKey, event.target.value)}
+              className="w-full rounded-lg border border-black/25 bg-white px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
+            >
+              {CHORD_TYPES.map((chord) => (
+                <option key={chord} value={chord}>
+                  {chord}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleApplyConfig}
+              disabled={status !== 'ready' || !hasDirtyConfig || isApplying || isBusy}
+              className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isApplying ? 'Applying…' : 'Apply configuration'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDraftState(cloneState(deviceState))}
+              disabled={!hasDirtyConfig || isApplying}
+              className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Revert edits
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
         <h2 className="text-sm uppercase tracking-[0.3em]">Session log</h2>

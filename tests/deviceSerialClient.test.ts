@@ -4,13 +4,52 @@ import test from 'node:test';
 import {
   DEVICE_PROTOCOL_VERSION,
   DeviceSerialClient,
+  type DeviceEnvelope,
+  type DeviceState,
+  type SerialLike,
+  type SerialPortLike,
 } from '../src/lib/deviceSerialClient.ts';
-import type { DeviceEnvelope, SerialLike, SerialPortLike } from '../src/lib/deviceSerialClient.ts';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 type HostFrameHandler = (frame: DeviceEnvelope, port: MockSerialPort) => void;
+
+const baseState: DeviceState = {
+  notePreset: {
+    mode: 'piano',
+    piano: {
+      whiteKeyColor: '#969696',
+      blackKeyColor: '#46466e',
+    },
+    gradient: {
+      colorA: '#ff4b5a',
+      colorB: '#559bff',
+      speed: 1,
+    },
+    rain: {
+      colorA: '#56d18d',
+      colorB: '#559bff',
+      speed: 1,
+    },
+  },
+  modifierChords: {
+    '12': 'min7',
+    '13': 'maj7',
+    '14': 'min',
+    '15': 'maj',
+  },
+};
+
+const legacyState = {
+  showBlackKeys: false,
+  modifierChords: {
+    '12': 'min7',
+    '13': 'maj7',
+    '14': 'min',
+    '15': 'maj',
+  },
+};
 
 class MockSerialPort implements SerialPortLike {
   readable: ReadableStream<Uint8Array>;
@@ -52,6 +91,10 @@ class MockSerialPort implements SerialPortLike {
     this.readableController?.enqueue(encoder.encode(line));
   }
 
+  pushRawLine(line: string) {
+    this.readableController?.enqueue(encoder.encode(`${line}\n`));
+  }
+
   private flushOutboundLines() {
     while (true) {
       const newlineIndex = this.outboundBuffer.indexOf('\n');
@@ -85,12 +128,13 @@ class MockSerial implements SerialLike {
   }
 }
 
-const baseHelloAckPayload = {
-  device: 'thx-c pico midi',
+const buildHelloAckPayload = (state: unknown = baseState) => ({
+  device: 'thx.c - connection',
   protocolVersion: DEVICE_PROTOCOL_VERSION,
-  features: ['handshake'],
-  firmwareVersion: '1.0.0',
-};
+  features: ['handshake', 'get_state', 'apply_config', 'ping', 'note_presets_v1'],
+  firmwareVersion: '2.2.0',
+  state,
+});
 
 test('handshake success', async () => {
   const port = new MockSerialPort((frame, currentPort) => {
@@ -103,7 +147,7 @@ test('handshake success', async () => {
       type: 'hello_ack',
       id: frame.id,
       ts: Date.now(),
-      payload: baseHelloAckPayload,
+      payload: buildHelloAckPayload(),
     });
   });
 
@@ -118,8 +162,44 @@ test('handshake success', async () => {
   const helloAck = await client.handshake();
 
   assert.equal(helloAck.type, 'hello_ack');
-  assert.equal(helloAck.payload.device, 'thx-c pico midi');
+  assert.equal(helloAck.payload.device, 'thx.c - connection');
+  assert.deepEqual(helloAck.payload.state, baseState);
   assert.equal(port.receivedHostFrames.length, 1);
+
+  await client.disconnect();
+});
+
+test('handshake accepts and migrates legacy state payload', async () => {
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type !== 'hello') {
+      return;
+    }
+
+    currentPort.pushDeviceFrame({
+      v: DEVICE_PROTOCOL_VERSION,
+      type: 'hello_ack',
+      id: frame.id,
+      ts: Date.now(),
+      payload: buildHelloAckPayload(legacyState),
+    });
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  const helloAck = await client.handshake();
+
+  assert.equal(helloAck.payload.state.notePreset.mode, 'piano');
+  assert.equal(
+    helloAck.payload.state.notePreset.piano.blackKeyColor,
+    helloAck.payload.state.notePreset.piano.whiteKeyColor,
+  );
+  assert.equal(helloAck.payload.state.modifierChords['12'], 'min7');
 
   await client.disconnect();
 });
@@ -134,6 +214,7 @@ test('handshake timeout retries and final failure', async () => {
     requestTimeoutMs: 25,
     backoffBaseMs: 1,
     handshakeAttempts: 3,
+    handshakeRequestTimeoutMs: 25,
   });
 
   await client.connect();
@@ -147,71 +228,433 @@ test('handshake timeout retries and final failure', async () => {
   await client.disconnect();
 });
 
-test('handshake retries on malformed hello_ack and fails', async () => {
+test('get_state success', async () => {
   const port = new MockSerialPort((frame, currentPort) => {
-    if (frame.type !== 'hello') {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
       return;
     }
 
-    currentPort.pushDeviceFrame({
-      v: DEVICE_PROTOCOL_VERSION,
-      type: 'hello_ack',
-      id: frame.id,
-      ts: Date.now(),
-      payload: {
-        ...baseHelloAckPayload,
-        features: 'handshake',
-      },
-    });
+    if (frame.type === 'get_state') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          requestType: 'get_state',
+          status: 'ok',
+          state: baseState,
+        },
+      });
+    }
   });
 
   const client = new DeviceSerialClient({
     serial: new MockSerial(port),
     requestTimeoutMs: 100,
     backoffBaseMs: 1,
-    handshakeAttempts: 3,
+    handshakeAttempts: 2,
   });
 
   await client.connect();
+  await client.handshake();
 
-  await assert.rejects(async () => {
-    await client.handshake();
-  }, /hello_ack payload is malformed/);
-
-  assert.equal(port.receivedHostFrames.length, 3);
+  const state = await client.getState();
+  assert.deepEqual(state, baseState);
 
   await client.disconnect();
 });
 
-test('handshake ignores mismatched ids and times out', async () => {
+test('get_state response migrates legacy state payload', async () => {
   const port = new MockSerialPort((frame, currentPort) => {
-    if (frame.type !== 'hello') {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
       return;
     }
 
-    currentPort.pushDeviceFrame({
-      v: DEVICE_PROTOCOL_VERSION,
-      type: 'hello_ack',
-      id: `${frame.id}-unexpected`,
-      ts: Date.now(),
-      payload: baseHelloAckPayload,
-    });
+    if (frame.type === 'get_state') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          requestType: 'get_state',
+          status: 'ok',
+          state: legacyState,
+        },
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  const state = await client.getState();
+  assert.equal(state.notePreset.mode, 'piano');
+  assert.equal(state.notePreset.piano.blackKeyColor, state.notePreset.piano.whiteKeyColor);
+
+  await client.disconnect();
+});
+
+test('get_state ignores mismatched ids and times out', async () => {
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (frame.type === 'get_state') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'ack',
+        id: `${frame.id}-unexpected`,
+        ts: Date.now(),
+        payload: {
+          requestType: 'get_state',
+          status: 'ok',
+          state: baseState,
+        },
+      });
+    }
   });
 
   const client = new DeviceSerialClient({
     serial: new MockSerial(port),
     requestTimeoutMs: 30,
     backoffBaseMs: 1,
-    handshakeAttempts: 3,
+    handshakeAttempts: 2,
   });
 
   await client.connect();
+  await client.handshake();
 
   await assert.rejects(async () => {
-    await client.handshake();
-  }, /Timed out waiting for response to hello/);
+    await client.getState();
+  }, /Timed out waiting for response to get_state/);
 
-  assert.equal(port.receivedHostFrames.length, 3);
+  await client.disconnect();
+});
+
+test('apply_config success', async () => {
+  const nextState: DeviceState = {
+    notePreset: {
+      mode: 'gradient',
+      piano: {
+        whiteKeyColor: '#f0f0f0',
+        blackKeyColor: '#101030',
+      },
+      gradient: {
+        colorA: '#ff8844',
+        colorB: '#3388ff',
+        speed: 2.2,
+      },
+      rain: {
+        colorA: '#56d18d',
+        colorB: '#559bff',
+        speed: 1,
+      },
+    },
+    modifierChords: {
+      '12': 'min9',
+      '13': 'maj7',
+      '14': 'min',
+      '15': 'maj9',
+    },
+  };
+
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (frame.type === 'apply_config') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          requestType: 'apply_config',
+          status: 'ok',
+          state: nextState,
+          appliedConfigId: (frame.payload as { configId: string }).configId,
+        },
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  const result = await client.applyConfig(nextState, {
+    configId: 'cfg-1',
+    idempotencyKey: 'idem-1',
+  });
+
+  assert.deepEqual(result.state, nextState);
+  assert.equal(result.appliedConfigId, 'cfg-1');
+
+  await client.disconnect();
+});
+
+test('apply_config rejects invalid color format before send', async () => {
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  const invalidState = {
+    ...baseState,
+    notePreset: {
+      ...baseState.notePreset,
+      piano: {
+        ...baseState.notePreset.piano,
+        whiteKeyColor: '#zzzzzz',
+      },
+    },
+  } as unknown as DeviceState;
+
+  await assert.rejects(async () => {
+    await client.applyConfig(invalidState);
+  }, /Configuration payload is invalid/);
+
+  const applyFrames = port.receivedHostFrames.filter((frame) => frame.type === 'apply_config');
+  assert.equal(applyFrames.length, 0);
+
+  await client.disconnect();
+});
+
+test('apply_config rejects out-of-range speed before send', async () => {
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  const invalidState = {
+    ...baseState,
+    notePreset: {
+      ...baseState.notePreset,
+      gradient: {
+        ...baseState.notePreset.gradient,
+        speed: 4,
+      },
+    },
+  } as unknown as DeviceState;
+
+  await assert.rejects(async () => {
+    await client.applyConfig(invalidState);
+  }, /Configuration payload is invalid/);
+
+  const applyFrames = port.receivedHostFrames.filter((frame) => frame.type === 'apply_config');
+  assert.equal(applyFrames.length, 0);
+
+  await client.disconnect();
+});
+
+test('apply_config nack is surfaced', async () => {
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (frame.type === 'apply_config') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'nack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          requestType: 'apply_config',
+          code: 'invalid_config',
+          reason: 'Config is invalid.',
+          retryable: false,
+        },
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  await assert.rejects(async () => {
+    await client.applyConfig({
+      ...baseState,
+      modifierChords: {
+        ...baseState.modifierChords,
+        '12': 'maj9',
+      },
+    });
+  }, /Config is invalid/);
+
+  await client.disconnect();
+});
+
+test('disconnect rejects pending request', async () => {
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (frame.type === 'get_state') {
+      // Intentionally do not respond.
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 500,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  const pendingState = client.getState();
+  await client.disconnect();
+
+  await assert.rejects(async () => {
+    await pendingState;
+  }, /Connection closed/);
+});
+
+test('handshake recovers from serial preamble and late hello_ack correlation mismatch', async () => {
+  let helloCount = 0;
+
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type !== 'hello') {
+      return;
+    }
+
+    helloCount += 1;
+
+    if (helloCount === 1) {
+      currentPort.pushRawLine('code.py output:');
+      setTimeout(() => {
+        currentPort.pushDeviceFrame({
+          v: DEVICE_PROTOCOL_VERSION,
+          type: 'hello_ack',
+          id: frame.id,
+          ts: Date.now(),
+          payload: buildHelloAckPayload(),
+        });
+      }, 45);
+      return;
+    }
+
+    // no-op: fallback should correlate the late hello_ack to this pending attempt
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 25,
+    backoffBaseMs: 1,
+    handshakeAttempts: 3,
+    handshakeRequestTimeoutMs: 25,
+  });
+
+  await client.connect();
+  const helloAck = await client.handshake();
+
+  assert.equal(helloAck.type, 'hello_ack');
+  assert.equal(helloAck.payload.firmwareVersion, '2.2.0');
+  assert.ok(port.receivedHostFrames.length >= 2);
 
   await client.disconnect();
 });
