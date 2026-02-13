@@ -94,6 +94,11 @@ a {
   animation-delay: calc(var(--modifier-delay, 0ms) * -1);
 }
 
+.device-update-cycle {
+  animation: device-update-rgb-cycle 1.3s linear infinite;
+  border-color: rgba(0, 0, 0, 0.4);
+}
+
 @keyframes device-modifier-rgb-cycle {
   0% {
     background-color: rgba(255, 75, 90, 0.92);
@@ -114,5 +119,24 @@ a {
     background-color: rgba(255, 75, 90, 0.92);
     border-color: rgba(255, 75, 90, 0.96);
     color: rgba(255, 255, 255, 0.96);
+  }
+}
+
+@keyframes device-update-rgb-cycle {
+  0% {
+    color: rgb(255, 75, 90);
+    border-color: rgb(255, 75, 90);
+  }
+  33% {
+    color: rgb(70, 205, 130);
+    border-color: rgb(70, 205, 130);
+  }
+  66% {
+    color: rgb(85, 155, 255);
+    border-color: rgb(85, 155, 255);
+  }
+  100% {
+    color: rgb(255, 75, 90);
+    border-color: rgb(255, 75, 90);
   }
 }

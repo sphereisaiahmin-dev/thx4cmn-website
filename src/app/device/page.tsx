@@ -6,6 +6,7 @@ import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from
 import {
   CHORD_TYPES,
   DEFAULT_DEVICE_STATE,
+  DeviceFirmwarePackage,
   MODIFIER_KEY_IDS,
   NOTE_PRESET_MODES,
   NOTE_PRESET_SPEED_MAX,
@@ -20,6 +21,23 @@ import {
 type SessionLogEntry = {
   message: string;
   timestamp: number;
+};
+
+type FirmwareUpdateStrategy = 'none' | 'manual_bridge' | 'direct_flash';
+
+type FirmwareUpdateState = {
+  updateAvailable: boolean;
+  strategy: FirmwareUpdateStrategy;
+  currentVersion: string;
+  currentReleaseRank: number;
+  latestVersion: string;
+  latestReleaseRank: number;
+  targetVersion?: string;
+  targetReleaseRank?: number;
+  packageKey?: string;
+  downloadUrl?: string;
+  sha256?: string;
+  notes?: string;
 };
 
 const MAX_LOG_ENTRIES = 80;
@@ -249,6 +267,25 @@ const getPresetColorFieldLabel = (
 
 const getPresetSpeedLabel = (section: AnimatedPresetSection) => `${PRESET_MODE_LABELS[section]} speed`;
 
+const isFirmwarePackage = (candidate: unknown): candidate is DeviceFirmwarePackage => {
+  if (typeof candidate !== 'object' || candidate === null) {
+    return false;
+  }
+
+  const packageCandidate = candidate as DeviceFirmwarePackage;
+  return (
+    typeof packageCandidate.version === 'string' &&
+    Array.isArray(packageCandidate.files) &&
+    packageCandidate.files.length > 0 &&
+    packageCandidate.files.every(
+      (entry) =>
+        typeof entry.path === 'string' &&
+        typeof entry.contentBase64 === 'string' &&
+        typeof entry.sha256 === 'string',
+    )
+  );
+};
+
 export default function DevicePage() {
   const [status, setStatus] = useState<DeviceConnectionState>('idle');
   const [log, setLog] = useState<SessionLogEntry[]>([]);
@@ -257,6 +294,12 @@ export default function DevicePage() {
   const [selectedModifierKey, setSelectedModifierKey] = useState<ModifierKeyId | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const [previewTick, setPreviewTick] = useState(0);
+  const [connectedFirmwareVersion, setConnectedFirmwareVersion] = useState<string | null>(null);
+  const [connectedFeatures, setConnectedFeatures] = useState<string[]>([]);
+  const [firmwareUpdateState, setFirmwareUpdateState] = useState<FirmwareUpdateState | null>(null);
+  const [isCheckingFirmware, setIsCheckingFirmware] = useState(false);
+  const [isUpdatingFirmware, setIsUpdatingFirmware] = useState(false);
+  const [isUpdatePanelOpen, setIsUpdatePanelOpen] = useState(false);
 
   const clientRef = useRef<DeviceSerialClient | null>(null);
   const statusRef = useRef<DeviceConnectionState>('idle');
@@ -312,6 +355,47 @@ export default function DevicePage() {
     setDeviceState(next);
     setDraftState(next);
   }, []);
+
+  const refreshFirmwareUpdateState = useCallback(
+    async (firmwareVersion: string) => {
+      setIsCheckingFirmware(true);
+
+      try {
+        const response = await fetch(
+          `/api/device/firmware/latest?currentVersion=${encodeURIComponent(firmwareVersion)}&device=${encodeURIComponent('thx-c')}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          },
+        );
+
+        if (!response.ok) {
+          throw new Error(`Firmware update lookup failed (${response.status}).`);
+        }
+
+        const payload = (await response.json()) as FirmwareUpdateState;
+        if (typeof payload.updateAvailable !== 'boolean' || typeof payload.strategy !== 'string') {
+          throw new Error('Firmware update response was malformed.');
+        }
+
+        setFirmwareUpdateState(payload);
+        if (payload.updateAvailable) {
+          appendLog(
+            `Firmware ${payload.currentVersion} can update to ${payload.targetVersion ?? payload.latestVersion}.`,
+          );
+        } else {
+          appendLog(`Firmware ${payload.currentVersion} is up to date.`);
+        }
+      } catch (error) {
+        console.error(error);
+        setFirmwareUpdateState(null);
+        appendLog('Unable to check firmware updates right now.');
+      } finally {
+        setIsCheckingFirmware(false);
+      }
+    },
+    [appendLog],
+  );
 
   const startKeepalive = useCallback(() => {
     stopKeepalive();
@@ -369,6 +453,9 @@ export default function DevicePage() {
       setStatus('handshaking');
 
       const helloResponse = await client.handshake();
+      setConnectedFirmwareVersion(helloResponse.payload.firmwareVersion);
+      setConnectedFeatures(helloResponse.payload.features);
+      await refreshFirmwareUpdateState(helloResponse.payload.firmwareVersion);
       hydrateState(helloResponse.payload.state);
 
       const stateResponse = await client.getState();
@@ -381,11 +468,16 @@ export default function DevicePage() {
       console.error(error);
       setStatus('error');
       logConnectionLost();
+      setConnectedFirmwareVersion(null);
+      setConnectedFeatures([]);
+      setFirmwareUpdateState(null);
+      setIsUpdatePanelOpen(false);
 
       await disconnectClient();
     }
   }, [
     appendLog,
+    refreshFirmwareUpdateState,
     disconnectClient,
     hydrateState,
     logConnectionLost,
@@ -398,11 +490,15 @@ export default function DevicePage() {
     await disconnectClient();
     setStatus('idle');
     hasLoggedConnectionLostRef.current = false;
+    setConnectedFirmwareVersion(null);
+    setConnectedFeatures([]);
+    setFirmwareUpdateState(null);
+    setIsUpdatePanelOpen(false);
     appendLog('Disconnected from thx-c.');
   }, [appendLog, disconnectClient]);
 
   const handleApplyConfig = useCallback(async () => {
-    if (!clientRef.current || status !== 'ready' || isApplying) {
+    if (!clientRef.current || status !== 'ready' || isApplying || isUpdatingFirmware) {
       return;
     }
 
@@ -422,7 +518,85 @@ export default function DevicePage() {
     } finally {
       setIsApplying(false);
     }
-  }, [appendLog, draftState, hydrateState, isApplying, status]);
+  }, [appendLog, draftState, hydrateState, isApplying, isUpdatingFirmware, status]);
+
+  const handleUpdateMe = useCallback(async () => {
+    if (!clientRef.current || status !== 'ready' || !firmwareUpdateState?.updateAvailable || isUpdatingFirmware) {
+      return;
+    }
+
+    setIsUpdatePanelOpen(true);
+
+    if (firmwareUpdateState.strategy === 'manual_bridge') {
+      if (!firmwareUpdateState.downloadUrl) {
+        appendLog('Update package URL is missing. Try reconnecting.');
+        return;
+      }
+
+      window.open(firmwareUpdateState.downloadUrl, '_blank', 'noopener,noreferrer');
+      appendLog(
+        `Downloaded ${firmwareUpdateState.targetVersion ?? firmwareUpdateState.latestVersion} bridge package. Flash it, then reconnect.`,
+      );
+      return;
+    }
+
+    if (!connectedFeatures.includes('firmware_update_v1')) {
+      appendLog('This firmware cannot receive direct serial updates yet.');
+      return;
+    }
+
+    if (!firmwareUpdateState.downloadUrl) {
+      appendLog('No firmware package is available for direct flash.');
+      return;
+    }
+
+    setIsUpdatingFirmware(true);
+
+    try {
+      appendLog(
+        `Starting direct firmware update to ${firmwareUpdateState.targetVersion ?? firmwareUpdateState.latestVersion}.`,
+      );
+
+      const response = await fetch(firmwareUpdateState.downloadUrl, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Firmware package fetch failed (${response.status}).`);
+      }
+
+      const packagePayload = (await response.json()) as unknown;
+      if (!isFirmwarePackage(packagePayload)) {
+        throw new Error('Firmware package payload is invalid.');
+      }
+
+      await clientRef.current.flashFirmwarePackage(packagePayload, {
+        onProgress: (progress) => {
+          if (progress.type === 'file_complete' && progress.filePath) {
+            appendLog(`Flashed ${progress.filePath}.`);
+          } else if (progress.type === 'commit') {
+            appendLog('Firmware commit request sent to device.');
+          }
+        },
+      });
+
+      appendLog('Firmware update complete. Device will reboot; reconnect after it returns.');
+      await disconnectClient();
+      setStatus('idle');
+      setConnectedFirmwareVersion(null);
+      setConnectedFeatures([]);
+      setFirmwareUpdateState(null);
+    } catch (error) {
+      console.error(error);
+      appendLog("Firmware update failed. Retry from 'Update Me'.");
+    } finally {
+      setIsUpdatingFirmware(false);
+    }
+  }, [
+    appendLog,
+    connectedFeatures,
+    disconnectClient,
+    firmwareUpdateState,
+    isUpdatingFirmware,
+    status,
+  ]);
 
   const handlePresetModeChange = useCallback((mode: NotePresetMode) => {
     setDraftState((prev) => ({
@@ -514,6 +688,8 @@ export default function DevicePage() {
   const isBusy = status === 'connecting' || status === 'handshaking';
   const statusLabel =
     status === 'connecting' || status === 'handshaking' ? 'connecting...' : status;
+  const showUpdateButton = status === 'ready' && Boolean(firmwareUpdateState?.updateAvailable);
+  const updateTargetVersion = firmwareUpdateState?.targetVersion ?? firmwareUpdateState?.latestVersion;
   const hasDirtyConfig = useMemo(
     () => !statesEqual(deviceState, draftState),
     [deviceState, draftState],
@@ -543,7 +719,7 @@ export default function DevicePage() {
         <button
           type="button"
           onClick={handleConnect}
-          disabled={isBusy}
+          disabled={isBusy || isUpdatingFirmware}
           className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {status === 'ready' ? 'Reconnect device' : 'Connect device'}
@@ -552,16 +728,64 @@ export default function DevicePage() {
         <button
           type="button"
           onClick={handleDisconnect}
-          disabled={!clientRef.current || isBusy}
+          disabled={!clientRef.current || isBusy || isUpdatingFirmware}
           className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Disconnect
         </button>
 
+        {showUpdateButton && (
+          <button
+            type="button"
+            onClick={handleUpdateMe}
+            disabled={isBusy || isUpdatingFirmware}
+            className="device-update-cycle rounded-full border px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isUpdatingFirmware
+              ? 'Updating...'
+              : `Update me${updateTargetVersion ? ` (${updateTargetVersion})` : ''}`}
+          </button>
+        )}
+
         <span className="text-xs uppercase tracking-[0.3em] text-black/60">
           Status: {statusLabel}
         </span>
+
+        {connectedFirmwareVersion && (
+          <span className="text-xs uppercase tracking-[0.3em] text-black/60">
+            Firmware: {connectedFirmwareVersion}
+          </span>
+        )}
+
+        {isCheckingFirmware && (
+          <span className="text-xs uppercase tracking-[0.3em] text-black/60">
+            Checking updates...
+          </span>
+        )}
       </div>
+
+      {isUpdatePanelOpen && firmwareUpdateState?.updateAvailable && (
+        <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-xs uppercase tracking-[0.2em] text-black/70">
+          <p>
+            Update target: {updateTargetVersion ?? firmwareUpdateState.latestVersion} (
+            {firmwareUpdateState.strategy === 'manual_bridge' ? 'manual bridge' : 'direct flash'})
+          </p>
+          {firmwareUpdateState.notes && <p className="mt-2">{firmwareUpdateState.notes}</p>}
+          {firmwareUpdateState.strategy === 'manual_bridge' && firmwareUpdateState.downloadUrl && (
+            <div className="mt-3">
+              <a
+                href={firmwareUpdateState.downloadUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-full border border-black/30 px-4 py-2 text-[11px] tracking-[0.24em] transition hover:bg-black/10"
+              >
+                Download bridge package
+              </a>
+            </div>
+          )}
+          {firmwareUpdateState.sha256 && <p className="mt-3 normal-case">sha256: {firmwareUpdateState.sha256}</p>}
+        </div>
+      )}
 
       <div className="grid gap-8 lg:grid-cols-[minmax(280px,420px)_minmax(280px,1fr)]">
         <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
@@ -738,7 +962,7 @@ export default function DevicePage() {
             <button
               type="button"
               onClick={handleApplyConfig}
-              disabled={status !== 'ready' || !hasDirtyConfig || isApplying || isBusy}
+              disabled={status !== 'ready' || !hasDirtyConfig || isApplying || isBusy || isUpdatingFirmware}
               className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isApplying ? 'Applying…' : 'Apply'}
@@ -747,7 +971,7 @@ export default function DevicePage() {
             <button
               type="button"
               onClick={() => setDraftState(cloneState(deviceState))}
-              disabled={!hasDirtyConfig || isApplying}
+              disabled={!hasDirtyConfig || isApplying || isUpdatingFirmware}
               className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Undo

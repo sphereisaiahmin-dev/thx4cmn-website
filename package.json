@@ -9,6 +9,8 @@
     "lint": "next lint",
     "format": "prettier --write .",
     "verify:webplayer": "node scripts/verify-webplayer.mjs",
+    "build:firmware-bridge": "node scripts/build-firmware-bridge.mjs",
+    "publish:firmware-update": "node scripts/publish-firmware-update.mjs",
     "test:device-serial": "node --test --experimental-strip-types tests/deviceSerialClient.test.ts",
     "test:device-firmware": "python3 -m unittest thxcmididevicecode.test_protocol_v1",
     "test:device-protocol": "npm run test:device-serial && npm run test:device-firmware"
