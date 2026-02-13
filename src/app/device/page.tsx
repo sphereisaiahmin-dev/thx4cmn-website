@@ -63,6 +63,12 @@ const KEYPAD_LAYOUT: number[][] = buildKeypadLayout();
 
 const BLACK_NOTE_KEY_INDICES = new Set([1, 3, 6, 8, 10]);
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
+const COLOR_PICKER_WIDTH_PX = 200;
+const PRESET_MODE_LABELS: Record<NotePresetMode, string> = {
+  piano: 'Piano',
+  gradient: 'Rain',
+  rain: 'Gradient',
+};
 
 const formatLogTimestamp = (timestamp: number) =>
   new Date(timestamp).toLocaleTimeString(undefined, {
@@ -82,6 +88,9 @@ const normalizeHexColor = (value: string, fallback: string) => {
 
 const clampPresetSpeed = (value: number) =>
   Math.max(NOTE_PRESET_SPEED_MIN, Math.min(NOTE_PRESET_SPEED_MAX, value));
+const normalizePresetSpeedProgress = (speed: number) =>
+  (clampPresetSpeed(speed) - NOTE_PRESET_SPEED_MIN) /
+  (NOTE_PRESET_SPEED_MAX - NOTE_PRESET_SPEED_MIN);
 
 const cloneState = (state: DeviceState): DeviceState => ({
   notePreset: {
@@ -177,32 +186,67 @@ type ColorPaletteFieldProps = {
 };
 
 function ColorPaletteField({ label, value, onChange }: ColorPaletteFieldProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
   const textColorClass = isColorDark(value) ? 'text-white' : 'text-black';
 
   return (
-    <div className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3">
-      <p className="text-xs uppercase tracking-[0.2em] text-black/70">{label}</p>
-      <div className="overflow-hidden rounded-lg border border-black/20">
-        <HexColorPicker color={value} onChange={(next) => onChange(normalizeHexColor(next, value))} />
-      </div>
-      <div className="flex items-center gap-2">
+    <div
+      className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3"
+      style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
+    >
+      <button
+        type="button"
+        onClick={() => setIsExpanded((prev) => !prev)}
+        aria-expanded={isExpanded}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <p className="text-xs uppercase tracking-[0.2em] text-black/70">{label}</p>
         <span
-          className={`inline-flex h-8 min-w-[96px] items-center justify-center rounded-md border border-black/20 text-xs uppercase tracking-[0.2em] ${textColorClass}`}
+          className={`inline-flex h-8 min-w-[96px] items-center justify-center rounded-md border border-black/20 px-2 text-xs uppercase tracking-[0.16em] ${textColorClass}`}
           style={{ backgroundColor: value }}
         >
           {value}
         </span>
-        <input
-          type="text"
-          value={value}
-          onChange={(event) => onChange(normalizeHexColor(event.target.value, value))}
-          className="w-full rounded-md border border-black/25 bg-white px-2 py-1 text-sm uppercase tracking-[0.08em]"
-          spellCheck={false}
-        />
-      </div>
+      </button>
+
+      {isExpanded && (
+        <div className="space-y-2">
+          <div className="overflow-hidden rounded-lg border border-black/20">
+            <HexColorPicker
+              color={value}
+              onChange={(next) => onChange(normalizeHexColor(next, value))}
+              style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
+            />
+          </div>
+          <input
+            type="text"
+            value={value}
+            onChange={(event) => onChange(normalizeHexColor(event.target.value, value))}
+            className="w-full rounded-md border border-black/25 bg-white px-2 py-1 text-sm uppercase tracking-[0.08em]"
+            spellCheck={false}
+          />
+        </div>
+      )}
     </div>
   );
 }
+
+type AnimatedPresetSection = 'gradient' | 'rain';
+
+const getAnimatedPresetSection = (mode: NotePresetMode): AnimatedPresetSection | null => {
+  if (mode === 'gradient' || mode === 'rain') {
+    return mode;
+  }
+
+  return null;
+};
+
+const getPresetColorFieldLabel = (
+  section: AnimatedPresetSection,
+  field: 'colorA' | 'colorB',
+) => `${PRESET_MODE_LABELS[section]} color ${field === 'colorA' ? 'A' : 'B'}`;
+
+const getPresetSpeedLabel = (section: AnimatedPresetSection) => `${PRESET_MODE_LABELS[section]} speed`;
 
 export default function DevicePage() {
   const [status, setStatus] = useState<DeviceConnectionState>('idle');
@@ -210,7 +254,7 @@ export default function DevicePage() {
   const [helloAck, setHelloAck] = useState<HelloAckPayload | null>(null);
   const [deviceState, setDeviceState] = useState<DeviceState>(cloneState(DEFAULT_DEVICE_STATE));
   const [draftState, setDraftState] = useState<DeviceState>(cloneState(DEFAULT_DEVICE_STATE));
-  const [selectedModifierKey, setSelectedModifierKey] = useState<ModifierKeyId>('12');
+  const [selectedModifierKey, setSelectedModifierKey] = useState<ModifierKeyId | null>(null);
   const [isApplying, setIsApplying] = useState(false);
   const [lastPingAt, setLastPingAt] = useState<number | null>(null);
   const [previewTick, setPreviewTick] = useState(0);
@@ -516,7 +560,15 @@ export default function DevicePage() {
     [deviceState, draftState],
   );
 
-  const selectedModifierChord = draftState.modifierChords[selectedModifierKey];
+  const selectedModifierChord = selectedModifierKey
+    ? draftState.modifierChords[selectedModifierKey]
+    : null;
+  const animatedPresetSection = getAnimatedPresetSection(draftState.notePreset.mode);
+  const animatedPresetSpeed = animatedPresetSection
+    ? draftState.notePreset[animatedPresetSection].speed
+    : null;
+  const animatedPresetSpeedProgress =
+    animatedPresetSpeed === null ? 0.5 : normalizePresetSpeedProgress(animatedPresetSpeed);
 
   return (
     <section className="relative space-y-8">
@@ -600,7 +652,7 @@ export default function DevicePage() {
                     style={style}
                     className={`device-modifier-cycle flex aspect-square flex-col items-center justify-center rounded-xl border text-xs uppercase tracking-[0.2em] transition ${
                       selectedModifierKey === keyId
-                        ? 'border-black bg-black text-white shadow-[0_0_0_2px_rgba(0,0,0,0.35)]'
+                        ? 'border-black bg-black text-white shadow-[0_0_0_2px_rgba(0,0,0,0.9)] ring-2 ring-black'
                         : 'border-black/40 bg-black text-white'
                     }`}
                   >
@@ -633,107 +685,119 @@ export default function DevicePage() {
         <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
           <h2 className="text-sm uppercase tracking-[0.3em]">Configuration</h2>
 
-          <div className="mt-4 space-y-2">
-            <label className="text-xs uppercase tracking-[0.2em] text-black/70">Note key preset</label>
-            <select
-              value={draftState.notePreset.mode}
-              onChange={(event) => handlePresetModeChange(event.target.value as NotePresetMode)}
-              className="w-full rounded-lg border border-black/25 bg-white/80 px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
-            >
-              {NOTE_PRESET_MODES.map((mode) => (
-                <option key={mode} value={mode}>
-                  {mode}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_220px]">
+            <div className="space-y-3">
+              {draftState.notePreset.mode === 'piano' && (
+                <>
+                  <ColorPaletteField
+                    label="Piano white key color"
+                    value={draftState.notePreset.piano.whiteKeyColor}
+                    onChange={(color) => handlePianoColorChange('whiteKeyColor', color)}
+                  />
+                  <ColorPaletteField
+                    label="Piano black key color"
+                    value={draftState.notePreset.piano.blackKeyColor}
+                    onChange={(color) => handlePianoColorChange('blackKeyColor', color)}
+                  />
+                </>
+              )}
 
-          {draftState.notePreset.mode === 'piano' && (
-            <div className="mt-4 grid gap-3">
-              <ColorPaletteField
-                label="White key color"
-                value={draftState.notePreset.piano.whiteKeyColor}
-                onChange={(color) => handlePianoColorChange('whiteKeyColor', color)}
-              />
-              <ColorPaletteField
-                label="Black key color"
-                value={draftState.notePreset.piano.blackKeyColor}
-                onChange={(color) => handlePianoColorChange('blackKeyColor', color)}
-              />
+              {draftState.notePreset.mode === 'gradient' && (
+                <>
+                  <ColorPaletteField
+                    label={getPresetColorFieldLabel('gradient', 'colorA')}
+                    value={draftState.notePreset.gradient.colorA}
+                    onChange={(color) => handleAnimatedColorChange('gradient', 'colorA', color)}
+                  />
+                  <ColorPaletteField
+                    label={getPresetColorFieldLabel('gradient', 'colorB')}
+                    value={draftState.notePreset.gradient.colorB}
+                    onChange={(color) => handleAnimatedColorChange('gradient', 'colorB', color)}
+                  />
+                </>
+              )}
+
+              {draftState.notePreset.mode === 'rain' && (
+                <>
+                  <ColorPaletteField
+                    label={getPresetColorFieldLabel('rain', 'colorA')}
+                    value={draftState.notePreset.rain.colorA}
+                    onChange={(color) => handleAnimatedColorChange('rain', 'colorA', color)}
+                  />
+                  <ColorPaletteField
+                    label={getPresetColorFieldLabel('rain', 'colorB')}
+                    value={draftState.notePreset.rain.colorB}
+                    onChange={(color) => handleAnimatedColorChange('rain', 'colorB', color)}
+                  />
+                </>
+              )}
+
+              {animatedPresetSection && animatedPresetSpeed !== null && (
+                <div
+                  className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70"
+                  style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
+                >
+                  <span className="flex items-center justify-between gap-3">
+                    <span>{getPresetSpeedLabel(animatedPresetSection)}</span>
+                    <span className="text-[11px]">{animatedPresetSpeed.toFixed(1)}x</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={NOTE_PRESET_SPEED_MIN}
+                    max={NOTE_PRESET_SPEED_MAX}
+                    step={0.1}
+                    value={animatedPresetSpeed}
+                    onChange={(event) => handlePresetSpeedChange(animatedPresetSection, event.target.value)}
+                    className="audio-player__rpm-slider block w-full"
+                    style={{ '--rpm-progress': animatedPresetSpeedProgress } as CSSProperties}
+                  />
+                </div>
+              )}
             </div>
-          )}
 
-          {draftState.notePreset.mode === 'gradient' && (
-            <div className="mt-4 grid gap-3">
-              <ColorPaletteField
-                label="Gradient color A"
-                value={draftState.notePreset.gradient.colorA}
-                onChange={(color) => handleAnimatedColorChange('gradient', 'colorA', color)}
-              />
-              <ColorPaletteField
-                label="Gradient color B"
-                value={draftState.notePreset.gradient.colorB}
-                onChange={(color) => handleAnimatedColorChange('gradient', 'colorB', color)}
-              />
-              <label className="space-y-1 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70">
-                <span>Gradient speed</span>
-                <input
-                  type="range"
-                  min={NOTE_PRESET_SPEED_MIN}
-                  max={NOTE_PRESET_SPEED_MAX}
-                  step={0.1}
-                  value={draftState.notePreset.gradient.speed}
-                  onChange={(event) => handlePresetSpeedChange('gradient', event.target.value)}
-                  className="w-full"
-                />
-                <span className="text-[11px]">{draftState.notePreset.gradient.speed.toFixed(1)}x</span>
-              </label>
+            <div className="space-y-3 lg:self-start">
+              <div className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3">
+                <label className="text-xs uppercase tracking-[0.2em] text-black/70">
+                  Note key preset
+                </label>
+                <select
+                  value={draftState.notePreset.mode}
+                  onChange={(event) => handlePresetModeChange(event.target.value as NotePresetMode)}
+                  className="w-full rounded-lg border border-black/25 bg-white/80 px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
+                >
+                  {NOTE_PRESET_MODES.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {PRESET_MODE_LABELS[mode]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3">
+                {selectedModifierKey ? (
+                  <>
+                    <label className="text-[11px] uppercase tracking-[0.2em] text-black/65">
+                      Change chord
+                    </label>
+                    <select
+                      value={selectedModifierChord ?? CHORD_TYPES[0]}
+                      onChange={(event) => handleModifierChordChange(selectedModifierKey, event.target.value)}
+                      className="w-full rounded-lg border border-black/25 bg-white px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
+                    >
+                      {CHORD_TYPES.map((chord) => (
+                        <option key={chord} value={chord}>
+                          {chord}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                ) : (
+                  <p className="text-[11px] uppercase tracking-[0.2em] text-black/65">
+                    Select a modifier key
+                  </p>
+                )}
+              </div>
             </div>
-          )}
-
-          {draftState.notePreset.mode === 'rain' && (
-            <div className="mt-4 grid gap-3">
-              <ColorPaletteField
-                label="Rain color A"
-                value={draftState.notePreset.rain.colorA}
-                onChange={(color) => handleAnimatedColorChange('rain', 'colorA', color)}
-              />
-              <ColorPaletteField
-                label="Rain color B"
-                value={draftState.notePreset.rain.colorB}
-                onChange={(color) => handleAnimatedColorChange('rain', 'colorB', color)}
-              />
-              <label className="space-y-1 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70">
-                <span>Rain speed</span>
-                <input
-                  type="range"
-                  min={NOTE_PRESET_SPEED_MIN}
-                  max={NOTE_PRESET_SPEED_MAX}
-                  step={0.1}
-                  value={draftState.notePreset.rain.speed}
-                  onChange={(event) => handlePresetSpeedChange('rain', event.target.value)}
-                  className="w-full"
-                />
-                <span className="text-[11px]">{draftState.notePreset.rain.speed.toFixed(1)}x</span>
-              </label>
-            </div>
-          )}
-
-          <div className="mt-6 space-y-2 rounded-xl border border-black/15 bg-white/70 p-3">
-            <p className="text-xs uppercase tracking-[0.2em] text-black/70">
-              Selected modifier key: {selectedModifierKey}
-            </p>
-            <select
-              value={selectedModifierChord}
-              onChange={(event) => handleModifierChordChange(selectedModifierKey, event.target.value)}
-              className="w-full rounded-lg border border-black/25 bg-white px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
-            >
-              {CHORD_TYPES.map((chord) => (
-                <option key={chord} value={chord}>
-                  {chord}
-                </option>
-              ))}
-            </select>
           </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
