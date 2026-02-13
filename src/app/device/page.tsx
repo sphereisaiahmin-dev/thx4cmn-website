@@ -44,6 +44,7 @@ const MAX_LOG_ENTRIES = 80;
 const KEEPALIVE_INTERVAL_MS = 4500;
 const KEEPALIVE_FAILURE_THRESHOLD = 2;
 const LEGACY_REPL_PROMPT = '>>>';
+const LEGACY_REPL_ENTRY_HINT = 'Press any key to enter the REPL';
 const LEGACY_REPL_BOOT_TIMEOUT_MS = 7000;
 const LEGACY_REPL_COMMAND_TIMEOUT_MS = 9000;
 const LEGACY_REPL_CHUNK_BASE64_SIZE = 96;
@@ -75,6 +76,9 @@ const splitBySize = (value: string, size: number) => {
 
 const isFirmwareBeginTimeoutMessage = (message: string) =>
   message.includes('Timed out waiting for response to firmware_begin');
+
+const isLegacy091CommitCrashMessage = (message: string) =>
+  message.includes('Unhandled protocol exception');
 
 const flashFirmwareViaLegacyRepl = async (
   pkg: DeviceFirmwarePackage,
@@ -136,12 +140,29 @@ const flashFirmwareViaLegacyRepl = async (
 
   const waitForPrompt = async (timeoutMs: number) => {
     const deadline = Date.now() + timeoutMs;
+    let nextInterruptAt = Date.now();
+    let nextNudgeAt = Date.now();
 
     while (Date.now() < deadline) {
       const foundIndex = serialText.indexOf(LEGACY_REPL_PROMPT, promptCursor);
       if (foundIndex >= 0) {
         promptCursor = foundIndex + LEGACY_REPL_PROMPT.length;
         return;
+      }
+
+      const now = Date.now();
+      const waitingForKeypress = serialText.indexOf(LEGACY_REPL_ENTRY_HINT, promptCursor) >= 0;
+
+      // CircuitPython can block REPL behind "Press any key to enter the REPL".
+      // Nudge with newline and re-interrupt to force a prompt.
+      if (waitingForKeypress && now >= nextNudgeAt) {
+        await sendRaw('\r\n');
+        nextNudgeAt = now + 220;
+      }
+
+      if (now >= nextInterruptAt) {
+        await sendRaw('\x03');
+        nextInterruptAt = now + 450;
       }
 
       await sleepMs(20);
@@ -687,8 +708,10 @@ export default function DevicePage() {
       hydrateState(response.state);
 
       appendLog('Configuration updated on thx-c.');
-    } catch {
-      appendLog("Couldn't update configuration. Try again.");
+    } catch (error) {
+      const detail =
+        error instanceof Error && error.message ? ` ${error.message}` : '';
+      appendLog(`Couldn't update configuration.${detail} Try again.`);
     } finally {
       setIsApplying(false);
     }
@@ -779,6 +802,7 @@ export default function DevicePage() {
       }
 
       const isLegacy090 = effectiveState.currentVersion === '0.9.0';
+      const isLegacy091 = effectiveState.currentVersion === '0.9.1';
 
       const flashWithPackage = async (pkg: DeviceFirmwarePackage) => {
         await client.flashFirmwarePackage(pkg, {
@@ -797,12 +821,18 @@ export default function DevicePage() {
         await flashWithPackage(packagePayload);
       } catch (error) {
         const message = error instanceof Error ? error.message : '';
-        const shouldUseLegacyRecovery = isLegacy090 && isFirmwareBeginTimeoutMessage(message);
+        const shouldUseLegacyRecovery =
+          (isLegacy090 && isFirmwareBeginTimeoutMessage(message)) ||
+          (isLegacy091 && (isLegacy091CommitCrashMessage(message) || Boolean(message)));
         if (!shouldUseLegacyRecovery) {
           throw error;
         }
 
-        appendLog('Detected 0.9.0 firmware_begin crash. Switching to legacy serial recovery...');
+        appendLog(
+          isLegacy090
+            ? 'Detected 0.9.0 firmware_begin crash. Switching to legacy serial recovery...'
+            : 'Detected 0.9.1 firmware_commit crash. Switching to legacy serial recovery...',
+        );
         await disconnectClient();
         await flashFirmwareViaLegacyRepl(packagePayload, appendLog);
         appendLog('Firmware update complete via legacy recovery. Device rebooting now.');
