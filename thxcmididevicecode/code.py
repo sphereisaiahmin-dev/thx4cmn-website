@@ -29,7 +29,7 @@ keybow = Keybow2040(Hardware())
 keys = keybow.keys
 
 BRIGHTNESS_SCALE = 0.9
-FIRMWARE_VERSION = "0.9.1"
+FIRMWARE_VERSION = "0.9.2"
 DEVICE_NAME = "thx-c"
 DEVICE_STATE_FILE = "/device_state.json"
 FIRMWARE_ALLOWED_PATHS = ("/boot.py", "/code.py", "/protocol_v1.py")
@@ -46,9 +46,13 @@ OSCILLATE_MIN = 10
 OSCILLATE_MAX = 140
 OSCILLATE_SPEED = 2.2
 HANDSHAKE_ANIMATION_SPEED = 0.22
+IDLE_TIMEOUT_SECONDS = 30.0
 
 ALT_ACTIVE_COLOR = (0, 0, 255)
 MODIFIER_ALT_IDLE_COLOR = (120, 120, 120)
+CHORD_IDENTIFIER_SOLID_COLOR = (255, 255, 255)
+OCTAVE_IDLE_GRADIENT_HUE_OFFSET = 0.18
+OCTAVE_IDLE_GRADIENT_SPEED = 0.25
 
 BASE_NOTE_OFFSET = 0
 ALT_TOGGLE_WINDOW = 0.45
@@ -73,10 +77,10 @@ EMERGENCY_NOTE_RANGE = range(EMERGENCY_NOTE_MIN, EMERGENCY_NOTE_MAX + 1)
 CHORD_INTERVALS_BY_NAME = {
     "maj": (0, 4, 7),
     "min": (0, 3, 7),
-    "maj7": (0, 4, 11),
-    "min7": (0, 3, 10),
-    "maj9": (0, 4, 7, 11, 14),
-    "min9": (0, 3, 7, 10, 14),
+    "maj7": (0, 4, 7, 11),
+    "min7": (0, 3, 7, 10),
+    "maj9": (0, 4, 7, 14),
+    "min9": (0, 3, 7, 14),
     "maj79": (0, 4, 7, 11, 14),
     "min79": (0, 3, 7, 10, 14),
 }
@@ -93,6 +97,8 @@ last_applied_config_id = None
 acceptance_animation_queued = False
 handshake_animation_active = False
 handshake_stop_pending = False
+idle_animation_active = False
+last_key_activity_monotonic = time.monotonic()
 firmware_update_session = None
 firmware_reset_queued = False
 
@@ -163,6 +169,21 @@ def any_note_pressed():
         if keys[index].pressed:
             return True
     return False
+
+
+def any_key_pressed():
+    for index in range(len(keys)):
+        if keys[index].pressed:
+            return True
+    return False
+
+
+def mark_key_activity(now=None):
+    global last_key_activity_monotonic, idle_animation_active
+    if now is None:
+        now = time.monotonic()
+    last_key_activity_monotonic = now
+    idle_animation_active = False
 
 
 def clone_device_state(state):
@@ -502,13 +523,12 @@ def apply_device_state_runtime(state):
 
 def update_modifier_leds(time_value):
     if alt_mode_active:
-        up_color = (
-            ALT_ACTIVE_COLOR if keys[OCTAVE_UP_KEY_INDEX].pressed else MODIFIER_ALT_IDLE_COLOR
-        )
+        hue = (time_value * OCTAVE_IDLE_GRADIENT_SPEED) % 1.0
+        down_idle_color = hsv_to_rgb(hue, 1.0, 1.0)
+        up_idle_color = hsv_to_rgb((hue + OCTAVE_IDLE_GRADIENT_HUE_OFFSET) % 1.0, 1.0, 1.0)
+        up_color = CHORD_IDENTIFIER_SOLID_COLOR if keys[OCTAVE_UP_KEY_INDEX].pressed else up_idle_color
         down_color = (
-            ALT_ACTIVE_COLOR
-            if keys[OCTAVE_DOWN_KEY_INDEX].pressed
-            else MODIFIER_ALT_IDLE_COLOR
+            CHORD_IDENTIFIER_SOLID_COLOR if keys[OCTAVE_DOWN_KEY_INDEX].pressed else down_idle_color
         )
         exit_color = (
             ALT_ACTIVE_COLOR
@@ -531,18 +551,41 @@ def update_modifier_leds(time_value):
 
 
 def update_note_leds(time_value):
-    paint_base_note_leds(time_value)
+    mode = device_state["notePreset"]["mode"]
+    active_offsets = {}
+    for offset, index in enumerate(active_chord_notes):
+        active_offsets[index] = offset
 
-    if active_chord_notes:
-        for offset, index in enumerate(active_chord_notes):
+    for index in NOTE_KEY_INDICES:
+        offset = active_offsets.get(index)
+        if offset is None:
+            set_led_scaled(index, *note_base_color(index, time_value))
+            continue
+
+        if mode == "piano":
             set_led_scaled(
                 index,
                 oscillating_channel(time_value, 0.0 + offset),
                 oscillating_channel(time_value, 2.1 + offset),
                 oscillating_channel(time_value, 4.2 + offset),
             )
+            continue
+
+        set_led_scaled(index, *CHORD_IDENTIFIER_SOLID_COLOR)
 
     update_modifier_leds(time_value)
+
+
+def maybe_start_idle_animation(now):
+    global idle_animation_active
+    if handshake_animation_active or idle_animation_active:
+        return
+
+    if active_notes or any_key_pressed():
+        return
+
+    if now - last_key_activity_monotonic >= IDLE_TIMEOUT_SECONDS:
+        idle_animation_active = True
 
 
 def roll_chord(messages, delay=0.012):
@@ -921,10 +964,12 @@ for index, base_note in enumerate(BASE_NOTES):
 
     @keybow.on_press(key)
     def press_handler(key, index=index, base_note=base_note):
+        mark_key_activity()
         handle_note_press(index, base_note)
 
     @keybow.on_release(key)
     def release_handler(key, index=index):
+        mark_key_activity()
         handle_note_release(index)
 
 
@@ -933,6 +978,7 @@ for index in MODIFIER_KEY_INDICES:
 
     @keybow.on_press(key)
     def press_handler(key, index=index):
+        mark_key_activity()
         if index == ALT_TOGGLE_KEY_INDEX:
             handle_alt_toggle()
             return
@@ -940,6 +986,7 @@ for index in MODIFIER_KEY_INDICES:
 
     @keybow.on_release(key)
     def release_handler(key):
+        mark_key_activity()
         if not alt_mode_active:
             emergency_note_off()
 
@@ -947,7 +994,8 @@ for index in MODIFIER_KEY_INDICES:
 while True:
     keybow.update()
     now = time.monotonic()
-    if handshake_animation_active:
+    maybe_start_idle_animation(now)
+    if handshake_animation_active or idle_animation_active:
         update_handshake_animation(now)
     else:
         update_note_leds(now * OSCILLATE_SPEED)

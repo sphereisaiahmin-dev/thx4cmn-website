@@ -49,7 +49,7 @@ class ProtocolV1Tests(unittest.TestCase):
                 "note_presets_v1",
                 "firmware_update_v1",
             ],
-            "firmwareVersion": "0.9.1",
+            "firmwareVersion": "0.9.2",
         }
         self.handshake_calls = 0
         self.firmware_events = []
@@ -182,10 +182,10 @@ class ProtocolV1Tests(unittest.TestCase):
                 },
             },
             "modifierChords": {
-                "12": "min9",
+                "12": "min79",
                 "13": "maj7",
                 "14": "min",
-                "15": "maj9",
+                "15": "maj79",
             },
         }
 
@@ -391,10 +391,10 @@ class ProtocolV1Tests(unittest.TestCase):
         legacy_state = {
             "showBlackKeys": False,
             "modifierChords": {
-                "12": "min9",
+                "12": "min79",
                 "13": "maj7",
                 "14": "min",
-                "15": "maj9",
+                "15": "maj79",
             },
         }
 
@@ -418,7 +418,7 @@ class ProtocolV1Tests(unittest.TestCase):
             state["notePreset"]["piano"]["blackKeyColor"],
             state["notePreset"]["piano"]["whiteKeyColor"],
         )
-        self.assertEqual(state["modifierChords"]["12"], "min9")
+        self.assertEqual(state["modifierChords"]["12"], "min79")
 
     def test_invalid_json_returns_error(self):
         responses = process_serial_chunk(
@@ -454,7 +454,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-crash",
-                "targetVersion": "0.9.1",
+                "targetVersion": "0.9.2",
                 "files": [
                     {
                         "path": "/code.py",
@@ -491,7 +491,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-1",
-                "targetVersion": "0.9.1",
+                "targetVersion": "0.9.2",
                 "files": [
                     {
                         "path": "/code.py",
@@ -515,7 +515,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-2",
-                "targetVersion": "0.9.1",
+                "targetVersion": "0.9.2",
                 "files": [
                     {
                         "path": "/protocol_v1.py",
@@ -567,7 +567,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-2",
-                "targetVersion": "0.9.1",
+                "targetVersion": "0.9.2",
             },
         }
         commit_response = self._decode_single(self._send(commit_request))
