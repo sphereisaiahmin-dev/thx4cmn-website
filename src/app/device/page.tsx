@@ -803,6 +803,7 @@ export default function DevicePage() {
 
       const isLegacy090 = effectiveState.currentVersion === '0.9.0';
       const isLegacy091 = effectiveState.currentVersion === '0.9.1';
+      const isLegacy093 = effectiveState.currentVersion === '0.9.3';
 
       const flashWithPackage = async (pkg: DeviceFirmwarePackage) => {
         await client.flashFirmwarePackage(pkg, {
@@ -823,7 +824,8 @@ export default function DevicePage() {
         const message = error instanceof Error ? error.message : '';
         const shouldUseLegacyRecovery =
           (isLegacy090 && isFirmwareBeginTimeoutMessage(message)) ||
-          (isLegacy091 && (isLegacy091CommitCrashMessage(message) || Boolean(message)));
+          (isLegacy091 && (isLegacy091CommitCrashMessage(message) || Boolean(message))) ||
+          (isLegacy093 && (isLegacy091CommitCrashMessage(message) || Boolean(message)));
         if (!shouldUseLegacyRecovery) {
           throw error;
         }
@@ -831,7 +833,9 @@ export default function DevicePage() {
         appendLog(
           isLegacy090
             ? 'Detected 0.9.0 firmware_begin crash. Switching to legacy serial recovery...'
-            : 'Detected 0.9.1 firmware_commit crash. Switching to legacy serial recovery...',
+            : isLegacy091
+              ? 'Detected 0.9.1 firmware_commit crash. Switching to legacy serial recovery...'
+              : 'Detected 0.9.3 firmware_commit crash. Switching to legacy serial recovery...',
         );
         await disconnectClient();
         await flashFirmwareViaLegacyRepl(packagePayload, appendLog);
