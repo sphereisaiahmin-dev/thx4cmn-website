@@ -49,7 +49,7 @@ class ProtocolV1Tests(unittest.TestCase):
                 "note_presets_v1",
                 "firmware_update_v1",
             ],
-            "firmwareVersion": "0.9.2",
+            "firmwareVersion": "0.9.4",
         }
         self.handshake_calls = 0
         self.firmware_events = []
@@ -454,7 +454,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-crash",
-                "targetVersion": "0.9.2",
+                "targetVersion": "0.9.4",
                 "files": [
                     {
                         "path": "/code.py",
@@ -491,7 +491,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-1",
-                "targetVersion": "0.9.2",
+                "targetVersion": "0.9.4",
                 "files": [
                     {
                         "path": "/code.py",
@@ -515,7 +515,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-2",
-                "targetVersion": "0.9.2",
+                "targetVersion": "0.9.4",
                 "files": [
                     {
                         "path": "/protocol_v1.py",
@@ -567,7 +567,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-2",
-                "targetVersion": "0.9.2",
+                "targetVersion": "0.9.4",
             },
         }
         commit_response = self._decode_single(self._send(commit_request))

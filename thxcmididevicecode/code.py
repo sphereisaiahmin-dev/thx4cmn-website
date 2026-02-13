@@ -29,7 +29,7 @@ keybow = Keybow2040(Hardware())
 keys = keybow.keys
 
 BRIGHTNESS_SCALE = 0.9
-FIRMWARE_VERSION = "0.9.2"
+FIRMWARE_VERSION = "0.9.4"
 DEVICE_NAME = "thx-c"
 DEVICE_STATE_FILE = "/device_state.json"
 FIRMWARE_ALLOWED_PATHS = ("/boot.py", "/code.py", "/protocol_v1.py")
@@ -47,6 +47,8 @@ OSCILLATE_MAX = 140
 OSCILLATE_SPEED = 2.2
 HANDSHAKE_ANIMATION_SPEED = 0.22
 IDLE_TIMEOUT_SECONDS = 30.0
+FIRMWARE_RESET_DELAY_SECONDS = 1.0
+FIRMWARE_COPY_CHUNK_BYTES = 512
 
 ALT_ACTIVE_COLOR = (0, 0, 255)
 MODIFIER_ALT_IDLE_COLOR = (120, 120, 120)
@@ -98,9 +100,11 @@ acceptance_animation_queued = False
 handshake_animation_active = False
 handshake_stop_pending = False
 idle_animation_active = False
+firmware_animation_active = False
 last_key_activity_monotonic = time.monotonic()
 firmware_update_session = None
 firmware_reset_queued = False
+firmware_reset_due_monotonic = 0.0
 
 device_state = None
 modifier_chord_types = {
@@ -273,6 +277,16 @@ def _clear_firmware_stage_files(session):
             os.remove(stage_path)
         except OSError:
             pass
+
+
+def _copy_stage_file(stage_path, destination_path):
+    with open(stage_path, "rb") as source:
+        with open(destination_path, "wb") as destination:
+            while True:
+                chunk = source.read(FIRMWARE_COPY_CHUNK_BYTES)
+                if not chunk:
+                    break
+                destination.write(chunk)
 
 
 def _firmware_error(code, reason, retryable=False):
@@ -460,12 +474,22 @@ def update_handshake_animation(time_value):
         set_led_scaled(index, red, green, blue)
 
 
-def stop_handshake_animation():
-    global handshake_animation_active, handshake_stop_pending
+def wake_from_transport_animation(now=None):
+    global handshake_animation_active, handshake_stop_pending, idle_animation_active, firmware_animation_active
+    if now is None:
+        now = time.monotonic()
+
+    mark_key_activity(now)
     handshake_animation_active = False
     handshake_stop_pending = False
-    paint_idle_layout(time.monotonic() * OSCILLATE_SPEED)
+    idle_animation_active = False
+    firmware_animation_active = False
+    paint_idle_layout(now * OSCILLATE_SPEED)
     refresh_active_chord_notes()
+
+
+def stop_handshake_animation():
+    wake_from_transport_animation()
 
 
 def run_acceptance_animation():
@@ -578,7 +602,7 @@ def update_note_leds(time_value):
 
 def maybe_start_idle_animation(now):
     global idle_animation_active
-    if handshake_animation_active or idle_animation_active:
+    if handshake_animation_active or idle_animation_active or firmware_animation_active:
         return
 
     if active_notes or any_key_pressed():
@@ -655,7 +679,7 @@ def protocol_apply_config(config, config_id, idempotency_key):
 
 
 def protocol_firmware_begin(session_id, target_version, files):
-    global firmware_update_session
+    global firmware_update_session, firmware_animation_active, handshake_animation_active, handshake_stop_pending, idle_animation_active
 
     if not isinstance(files, list) or len(files) == 0:
         return _firmware_error("invalid_firmware_update", "No firmware files were provided.")
@@ -687,6 +711,10 @@ def protocol_firmware_begin(session_id, target_version, files):
         "targetVersion": target_version,
         "files": session_files,
     }
+    firmware_animation_active = True
+    handshake_animation_active = False
+    handshake_stop_pending = False
+    idle_animation_active = False
     return {"ok": True}
 
 
@@ -767,7 +795,7 @@ def protocol_firmware_file_complete(session_id, path, size, sha256):
 
 
 def protocol_firmware_commit(session_id, target_version):
-    global firmware_update_session, firmware_reset_queued
+    global firmware_update_session, firmware_reset_queued, firmware_reset_due_monotonic
 
     if not _is_firmware_session_active(session_id):
         return _firmware_error("firmware_session_missing", "No active firmware session.", True)
@@ -783,16 +811,15 @@ def protocol_firmware_commit(session_id, target_version):
     for destination_path, metadata in files.items():
         stage_path = metadata["stagePath"]
         try:
-            with open(stage_path, "rb") as source:
-                contents = source.read()
-            with open(destination_path, "wb") as destination:
-                destination.write(contents)
+            _copy_stage_file(stage_path, destination_path)
         except OSError:
             return _firmware_error("firmware_storage_error", "Unable to write firmware file.", True)
 
     _clear_firmware_stage_files(firmware_update_session)
     firmware_update_session = None
     firmware_reset_queued = True
+    firmware_reset_due_monotonic = time.monotonic() + FIRMWARE_RESET_DELAY_SECONDS
+    wake_from_transport_animation()
     return {"ok": True, "payload": {"resetQueued": True}}
 
 
@@ -803,13 +830,15 @@ def protocol_firmware_abort(session_id, reason):
         _clear_firmware_stage_files(firmware_update_session)
         firmware_update_session = None
 
+    wake_from_transport_animation()
     return {"ok": True, "payload": {"aborted": True, "reason": reason}}
 
 
 def protocol_on_handshake():
-    global handshake_animation_active, handshake_stop_pending
+    global handshake_animation_active, handshake_stop_pending, firmware_animation_active
     handshake_animation_active = True
     handshake_stop_pending = False
+    firmware_animation_active = False
 
 
 def active_serial_channel():
@@ -847,6 +876,9 @@ def maybe_run_firmware_reset():
     global firmware_reset_queued
 
     if not firmware_reset_queued:
+        return
+
+    if time.monotonic() < firmware_reset_due_monotonic:
         return
 
     firmware_reset_queued = False
@@ -995,7 +1027,7 @@ while True:
     keybow.update()
     now = time.monotonic()
     maybe_start_idle_animation(now)
-    if handshake_animation_active or idle_animation_active:
+    if handshake_animation_active or idle_animation_active or firmware_animation_active:
         update_handshake_animation(now)
     else:
         update_note_leds(now * OSCILLATE_SPEED)
