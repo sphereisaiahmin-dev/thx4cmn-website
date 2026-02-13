@@ -29,7 +29,7 @@ keybow = Keybow2040(Hardware())
 keys = keybow.keys
 
 BRIGHTNESS_SCALE = 0.9
-FIRMWARE_VERSION = "0.9.0"
+FIRMWARE_VERSION = "0.9.1"
 DEVICE_NAME = "thx-c"
 DEVICE_STATE_FILE = "/device_state.json"
 FIRMWARE_ALLOWED_PATHS = ("/boot.py", "/code.py", "/protocol_v1.py")
@@ -45,6 +45,7 @@ OCTAVE_UP_KEY_INDEX = 15
 OSCILLATE_MIN = 10
 OSCILLATE_MAX = 140
 OSCILLATE_SPEED = 2.2
+HANDSHAKE_ANIMATION_SPEED = 0.22
 
 ALT_ACTIVE_COLOR = (0, 0, 255)
 MODIFIER_ALT_IDLE_COLOR = (120, 120, 120)
@@ -90,6 +91,8 @@ serial_buffer = bytearray()
 last_applied_idempotency_key = None
 last_applied_config_id = None
 acceptance_animation_queued = False
+handshake_animation_active = False
+handshake_stop_pending = False
 firmware_update_session = None
 firmware_reset_queued = False
 
@@ -260,6 +263,22 @@ def _firmware_error(code, reason, retryable=False):
     }
 
 
+def _create_sha256_hasher():
+    try:
+        if hasattr(hashlib, "sha256"):
+            return hashlib.sha256()
+    except Exception:
+        pass
+
+    try:
+        if hasattr(hashlib, "new"):
+            return hashlib.new("sha256")
+    except Exception:
+        pass
+
+    return None
+
+
 def _is_firmware_session_active(session_id):
     return (
         isinstance(firmware_update_session, dict)
@@ -413,6 +432,21 @@ def refresh_active_chord_notes():
     set_active_chord_notes(notes)
 
 
+def update_handshake_animation(time_value):
+    for index in range(16):
+        hue = (index / 16.0 + (time_value * HANDSHAKE_ANIMATION_SPEED)) % 1.0
+        red, green, blue = hsv_to_rgb(hue, 1.0, 1.0)
+        set_led_scaled(index, red, green, blue)
+
+
+def stop_handshake_animation():
+    global handshake_animation_active, handshake_stop_pending
+    handshake_animation_active = False
+    handshake_stop_pending = False
+    paint_idle_layout(time.monotonic() * OSCILLATE_SPEED)
+    refresh_active_chord_notes()
+
+
 def run_acceptance_animation():
     steps = 18
 
@@ -528,6 +562,9 @@ def protocol_now_ms():
 
 
 def protocol_get_state():
+    global handshake_stop_pending
+    if handshake_animation_active:
+        handshake_stop_pending = True
     return snapshot_device_state()
 
 
@@ -591,21 +628,15 @@ def protocol_firmware_begin(session_id, target_version, files):
             return _firmware_error("invalid_firmware_update", "Unsupported firmware file path.")
 
         stage_path = _firmware_stage_path(path)
-        try:
-            with open(stage_path, "wb") as handle:
-                handle.write(b"")
-        except OSError:
-            _clear_firmware_stage_files({"files": session_files})
-            return _firmware_error("firmware_storage_error", "Unable to allocate stage file.", True)
-
         session_files[path] = {
             "stagePath": stage_path,
             "expectedSize": int(file_entry.get("size", 0)),
             "expectedSha256": file_entry.get("sha256", "").lower(),
             "receivedBytes": 0,
             "nextChunkIndex": 0,
-            "hasher": hashlib.sha256(),
+            "hasher": _create_sha256_hasher(),
             "complete": False,
+            "stageReady": False,
         }
 
     firmware_update_session = {
@@ -639,6 +670,14 @@ def protocol_firmware_chunk(session_id, path, chunk_index, data_base64):
         return _firmware_error("invalid_firmware_update", "Firmware chunk cannot be empty.")
 
     stage_path = metadata["stagePath"]
+    if not metadata.get("stageReady"):
+        try:
+            with open(stage_path, "wb") as handle:
+                handle.write(b"")
+        except OSError:
+            return _firmware_error("firmware_storage_error", "Unable to allocate stage file.", True)
+        metadata["stageReady"] = True
+
     try:
         with open(stage_path, "ab") as handle:
             handle.write(chunk)
@@ -647,7 +686,9 @@ def protocol_firmware_chunk(session_id, path, chunk_index, data_base64):
 
     metadata["receivedBytes"] += len(chunk)
     metadata["nextChunkIndex"] += 1
-    metadata["hasher"].update(chunk)
+    hasher = metadata.get("hasher")
+    if hasher is not None:
+        hasher.update(chunk)
     return {"ok": True}
 
 
@@ -664,10 +705,19 @@ def protocol_firmware_file_complete(session_id, path, size, sha256):
     if size != received_bytes or expected_size != received_bytes:
         return _firmware_error("invalid_firmware_update", "Firmware file size verification failed.")
 
-    digest = metadata["hasher"].hexdigest().lower()
     expected_digest = metadata.get("expectedSha256", "").lower()
-    if sha256.lower() != digest or expected_digest != digest:
-        return _firmware_error("invalid_firmware_update", "Firmware file hash verification failed.")
+    hasher = metadata.get("hasher")
+    if hasher is not None:
+        digest = hasher.hexdigest().lower()
+        if sha256.lower() != digest or expected_digest != digest:
+            return _firmware_error(
+                "invalid_firmware_update", "Firmware file hash verification failed."
+            )
+    elif sha256.lower() != expected_digest:
+        return _firmware_error(
+            "invalid_firmware_update",
+            "Firmware file hash metadata mismatch.",
+        )
 
     metadata["complete"] = True
     return {"ok": True}
@@ -714,7 +764,9 @@ def protocol_firmware_abort(session_id, reason):
 
 
 def protocol_on_handshake():
-    queue_acceptance_animation()
+    global handshake_animation_active, handshake_stop_pending
+    handshake_animation_active = True
+    handshake_stop_pending = False
 
 
 def active_serial_channel():
@@ -740,6 +792,9 @@ def poll_serial():
     responses = process_serial_chunk(serial_buffer, chunk, protocol_context, protocol_now_ms())
     for response in responses:
         channel.write(response)
+
+    if handshake_animation_active and handshake_stop_pending:
+        stop_handshake_animation()
 
     maybe_run_queued_acceptance_animation()
     maybe_run_firmware_reset()
@@ -891,5 +946,9 @@ for index in MODIFIER_KEY_INDICES:
 
 while True:
     keybow.update()
-    update_note_leds(time.monotonic() * OSCILLATE_SPEED)
+    now = time.monotonic()
+    if handshake_animation_active:
+        update_handshake_animation(now)
+    else:
+        update_note_leds(now * OSCILLATE_SPEED)
     poll_serial()

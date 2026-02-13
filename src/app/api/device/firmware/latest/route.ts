@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 
 import {
-  findBridgeReleaseForVersion,
   findLatestRelease,
   loadDeviceFirmwareManifest,
+  parseSemver,
   resolveReleaseRank,
 } from '@/lib/deviceFirmwareManifest';
 import { getSignedDownloadUrl } from '@/lib/r2';
@@ -12,7 +12,7 @@ export const runtime = 'nodejs';
 
 type LatestFirmwareResponse = {
   updateAvailable: boolean;
-  strategy: 'none' | 'manual_bridge' | 'direct_flash';
+  strategy: 'none' | 'direct_flash';
   currentVersion: string;
   currentReleaseRank: number;
   latestVersion: string;
@@ -41,29 +41,26 @@ export async function GET(request: Request) {
     }
 
     const latestRelease = findLatestRelease(manifest);
+    const currentSemver = parseSemver(currentVersion);
+    if (!currentSemver) {
+      return NextResponse.json({ error: 'Unsupported currentVersion format.' }, { status: 400 });
+    }
+
     const currentReleaseRank = resolveReleaseRank(manifest, currentVersion);
     if (currentReleaseRank === null) {
       return NextResponse.json({ error: 'Unsupported currentVersion format.' }, { status: 400 });
     }
 
-    const bridgeRelease = findBridgeReleaseForVersion(manifest, currentVersion);
-    if (bridgeRelease && bridgeRelease.version !== currentVersion) {
-      const bridgeUrl = await getSignedDownloadUrl(bridgeRelease.packageKey, 120);
+    if (currentSemver.major !== 0) {
       const response: LatestFirmwareResponse = {
-        updateAvailable: true,
-        strategy: 'manual_bridge',
+        updateAvailable: false,
+        strategy: 'none',
         currentVersion,
         currentReleaseRank,
         latestVersion: latestRelease.version,
         latestReleaseRank: latestRelease.releaseRank,
-        targetVersion: bridgeRelease.version,
-        targetReleaseRank: bridgeRelease.releaseRank,
-        packageKey: bridgeRelease.packageKey,
-        downloadUrl: bridgeUrl,
-        sha256: bridgeRelease.sha256,
-        notes: bridgeRelease.notes,
+        notes: `Firmware ${currentVersion} is on an unsupported update line.`,
       };
-
       return NextResponse.json(response);
     }
 
@@ -79,7 +76,7 @@ export async function GET(request: Request) {
       return NextResponse.json(response);
     }
 
-    const downloadUrl = await getSignedDownloadUrl(latestRelease.packageKey, 120);
+    const downloadUrl = await getSignedDownloadUrl(latestRelease.packageKey, 600);
     const response: LatestFirmwareResponse = {
       updateAvailable: true,
       strategy: latestRelease.strategy,

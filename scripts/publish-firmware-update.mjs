@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve, basename } from 'node:path';
+import { basename, resolve } from 'node:path';
 
 import {
   GetObjectCommand,
@@ -13,6 +13,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const workspaceRoot = resolve(process.cwd());
 const manifestKey = 'updates/firmware-manifest.json';
+const DIRECT_ARTIFACT_NAME_PATTERN = /firmware-([0-9]+\.[0-9]+\.[0-9]+)-direct\.json$/;
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 
 const parseEnvFile = (filePath) => {
   const env = {};
@@ -83,28 +85,97 @@ const streamToString = async (stream) => {
   return Buffer.concat(chunks).toString('utf8');
 };
 
-const argv = process.argv.slice(2);
-const artifactArgIndex = argv.indexOf('--artifact');
-const artifactPath = resolve(
-  workspaceRoot,
-  artifactArgIndex >= 0 && argv[artifactArgIndex + 1]
-    ? argv[artifactArgIndex + 1]
-    : 'dist/thx-c-firmware-0.9.0-bridge.zip',
-);
+const getCurrentFirmwareVersion = () => {
+  const source = readFileSync(resolve(workspaceRoot, 'thxcmididevicecode/code.py'), 'utf8');
+  const match = source.match(/FIRMWARE_VERSION\s*=\s*"([^"]+)"/);
+  if (!match) {
+    throw new Error('Unable to infer firmware version from thxcmididevicecode/code.py.');
+  }
+  return match[1];
+};
 
+const parseArtifactArgs = () => {
+  const argv = process.argv.slice(2);
+  const artifactArgIndex = argv.indexOf('--artifact');
+  const defaultVersion = getCurrentFirmwareVersion();
+  const defaultArtifact = `dist/thx-c-firmware-${defaultVersion}-direct.json`;
+
+  return resolve(
+    workspaceRoot,
+    artifactArgIndex >= 0 && argv[artifactArgIndex + 1] ? argv[artifactArgIndex + 1] : defaultArtifact,
+  );
+};
+
+const toHexSha256 = (buffer) => createHash('sha256').update(buffer).digest('hex');
+
+const validateFirmwarePackage = (candidate, expectedVersion) => {
+  if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
+    throw new Error('Firmware package must be an object.');
+  }
+
+  if (candidate.version !== expectedVersion) {
+    throw new Error(
+      `Firmware package version mismatch: expected ${expectedVersion}, received ${String(candidate.version)}.`,
+    );
+  }
+
+  if (!Array.isArray(candidate.files) || candidate.files.length === 0) {
+    throw new Error('Firmware package files must be a non-empty array.');
+  }
+
+  const seenPaths = new Set();
+  for (const [index, file] of candidate.files.entries()) {
+    if (typeof file !== 'object' || file === null || Array.isArray(file)) {
+      throw new Error(`Firmware package file entry ${index} must be an object.`);
+    }
+
+    const { path, contentBase64, sha256 } = file;
+    if (typeof path !== 'string' || !path.startsWith('/') || path.includes('..')) {
+      throw new Error(`Firmware package file entry ${index} has invalid path.`);
+    }
+
+    if (seenPaths.has(path)) {
+      throw new Error(`Firmware package contains duplicate path ${path}.`);
+    }
+    seenPaths.add(path);
+
+    if (typeof contentBase64 !== 'string' || contentBase64.length === 0) {
+      throw new Error(`Firmware package file ${path} contentBase64 is invalid.`);
+    }
+
+    if (typeof sha256 !== 'string' || !SHA256_HEX_PATTERN.test(sha256.toLowerCase())) {
+      throw new Error(`Firmware package file ${path} sha256 is invalid.`);
+    }
+
+    const decoded = Buffer.from(contentBase64, 'base64');
+    if (decoded.length === 0) {
+      throw new Error(`Firmware package file ${path} decoded content is empty.`);
+    }
+
+    const digest = toHexSha256(decoded);
+    if (digest !== sha256.toLowerCase()) {
+      throw new Error(`Firmware package file ${path} sha256 mismatch.`);
+    }
+  }
+};
+
+const artifactPath = parseArtifactArgs();
 const artifactBuffer = readFileSync(artifactPath);
 const artifactName = basename(artifactPath);
-const versionMatch = artifactName.match(/firmware-([0-9]+\.[0-9]+\.[0-9]+)-bridge\.zip$/);
+const versionMatch = artifactName.match(DIRECT_ARTIFACT_NAME_PATTERN);
 if (!versionMatch) {
   throw new Error(
-    `Could not infer firmware version from artifact filename ${artifactName}. Expected *-x.y.z-bridge.zip.`,
+    `Could not infer firmware version from artifact filename ${artifactName}. Expected *-x.y.z-direct.json.`,
   );
 }
 
 const firmwareVersion = versionMatch[1];
 const releaseRank = computeReleaseRank(firmwareVersion);
-const sha256 = createHash('sha256').update(artifactBuffer).digest('hex');
+const sha256 = toHexSha256(artifactBuffer);
 const artifactKey = `updates/${artifactName}`;
+
+const artifactPayload = JSON.parse(artifactBuffer.toString('utf8'));
+validateFirmwarePackage(artifactPayload, firmwareVersion);
 
 const fallbackEnv = {
   ...parseEnvFile(resolve(workspaceRoot, '.env.local')),
@@ -149,12 +220,23 @@ const nextRelease = {
   releaseRank,
   packageKey: artifactKey,
   sha256,
-  strategy: 'manual_bridge',
-  bridgeFromVersionPrefixes: ['2.4.'],
-  notes: `Bridge package for 2.4.x -> ${firmwareVersion}.`,
+  strategy: 'direct_flash',
+  notes: `Direct serial firmware package ${firmwareVersion}.`,
 };
 
-const filteredReleases = releases.filter((release) => release?.version !== firmwareVersion);
+const filteredReleases = releases.filter((release) => {
+  if (!release || typeof release !== 'object') {
+    return false;
+  }
+  if (release.version === firmwareVersion) {
+    return false;
+  }
+  if (release.strategy === 'manual_bridge') {
+    return false;
+  }
+  return true;
+});
+
 filteredReleases.push(nextRelease);
 filteredReleases.sort((a, b) => (b.releaseRank ?? 0) - (a.releaseRank ?? 0));
 
@@ -172,7 +254,7 @@ await client.send(
     Bucket: bucket,
     Key: artifactKey,
     Body: artifactBuffer,
-    ContentType: 'application/zip',
+    ContentType: 'application/json',
     CacheControl: 'no-cache',
   }),
 );

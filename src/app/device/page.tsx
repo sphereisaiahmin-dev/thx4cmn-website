@@ -23,7 +23,7 @@ type SessionLogEntry = {
   timestamp: number;
 };
 
-type FirmwareUpdateStrategy = 'none' | 'manual_bridge' | 'direct_flash';
+type FirmwareUpdateStrategy = 'none' | 'direct_flash';
 
 type FirmwareUpdateState = {
   updateAvailable: boolean;
@@ -43,6 +43,173 @@ type FirmwareUpdateState = {
 const MAX_LOG_ENTRIES = 80;
 const KEEPALIVE_INTERVAL_MS = 4500;
 const KEEPALIVE_FAILURE_THRESHOLD = 2;
+const LEGACY_REPL_PROMPT = '>>>';
+const LEGACY_REPL_BOOT_TIMEOUT_MS = 7000;
+const LEGACY_REPL_COMMAND_TIMEOUT_MS = 9000;
+const LEGACY_REPL_CHUNK_BASE64_SIZE = 96;
+
+type BrowserSerialPortLike = {
+  open: (options: { baudRate: number }) => Promise<void>;
+  close?: () => Promise<void>;
+  readable?: ReadableStream<Uint8Array> | null;
+  writable?: WritableStream<Uint8Array> | null;
+};
+
+type BrowserSerialLike = {
+  getPorts?: () => Promise<BrowserSerialPortLike[]>;
+  requestPort: () => Promise<BrowserSerialPortLike>;
+};
+
+const sleepMs = (ms: number) =>
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+
+const splitBySize = (value: string, size: number) => {
+  const chunks: string[] = [];
+  for (let index = 0; index < value.length; index += size) {
+    chunks.push(value.slice(index, index + size));
+  }
+  return chunks;
+};
+
+const isFirmwareBeginTimeoutMessage = (message: string) =>
+  message.includes('Timed out waiting for response to firmware_begin');
+
+const flashFirmwareViaLegacyRepl = async (
+  pkg: DeviceFirmwarePackage,
+  appendLog: (message: string) => void,
+) => {
+  const serial = (navigator as Navigator & { serial?: BrowserSerialLike }).serial;
+  if (!serial) {
+    throw new Error('Web Serial is not supported in this browser.');
+  }
+
+  let port: BrowserSerialPortLike | null = null;
+  if (typeof serial.getPorts === 'function') {
+    const existingPorts = await serial.getPorts();
+    if (existingPorts.length > 0) {
+      port = existingPorts[0];
+    }
+  }
+
+  if (!port) {
+    appendLog('Select thx-c in the browser prompt to run legacy recovery update.');
+    port = await serial.requestPort();
+  }
+
+  await port.open({ baudRate: 115200 });
+
+  if (!port.readable || !port.writable) {
+    throw new Error('Serial streams are unavailable for legacy recovery update.');
+  }
+
+  const reader = port.readable.getReader();
+  const writer = port.writable.getWriter();
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let serialText = '';
+  let promptCursor = 0;
+
+  const readerTask = (async () => {
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        if (!value || value.length === 0) {
+          continue;
+        }
+
+        serialText += decoder.decode(value, { stream: true });
+        if (serialText.length > 16384) {
+          const trimAmount = serialText.length - 8192;
+          serialText = serialText.slice(trimAmount);
+          promptCursor = Math.max(0, promptCursor - trimAmount);
+        }
+      }
+    } catch {
+      // Ignore cancellation or transport errors during cleanup.
+    }
+  })();
+
+  const waitForPrompt = async (timeoutMs: number) => {
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const foundIndex = serialText.indexOf(LEGACY_REPL_PROMPT, promptCursor);
+      if (foundIndex >= 0) {
+        promptCursor = foundIndex + LEGACY_REPL_PROMPT.length;
+        return;
+      }
+
+      await sleepMs(20);
+    }
+
+    const serialTail = serialText.slice(-240).replace(/\s+/g, ' ').trim();
+    throw new Error(`Legacy REPL prompt timeout (${serialTail || 'no serial output'}).`);
+  };
+
+  const sendRaw = async (text: string) => {
+    await writer.write(encoder.encode(text));
+  };
+
+  const sendCommand = async (command: string) => {
+    await sendRaw(`${command}\r\n`);
+    await waitForPrompt(LEGACY_REPL_COMMAND_TIMEOUT_MS);
+  };
+
+  const totalChunks = pkg.files.reduce(
+    (count, file) => count + Math.max(1, Math.ceil(file.contentBase64.length / LEGACY_REPL_CHUNK_BASE64_SIZE)),
+    0,
+  );
+
+  let transferredChunks = 0;
+
+  try {
+    await sendRaw('\x03\x03\r\n');
+    await waitForPrompt(LEGACY_REPL_BOOT_TIMEOUT_MS);
+    await sendCommand('import binascii');
+
+    for (const file of pkg.files) {
+      appendLog(`Legacy recovery writing ${file.path}...`);
+      await sendCommand(`f=open(${JSON.stringify(file.path)},'wb')`);
+
+      for (const chunk of splitBySize(file.contentBase64, LEGACY_REPL_CHUNK_BASE64_SIZE)) {
+        await sendCommand(`_=f.write(binascii.a2b_base64(${JSON.stringify(chunk)}))`);
+        transferredChunks += 1;
+        if (transferredChunks % 80 === 0 || transferredChunks === totalChunks) {
+          appendLog(`Legacy recovery transfer ${transferredChunks}/${totalChunks} chunks...`);
+        }
+      }
+
+      await sendCommand('f.close()');
+    }
+
+    await sendCommand('import microcontroller');
+    await sendRaw('microcontroller.reset()\r\n');
+    await sleepMs(500);
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignore reader cancellation errors.
+    }
+    try {
+      await readerTask;
+    } catch {
+      // Ignore reader task shutdown errors.
+    }
+    reader.releaseLock();
+    writer.releaseLock();
+    try {
+      await port.close?.();
+    } catch {
+      // Ignore close errors during teardown.
+    }
+  }
+};
 
 // Keep UI key positions aligned with firmware PIM551 _ROTATED mapping.
 const PIM551_ROTATED_MAP: Record<number, number> = {
@@ -357,7 +524,7 @@ export default function DevicePage() {
   }, []);
 
   const refreshFirmwareUpdateState = useCallback(
-    async (firmwareVersion: string) => {
+    async (firmwareVersion: string, options: { silent?: boolean } = {}) => {
       setIsCheckingFirmware(true);
 
       try {
@@ -379,17 +546,24 @@ export default function DevicePage() {
         }
 
         setFirmwareUpdateState(payload);
-        if (payload.updateAvailable) {
-          appendLog(
-            `Firmware ${payload.currentVersion} can update to ${payload.targetVersion ?? payload.latestVersion}.`,
-          );
-        } else {
-          appendLog(`Firmware ${payload.currentVersion} is up to date.`);
+        if (!options.silent) {
+          if (payload.updateAvailable) {
+            appendLog(
+              `Firmware ${payload.currentVersion} can update to ${payload.targetVersion ?? payload.latestVersion}.`,
+            );
+          } else {
+            appendLog(`Firmware ${payload.currentVersion} is up to date.`);
+          }
         }
+
+        return payload;
       } catch (error) {
         console.error(error);
         setFirmwareUpdateState(null);
-        appendLog('Unable to check firmware updates right now.');
+        if (!options.silent) {
+          appendLog('Unable to check firmware updates right now.');
+        }
+        return null;
       } finally {
         setIsCheckingFirmware(false);
       }
@@ -525,57 +699,119 @@ export default function DevicePage() {
       return;
     }
 
+    const client = clientRef.current;
     setIsUpdatePanelOpen(true);
-
-    if (firmwareUpdateState.strategy === 'manual_bridge') {
-      if (!firmwareUpdateState.downloadUrl) {
-        appendLog('Update package URL is missing. Try reconnecting.');
-        return;
-      }
-
-      window.open(firmwareUpdateState.downloadUrl, '_blank', 'noopener,noreferrer');
-      appendLog(
-        `Downloaded ${firmwareUpdateState.targetVersion ?? firmwareUpdateState.latestVersion} bridge package. Flash it, then reconnect.`,
-      );
-      return;
-    }
 
     if (!connectedFeatures.includes('firmware_update_v1')) {
       appendLog('This firmware cannot receive direct serial updates yet.');
       return;
     }
 
-    if (!firmwareUpdateState.downloadUrl) {
-      appendLog('No firmware package is available for direct flash.');
-      return;
-    }
-
     setIsUpdatingFirmware(true);
+    stopKeepalive();
 
     try {
+      const lookupVersion = connectedFirmwareVersion ?? firmwareUpdateState.currentVersion;
+      const latestState = await refreshFirmwareUpdateState(lookupVersion, { silent: true });
+      const effectiveState = latestState ?? firmwareUpdateState;
+
+      if (!effectiveState.updateAvailable) {
+        appendLog(`Firmware ${effectiveState.currentVersion} is already up to date.`);
+        return;
+      }
+
+      if (!effectiveState.packageKey && !effectiveState.downloadUrl) {
+        appendLog('No firmware package is available for direct flash.');
+        return;
+      }
+
       appendLog(
-        `Starting direct firmware update to ${firmwareUpdateState.targetVersion ?? firmwareUpdateState.latestVersion}.`,
+        `Starting direct firmware update to ${effectiveState.targetVersion ?? effectiveState.latestVersion}.`,
       );
 
-      const response = await fetch(firmwareUpdateState.downloadUrl, { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error(`Firmware package fetch failed (${response.status}).`);
+      const packageFetchCandidates: Array<{ label: string; url: string }> = [];
+      if (effectiveState.packageKey) {
+        packageFetchCandidates.push({
+          label: 'package_key',
+          url: `/api/device/firmware/package?key=${encodeURIComponent(effectiveState.packageKey)}`,
+        });
+      }
+      if (effectiveState.downloadUrl) {
+        packageFetchCandidates.push({
+          label: 'signed_url_proxy',
+          url: `/api/device/firmware/package?url=${encodeURIComponent(effectiveState.downloadUrl)}`,
+        });
+        packageFetchCandidates.push({
+          label: 'signed_url_direct',
+          url: effectiveState.downloadUrl,
+        });
       }
 
-      const packagePayload = (await response.json()) as unknown;
-      if (!isFirmwarePackage(packagePayload)) {
-        throw new Error('Firmware package payload is invalid.');
-      }
+      let packagePayload: DeviceFirmwarePackage | null = null;
+      const packageFetchErrors: string[] = [];
 
-      await clientRef.current.flashFirmwarePackage(packagePayload, {
-        onProgress: (progress) => {
-          if (progress.type === 'file_complete' && progress.filePath) {
-            appendLog(`Flashed ${progress.filePath}.`);
-          } else if (progress.type === 'commit') {
-            appendLog('Firmware commit request sent to device.');
+      for (const candidate of packageFetchCandidates) {
+        try {
+          const response = await fetch(candidate.url, { cache: 'no-store' });
+          if (!response.ok) {
+            packageFetchErrors.push(`${candidate.label}:${response.status}`);
+            continue;
           }
-        },
-      });
+
+          const rawPayload = (await response.json()) as unknown;
+          if (!isFirmwarePackage(rawPayload)) {
+            packageFetchErrors.push(`${candidate.label}:invalid_payload`);
+            continue;
+          }
+
+          packagePayload = rawPayload;
+          break;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'unknown_fetch_error';
+          packageFetchErrors.push(`${candidate.label}:${message}`);
+        }
+      }
+
+      if (!packagePayload) {
+        throw new Error(
+          `Firmware package fetch failed (${packageFetchErrors.join(', ') || 'no candidates'}).`,
+        );
+      }
+
+      const isLegacy090 = effectiveState.currentVersion === '0.9.0';
+
+      const flashWithPackage = async (pkg: DeviceFirmwarePackage) => {
+        await client.flashFirmwarePackage(pkg, {
+          chunkSize: isLegacy090 ? 192 : undefined,
+          onProgress: (progress) => {
+            if (progress.type === 'file_complete' && progress.filePath) {
+              appendLog(`Flashed ${progress.filePath}.`);
+            } else if (progress.type === 'commit') {
+              appendLog('Firmware commit request sent to device.');
+            }
+          },
+        });
+      };
+
+      try {
+        await flashWithPackage(packagePayload);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '';
+        const shouldUseLegacyRecovery = isLegacy090 && isFirmwareBeginTimeoutMessage(message);
+        if (!shouldUseLegacyRecovery) {
+          throw error;
+        }
+
+        appendLog('Detected 0.9.0 firmware_begin crash. Switching to legacy serial recovery...');
+        await disconnectClient();
+        await flashFirmwareViaLegacyRepl(packagePayload, appendLog);
+        appendLog('Firmware update complete via legacy recovery. Device rebooting now.');
+        setStatus('idle');
+        setConnectedFirmwareVersion(null);
+        setConnectedFeatures([]);
+        setFirmwareUpdateState(null);
+        return;
+      }
 
       appendLog('Firmware update complete. Device will reboot; reconnect after it returns.');
       await disconnectClient();
@@ -585,17 +821,25 @@ export default function DevicePage() {
       setFirmwareUpdateState(null);
     } catch (error) {
       console.error(error);
-      appendLog("Firmware update failed. Retry from 'Update Me'.");
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      appendLog(`Firmware update failed: ${message}. Retry from 'Update Me'.`);
     } finally {
       setIsUpdatingFirmware(false);
+      if (clientRef.current && statusRef.current === 'ready') {
+        startKeepalive();
+      }
     }
   }, [
     appendLog,
     connectedFeatures,
+    connectedFirmwareVersion,
     disconnectClient,
     firmwareUpdateState,
     isUpdatingFirmware,
+    refreshFirmwareUpdateState,
+    startKeepalive,
     status,
+    stopKeepalive,
   ]);
 
   const handlePresetModeChange = useCallback((mode: NotePresetMode) => {
@@ -767,22 +1011,9 @@ export default function DevicePage() {
       {isUpdatePanelOpen && firmwareUpdateState?.updateAvailable && (
         <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-xs uppercase tracking-[0.2em] text-black/70">
           <p>
-            Update target: {updateTargetVersion ?? firmwareUpdateState.latestVersion} (
-            {firmwareUpdateState.strategy === 'manual_bridge' ? 'manual bridge' : 'direct flash'})
+            Update target: {updateTargetVersion ?? firmwareUpdateState.latestVersion} (direct flash)
           </p>
           {firmwareUpdateState.notes && <p className="mt-2">{firmwareUpdateState.notes}</p>}
-          {firmwareUpdateState.strategy === 'manual_bridge' && firmwareUpdateState.downloadUrl && (
-            <div className="mt-3">
-              <a
-                href={firmwareUpdateState.downloadUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-full border border-black/30 px-4 py-2 text-[11px] tracking-[0.24em] transition hover:bg-black/10"
-              >
-                Download bridge package
-              </a>
-            </div>
-          )}
           {firmwareUpdateState.sha256 && <p className="mt-3 normal-case">sha256: {firmwareUpdateState.sha256}</p>}
         </div>
       )}

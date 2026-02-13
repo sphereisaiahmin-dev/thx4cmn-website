@@ -1,10 +1,48 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { GetObjectCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
+const parseEnvFile = (filePath: string) => {
+  const env: Record<string, string> = {};
+  if (!existsSync(filePath)) {
+    return env;
+  }
+
+  const content = readFileSync(filePath, 'utf8');
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+
+    const separatorIndex = trimmed.indexOf('=');
+    if (separatorIndex < 0) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, separatorIndex).trim();
+    const value = trimmed.slice(separatorIndex + 1).trim();
+    if (key && !(key in env)) {
+      env[key] = value;
+    }
+  }
+
+  return env;
+};
+
+const fallbackEnv = {
+  ...parseEnvFile(resolve(process.cwd(), '.env.local')),
+  ...parseEnvFile(resolve(process.cwd(), '.env.example')),
+};
+
+const readR2ConfigValue = (key: string) => process.env[key] ?? fallbackEnv[key] ?? '';
+
 const getR2Client = () => {
-  const endpoint = process.env.R2_ENDPOINT;
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const endpoint = readR2ConfigValue('R2_ENDPOINT');
+  const accessKeyId = readR2ConfigValue('R2_ACCESS_KEY_ID');
+  const secretAccessKey = readR2ConfigValue('R2_SECRET_ACCESS_KEY');
 
   if (!endpoint || !accessKeyId || !secretAccessKey) {
     throw new Error('Missing Cloudflare R2 environment variables.');
@@ -65,7 +103,7 @@ const streamToString = async (stream: unknown) => {
 };
 
 export const getSignedDownloadUrl = async (key: string, expiresInSeconds = 60) => {
-  const bucket = process.env.R2_BUCKET;
+  const bucket = readR2ConfigValue('R2_BUCKET');
   if (!bucket) {
     throw new Error('Missing R2_BUCKET environment variable.');
   }
@@ -80,7 +118,7 @@ export const getSignedDownloadUrl = async (key: string, expiresInSeconds = 60) =
 };
 
 export const getR2ObjectText = async (key: string) => {
-  const bucket = process.env.R2_BUCKET;
+  const bucket = readR2ConfigValue('R2_BUCKET');
   if (!bucket) {
     throw new Error('Missing R2_BUCKET environment variable.');
   }
@@ -96,7 +134,7 @@ export const getR2ObjectText = async (key: string) => {
 };
 
 export const listR2Objects = async (prefix: string) => {
-  const bucket = process.env.R2_BUCKET;
+  const bucket = readR2ConfigValue('R2_BUCKET');
   if (!bucket) {
     throw new Error('Missing R2_BUCKET environment variable.');
   }

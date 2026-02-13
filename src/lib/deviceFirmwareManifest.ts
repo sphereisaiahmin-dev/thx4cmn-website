@@ -1,6 +1,6 @@
 import { getR2ObjectText } from '@/lib/r2';
 
-export type FirmwareUpdateStrategy = 'manual_bridge' | 'direct_flash';
+export type FirmwareUpdateStrategy = 'direct_flash';
 
 export interface FirmwareReleaseManifestEntry {
   version: string;
@@ -8,7 +8,6 @@ export interface FirmwareReleaseManifestEntry {
   packageKey: string;
   sha256: string;
   strategy: FirmwareUpdateStrategy;
-  bridgeFromVersionPrefixes?: string[];
   notes?: string;
 }
 
@@ -64,19 +63,13 @@ const isManifestRelease = (candidate: unknown): candidate is FirmwareReleaseMani
     return false;
   }
 
-  const hasValidBridgePrefixes =
-    candidate.bridgeFromVersionPrefixes === undefined ||
-    (Array.isArray(candidate.bridgeFromVersionPrefixes) &&
-      candidate.bridgeFromVersionPrefixes.every((entry) => typeof entry === 'string'));
-
   return (
     typeof candidate.version === 'string' &&
     typeof candidate.releaseRank === 'number' &&
     Number.isFinite(candidate.releaseRank) &&
     typeof candidate.packageKey === 'string' &&
     typeof candidate.sha256 === 'string' &&
-    (candidate.strategy === 'manual_bridge' || candidate.strategy === 'direct_flash') &&
-    hasValidBridgePrefixes &&
+    candidate.strategy === 'direct_flash' &&
     (candidate.notes === undefined || typeof candidate.notes === 'string')
   );
 };
@@ -131,13 +124,3 @@ export const findLatestRelease = (manifest: DeviceFirmwareManifest) =>
   manifest.releases.reduce((current, release) =>
     release.releaseRank > current.releaseRank ? release : current,
   manifest.releases[0]);
-
-export const findBridgeReleaseForVersion = (
-  manifest: DeviceFirmwareManifest,
-  currentVersion: string,
-) =>
-  manifest.releases.find((release) =>
-    Array.isArray(release.bridgeFromVersionPrefixes)
-      ? release.bridgeFromVersionPrefixes.some((prefix) => currentVersion.startsWith(prefix))
-      : false,
-  ) ?? null;

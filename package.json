@@ -9,7 +9,7 @@
     "lint": "next lint",
     "format": "prettier --write .",
     "verify:webplayer": "node scripts/verify-webplayer.mjs",
-    "build:firmware-bridge": "node scripts/build-firmware-bridge.mjs",
+    "build:firmware-package": "node scripts/build-firmware-package.mjs",
     "publish:firmware-update": "node scripts/publish-firmware-update.mjs",
     "test:device-serial": "node --test --experimental-strip-types tests/deviceSerialClient.test.ts",
     "test:device-firmware": "python3 -m unittest thxcmididevicecode.test_protocol_v1",

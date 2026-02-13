@@ -256,6 +256,8 @@ export interface DeviceSerialClientOptions {
   clientName?: string;
   requestTimeoutMs?: number;
   handshakeRequestTimeoutMs?: number;
+  firmwareRequestTimeoutMs?: number;
+  firmwareBeginAttempts?: number;
   handshakeAttempts?: number;
   backoffBaseMs?: number;
   now?: () => number;
@@ -267,6 +269,8 @@ export interface DeviceSerialClientOptions {
 const DEFAULT_BAUD_RATE = 115200;
 const DEFAULT_REQUEST_TIMEOUT_MS = 3000;
 const DEFAULT_HANDSHAKE_REQUEST_TIMEOUT_MS = 9000;
+const DEFAULT_FIRMWARE_REQUEST_TIMEOUT_MS = 12000;
+const DEFAULT_FIRMWARE_BEGIN_ATTEMPTS = 2;
 const DEFAULT_HANDSHAKE_ATTEMPTS = 3;
 const DEFAULT_BACKOFF_BASE_MS = 250;
 
@@ -643,6 +647,8 @@ export class DeviceSerialClient {
   private readonly clientName: string;
   private readonly requestTimeoutMs: number;
   private readonly handshakeRequestTimeoutMs: number;
+  private readonly firmwareRequestTimeoutMs: number;
+  private readonly firmwareBeginAttempts: number;
   private readonly handshakeAttempts: number;
   private readonly backoffBaseMs: number;
   private readonly now: () => number;
@@ -671,6 +677,12 @@ export class DeviceSerialClient {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.handshakeRequestTimeoutMs =
       options.handshakeRequestTimeoutMs ?? DEFAULT_HANDSHAKE_REQUEST_TIMEOUT_MS;
+    this.firmwareRequestTimeoutMs =
+      options.firmwareRequestTimeoutMs ?? DEFAULT_FIRMWARE_REQUEST_TIMEOUT_MS;
+    this.firmwareBeginAttempts = Math.max(
+      1,
+      Math.floor(options.firmwareBeginAttempts ?? DEFAULT_FIRMWARE_BEGIN_ATTEMPTS),
+    );
     this.handshakeAttempts = options.handshakeAttempts ?? DEFAULT_HANDSHAKE_ATTEMPTS;
     this.backoffBaseMs = options.backoffBaseMs ?? DEFAULT_BACKOFF_BASE_MS;
     this.now = options.now ?? (() => Date.now());
@@ -901,7 +913,7 @@ export class DeviceSerialClient {
         files: payload.files,
       },
       ['ack'],
-      this.requestTimeoutMs,
+      this.firmwareRequestTimeoutMs,
     );
     this.expectAck(response, 'firmware_begin');
   }
@@ -929,7 +941,7 @@ export class DeviceSerialClient {
         dataBase64: payload.dataBase64,
       },
       ['ack'],
-      this.requestTimeoutMs,
+      this.firmwareRequestTimeoutMs,
     );
     this.expectAck(response, 'firmware_chunk');
   }
@@ -959,7 +971,7 @@ export class DeviceSerialClient {
         sha256: payload.sha256,
       },
       ['ack'],
-      this.requestTimeoutMs,
+      this.firmwareRequestTimeoutMs,
     );
     this.expectAck(response, 'firmware_file_complete');
   }
@@ -981,7 +993,7 @@ export class DeviceSerialClient {
         targetVersion: payload.targetVersion,
       },
       ['ack'],
-      this.requestTimeoutMs,
+      this.firmwareRequestTimeoutMs,
     );
     this.expectAck(response, 'firmware_commit');
   }
@@ -998,7 +1010,7 @@ export class DeviceSerialClient {
         reason: typeof payload.reason === 'string' ? payload.reason : undefined,
       },
       ['ack'],
-      this.requestTimeoutMs,
+      this.firmwareRequestTimeoutMs,
     );
     this.expectAck(response, 'firmware_abort');
   }
@@ -1029,7 +1041,7 @@ export class DeviceSerialClient {
         totalFiles: materializedFiles.length,
       });
 
-      await this.firmwareBegin({
+      const firmwareBeginPayload: FirmwareBeginPayload = {
         sessionId,
         targetVersion: pkg.version,
         files: materializedFiles.map((file) => ({
@@ -1037,7 +1049,36 @@ export class DeviceSerialClient {
           size: file.size,
           sha256: file.sha256,
         })),
-      });
+      };
+
+      let firmwareBeginCompleted = false;
+      let firmwareBeginError: unknown;
+      for (let attempt = 1; attempt <= this.firmwareBeginAttempts; attempt += 1) {
+        try {
+          await this.firmwareBegin(firmwareBeginPayload);
+          firmwareBeginCompleted = true;
+          break;
+        } catch (error) {
+          firmwareBeginError = error;
+          const isTimeoutError =
+            error instanceof DeviceClientError &&
+            error.code === 'timeout' &&
+            attempt < this.firmwareBeginAttempts;
+          if (!isTimeoutError) {
+            throw error;
+          }
+
+          this.emit({
+            level: 'error',
+            message: `firmware_begin timed out on attempt ${attempt}/${this.firmwareBeginAttempts}; retrying.`,
+          });
+          await this.sleep(this.backoffBaseMs * attempt);
+        }
+      }
+
+      if (!firmwareBeginCompleted) {
+        throw (firmwareBeginError as Error);
+      }
 
       for (let fileIndex = 0; fileIndex < materializedFiles.length; fileIndex += 1) {
         const file = materializedFiles[fileIndex];
