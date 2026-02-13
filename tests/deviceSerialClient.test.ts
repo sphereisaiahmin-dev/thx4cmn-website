@@ -129,10 +129,10 @@ class MockSerial implements SerialLike {
 }
 
 const buildHelloAckPayload = (state: unknown = baseState) => ({
-  device: 'thx.c - connection',
+  device: 'thx-c',
   protocolVersion: DEVICE_PROTOCOL_VERSION,
   features: ['handshake', 'get_state', 'apply_config', 'ping', 'note_presets_v1'],
-  firmwareVersion: '2.3.0',
+  firmwareVersion: '2.4.0',
   state,
 });
 
@@ -162,7 +162,7 @@ test('handshake success', async () => {
   const helloAck = await client.handshake();
 
   assert.equal(helloAck.type, 'hello_ack');
-  assert.equal(helloAck.payload.device, 'thx.c - connection');
+  assert.equal(helloAck.payload.device, 'thx-c');
   assert.deepEqual(helloAck.payload.state, baseState);
   assert.equal(port.receivedHostFrames.length, 1);
 
@@ -382,10 +382,10 @@ test('apply_config success', async () => {
       },
     },
     modifierChords: {
-      '12': 'min9',
+      '12': 'min79',
       '13': 'maj7',
       '14': 'min',
-      '15': 'maj9',
+      '15': 'maj79',
     },
   };
 
@@ -653,7 +653,7 @@ test('handshake recovers from serial preamble and late hello_ack correlation mis
   const helloAck = await client.handshake();
 
   assert.equal(helloAck.type, 'hello_ack');
-  assert.equal(helloAck.payload.firmwareVersion, '2.3.0');
+  assert.equal(helloAck.payload.firmwareVersion, '2.4.0');
   assert.ok(port.receivedHostFrames.length >= 2);
 
   await client.disconnect();

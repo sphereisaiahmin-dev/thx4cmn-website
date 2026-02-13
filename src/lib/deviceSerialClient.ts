@@ -1,7 +1,7 @@
 export const DEVICE_PROTOCOL_VERSION = 1;
 export const DEVICE_PROTOCOL_MAX_FRAME_SIZE = 1024;
 
-export const CHORD_TYPES = ['maj', 'min', 'maj7', 'min7', 'maj9', 'min9'] as const;
+export const CHORD_TYPES = ['maj', 'min', 'maj7', 'min7', 'maj9', 'min9', 'maj79', 'min79'] as const;
 export type ChordType = (typeof CHORD_TYPES)[number];
 
 export const MODIFIER_KEY_IDS = ['12', '13', '14', '15'] as const;

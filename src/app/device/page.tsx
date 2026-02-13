@@ -25,12 +25,41 @@ const MAX_LOG_ENTRIES = 80;
 const KEEPALIVE_INTERVAL_MS = 4500;
 const KEEPALIVE_FAILURE_THRESHOLD = 2;
 
-const KEYPAD_LAYOUT: number[][] = [
-  [0, 4, 8, 12],
-  [1, 5, 9, 13],
-  [2, 6, 10, 14],
-  [3, 7, 11, 15],
-];
+// Keep UI key positions aligned with firmware PIM551 _ROTATED mapping.
+const PIM551_ROTATED_MAP: Record<number, number> = {
+  0: 12,
+  1: 8,
+  2: 4,
+  3: 0,
+  4: 13,
+  5: 9,
+  6: 5,
+  7: 1,
+  8: 14,
+  9: 10,
+  10: 6,
+  11: 2,
+  12: 15,
+  13: 11,
+  14: 7,
+  15: 3,
+};
+
+const buildKeypadLayout = () => {
+  const physicalToLogical = new Array<number>(16).fill(0);
+  for (const [logicalKeyText, physicalKey] of Object.entries(PIM551_ROTATED_MAP)) {
+    physicalToLogical[physicalKey] = Number(logicalKeyText);
+  }
+
+  return [
+    physicalToLogical.slice(0, 4),
+    physicalToLogical.slice(4, 8),
+    physicalToLogical.slice(8, 12),
+    physicalToLogical.slice(12, 16),
+  ];
+};
+
+const KEYPAD_LAYOUT: number[][] = buildKeypadLayout();
 
 const BLACK_NOTE_KEY_INDICES = new Set([1, 3, 6, 8, 10]);
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
@@ -545,10 +574,10 @@ export default function DevicePage() {
     <section className="relative space-y-8">
       <div className="space-y-3">
         <p className="text-xs uppercase tracking-[0.4em] text-black/60">Device</p>
-        <h1 className="text-3xl uppercase tracking-[0.3em]">thx.c - connection</h1>
+        <h1 className="text-3xl uppercase tracking-[0.3em]">thx-c</h1>
         <p className="max-w-2xl text-sm text-black/70">
           Connect over Web Serial, handshake with the Pico, and manage hardware state in sync with
-          thx.c - connection.
+          thx-c.
         </p>
       </div>
 
@@ -589,7 +618,7 @@ export default function DevicePage() {
           <p className="mt-3">Device: {helloAck.device}</p>
           <p>Firmware: {helloAck.firmwareVersion}</p>
           <p>Protocol: v{helloAck.protocolVersion}</p>
-          <p>Connection: thx.c - connection</p>
+          <p>Connection: thx-c</p>
           <p>Features: {helloAck.features.join(', ')}</p>
           {lastPingAt && <p>Last ping: {formatLogTimestamp(lastPingAt)}</p>}
         </div>
@@ -600,7 +629,7 @@ export default function DevicePage() {
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm uppercase tracking-[0.3em]">Keypad</h2>
             <p className="text-[10px] uppercase tracking-[0.25em] text-black/55">
-              Right column = modifiers
+              Right column = modifiers (15 to 12 top-down)
             </p>
           </div>
 

@@ -88,6 +88,8 @@ Allowed chord values:
 - `min7`
 - `maj9`
 - `min9`
+- `maj79`
+- `min79`
 
 ## Message Types
 
