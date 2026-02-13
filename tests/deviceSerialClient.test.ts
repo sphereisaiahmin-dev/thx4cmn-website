@@ -132,7 +132,7 @@ const buildHelloAckPayload = (state: unknown = baseState) => ({
   device: 'thx.c - connection',
   protocolVersion: DEVICE_PROTOCOL_VERSION,
   features: ['handshake', 'get_state', 'apply_config', 'ping', 'note_presets_v1'],
-  firmwareVersion: '2.2.0',
+  firmwareVersion: '2.3.0',
   state,
 });
 
@@ -653,7 +653,7 @@ test('handshake recovers from serial preamble and late hello_ack correlation mis
   const helloAck = await client.handshake();
 
   assert.equal(helloAck.type, 'hello_ack');
-  assert.equal(helloAck.payload.firmwareVersion, '2.2.0');
+  assert.equal(helloAck.payload.firmwareVersion, '2.3.0');
   assert.ok(port.receivedHostFrames.length >= 2);
 
   await client.disconnect();
