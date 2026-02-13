@@ -735,3 +735,162 @@ test('flashFirmwarePackage sends firmware update sequence', async () => {
 
   await client.disconnect();
 });
+
+test('flashFirmwarePackage tolerates delayed firmware_begin ack with firmware timeout override', async () => {
+  const stageA = encoder.encode('print("compat")');
+
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (frame.type === 'firmware_begin') {
+      setTimeout(() => {
+        currentPort.pushDeviceFrame({
+          v: DEVICE_PROTOCOL_VERSION,
+          type: 'ack',
+          id: frame.id,
+          ts: Date.now(),
+          payload: {
+            requestType: 'firmware_begin',
+            status: 'ok',
+          },
+        });
+      }, 80);
+      return;
+    }
+
+    if (
+      frame.type === 'firmware_chunk' ||
+      frame.type === 'firmware_file_complete' ||
+      frame.type === 'firmware_commit' ||
+      frame.type === 'firmware_abort'
+    ) {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          requestType: frame.type,
+          status: 'ok',
+        },
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 30,
+    firmwareRequestTimeoutMs: 180,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  await client.flashFirmwarePackage({
+    version: '0.9.1',
+    files: [
+      {
+        path: '/code.py',
+        contentBase64: Buffer.from(stageA).toString('base64'),
+        sha256: 'd'.repeat(64),
+      },
+    ],
+  });
+
+  const firmwareBeginFrames = port.receivedHostFrames.filter((frame) => frame.type === 'firmware_begin');
+  assert.equal(firmwareBeginFrames.length, 1);
+
+  await client.disconnect();
+});
+
+test('flashFirmwarePackage retries firmware_begin once after timeout', async () => {
+  const stageA = encoder.encode('print("retry")');
+  let firmwareBeginAttempts = 0;
+
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (frame.type === 'firmware_begin') {
+      firmwareBeginAttempts += 1;
+      if (firmwareBeginAttempts >= 2) {
+        currentPort.pushDeviceFrame({
+          v: DEVICE_PROTOCOL_VERSION,
+          type: 'ack',
+          id: frame.id,
+          ts: Date.now(),
+          payload: {
+            requestType: 'firmware_begin',
+            status: 'ok',
+          },
+        });
+      }
+      return;
+    }
+
+    if (
+      frame.type === 'firmware_chunk' ||
+      frame.type === 'firmware_file_complete' ||
+      frame.type === 'firmware_commit' ||
+      frame.type === 'firmware_abort'
+    ) {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          requestType: frame.type,
+          status: 'ok',
+        },
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 25,
+    firmwareRequestTimeoutMs: 25,
+    firmwareBeginAttempts: 2,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  await client.flashFirmwarePackage({
+    version: '0.9.1',
+    files: [
+      {
+        path: '/code.py',
+        contentBase64: Buffer.from(stageA).toString('base64'),
+        sha256: 'e'.repeat(64),
+      },
+    ],
+  });
+
+  const firmwareBeginFrames = port.receivedHostFrames.filter((frame) => frame.type === 'firmware_begin');
+  assert.equal(firmwareBeginFrames.length, 2);
+
+  await client.disconnect();
+});

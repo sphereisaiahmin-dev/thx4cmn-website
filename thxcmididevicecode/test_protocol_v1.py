@@ -49,7 +49,7 @@ class ProtocolV1Tests(unittest.TestCase):
                 "note_presets_v1",
                 "firmware_update_v1",
             ],
-            "firmwareVersion": "0.9.0",
+            "firmwareVersion": "0.9.1",
         }
         self.handshake_calls = 0
         self.firmware_events = []
@@ -446,6 +446,43 @@ class ProtocolV1Tests(unittest.TestCase):
         self.assertEqual(response["id"], "hello-3")
         self.assertEqual(response["payload"]["code"], "unsupported_type")
 
+    def test_handler_exception_returns_internal_error(self):
+        request = {
+            "v": 1,
+            "type": "firmware_begin",
+            "id": "fw-begin-crash",
+            "ts": self.ts,
+            "payload": {
+                "sessionId": "session-crash",
+                "targetVersion": "0.9.1",
+                "files": [
+                    {
+                        "path": "/code.py",
+                        "size": 4,
+                        "sha256": "a" * 64,
+                    }
+                ],
+            },
+        }
+
+        context = self._context()
+
+        def _raise(*_args, **_kwargs):
+            raise RuntimeError("boom")
+
+        context["firmware_begin"] = _raise
+        responses = process_serial_chunk(
+            self.buffer,
+            (json.dumps(request) + "\n").encode("utf-8"),
+            context,
+            self.ts,
+        )
+        response = self._decode_single(responses)
+        self.assertEqual(response["type"], "error")
+        self.assertEqual(response["id"], "fw-begin-crash")
+        self.assertEqual(response["payload"]["code"], "internal_error")
+        self.assertEqual(response["payload"]["details"]["type"], "firmware_begin")
+
     def test_firmware_begin_returns_ack(self):
         request = {
             "v": 1,
@@ -454,7 +491,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-1",
-                "targetVersion": "0.9.0",
+                "targetVersion": "0.9.1",
                 "files": [
                     {
                         "path": "/code.py",
@@ -478,7 +515,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-2",
-                "targetVersion": "0.9.0",
+                "targetVersion": "0.9.1",
                 "files": [
                     {
                         "path": "/protocol_v1.py",
@@ -530,7 +567,7 @@ class ProtocolV1Tests(unittest.TestCase):
             "ts": self.ts,
             "payload": {
                 "sessionId": "session-2",
-                "targetVersion": "0.9.0",
+                "targetVersion": "0.9.1",
             },
         }
         commit_response = self._decode_single(self._send(commit_request))

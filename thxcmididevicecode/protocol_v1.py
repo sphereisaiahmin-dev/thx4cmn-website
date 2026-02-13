@@ -1052,7 +1052,16 @@ def process_line(line_text, context_or_capabilities, ts_ms):
         return make_error(message_id, error_code, error_message, None, ts_ms)
 
     context = _normalize_context(context_or_capabilities)
-    return dispatch_message(envelope, context, ts_ms)
+    try:
+        return dispatch_message(envelope, context, ts_ms)
+    except Exception as exc:
+        return make_error(
+            message_id,
+            "internal_error",
+            "Unhandled protocol exception.",
+            {"type": envelope.get("type"), "reason": str(exc)},
+            ts_ms,
+        )
 
 
 def process_serial_chunk(buffer, chunk, context_or_capabilities, ts_ms):
