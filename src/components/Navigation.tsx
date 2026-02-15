@@ -73,17 +73,17 @@ export const Navigation = () => {
   return (
     <>
       <header className="flex items-center justify-between border-b border-black/10 py-6">
-        <Link href="/" className="relative flex h-10 w-28 items-center justify-center overflow-visible">
+        <div className="relative flex h-10 w-28 items-center justify-center overflow-visible" aria-label="thx4cmn logo">
           <span className="sr-only">thx4cmn</span>
           <div
-            className={`pointer-events-none absolute inset-0 transition-opacity duration-100 ${
-              isHome ? 'opacity-0' : 'opacity-100'
+            className={`absolute inset-0 transition-opacity duration-100 ${
+              isHome ? 'pointer-events-none opacity-0' : 'opacity-100'
             }`}
             aria-hidden={isHome}
           >
             <LogoScene className="h-10 w-28" modelUrl={HEADER_LOGO_MODEL_URL} modelScale={HEADER_LOGO_SCALE} />
           </div>
-        </Link>
+        </div>
         <nav className="flex items-center gap-6 text-xs uppercase tracking-[0.3em]">
           {navItems.map((item) => (
             <Link key={item.href} href={item.href} className="nav-link">
