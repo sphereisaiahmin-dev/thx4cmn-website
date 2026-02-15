@@ -15,8 +15,10 @@ const clamp = (value: number, min: number, max: number) => Math.min(Math.max(val
 
 export const AudioPlayer = () => {
   const isMiniCartOpen = useUiStore((state) => state.isMiniCartOpen);
+  const setNowPlaying = useUiStore((state) => state.setNowPlaying);
   const { state, currentTrack, statusMessage, controlsDisabled, actions } = useWebPlayer();
   const pathname = usePathname();
+  const isHome = pathname === '/';
   const {
     handlePlayToggle,
     handlePrev,
@@ -32,6 +34,7 @@ export const AudioPlayer = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [loopSyncNonce, setLoopSyncNonce] = useState(0);
   const isDspVisible = isDspOpen && !isCollapsed;
+  const currentTrackTitle = currentTrack?.title ?? null;
 
   const safeDuration = Number.isFinite(state.duration) ? state.duration : 0;
   const safeCurrentTime = Number.isFinite(state.currentTime) ? state.currentTime : 0;
@@ -93,26 +96,27 @@ export const AudioPlayer = () => {
   };
 
   useEffect(() => {
-    const updateCollapsed = (nextValue: boolean) => {
-      setIsCollapsed((prev) => (prev === nextValue ? prev : nextValue));
-    };
-    if (pathname === '/cart' || pathname === '/store' || pathname === '/projects') {
-      updateCollapsed(true);
-    } else if (pathname === '/') {
-      updateCollapsed(false);
-    }
-  }, [pathname]);
-
-  useEffect(() => {
     if (state.loopStart === null || state.loopEnd === null) {
       return;
     }
     setLoopSyncNonce((prev) => prev + 1);
   }, [state.loopEnd, state.loopStart]);
 
+  useEffect(() => {
+    if (!currentTrackTitle) {
+      setNowPlaying(null, 'idle');
+      return;
+    }
+    setNowPlaying(currentTrackTitle, state.isPlaying ? 'playing' : 'paused');
+  }, [currentTrackTitle, setNowPlaying, state.isPlaying]);
+
+  if (!isHome) {
+    return null;
+  }
+
   return (
     <div
-      className={`audio-player ${isDspOpen ? 'audio-player--expanded' : ''} ${
+      className={`audio-player audio-player--home ${isDspOpen ? 'audio-player--expanded' : ''} ${
         isCollapsed ? 'audio-player--collapsed' : ''
       } ${isMiniCartOpen ? 'audio-player--hidden' : ''}`}
       onMouseMove={handleMouseMove}

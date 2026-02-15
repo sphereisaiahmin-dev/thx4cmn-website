@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -22,6 +22,9 @@ export const Navigation = () => {
   const items = useCartStore((state) => state.items);
   const isMiniCartOpen = useUiStore((state) => state.isMiniCartOpen);
   const setMiniCartOpen = useUiStore((state) => state.setMiniCartOpen);
+  const nowPlayingTitle = useUiStore((state) => state.nowPlayingTitle);
+  const nowPlayingPlaybackState = useUiStore((state) => state.nowPlayingPlaybackState);
+  const headerRef = useRef<HTMLElement>(null);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
   const totalQuantity = useMemo(
     () => items.reduce((total, item) => total + item.quantity, 0),
@@ -31,6 +34,45 @@ export const Navigation = () => {
     () => items.reduce((total, item) => total + item.priceCents * item.quantity, 0),
     [items],
   );
+  const shouldShowNowPlaying = !isHome && Boolean(nowPlayingTitle);
+  const nowPlayingLabel = nowPlayingPlaybackState === 'playing' ? 'Playing' : 'Paused';
+
+  useEffect(() => {
+    const updateHeaderHeight = () => {
+      if (!headerRef.current) return;
+      document.documentElement.style.setProperty('--site-header-height', `${headerRef.current.offsetHeight}px`);
+    };
+
+    updateHeaderHeight();
+    window.addEventListener('resize', updateHeaderHeight);
+    return () => {
+      window.removeEventListener('resize', updateHeaderHeight);
+    };
+  }, [pathname, shouldShowNowPlaying]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(max-width: 767px)');
+    const handleMobileState = (isMobile: boolean) => {
+      if (isMobile) {
+        setMiniCartOpen(false);
+      }
+    };
+
+    handleMobileState(mediaQuery.matches);
+    const handleChange = (event: MediaQueryListEvent) => {
+      handleMobileState(event.matches);
+    };
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => mediaQuery.removeListener(handleChange);
+  }, [setMiniCartOpen]);
 
   const handleCheckout = async () => {
     if (items.length === 0 || isCheckoutLoading) return;
@@ -72,42 +114,67 @@ export const Navigation = () => {
 
   return (
     <>
-      <header className="flex items-center justify-between border-b border-black/10 py-6">
-        <div className="relative flex h-10 w-28 items-center justify-center overflow-visible" aria-label="thx4cmn logo">
-          <span className="sr-only">thx4cmn</span>
+      <header
+        ref={headerRef}
+        className="sticky top-0 z-[60] border-b border-black/10 bg-white/90 py-4 backdrop-blur-md md:static md:bg-transparent md:py-6 md:backdrop-blur-none"
+      >
+        <div className="flex w-full items-center justify-center gap-4 md:justify-between md:gap-0">
           <div
-            className={`absolute inset-0 transition-opacity duration-100 ${
-              isHome ? 'pointer-events-none opacity-0' : 'opacity-100'
-            }`}
-            aria-hidden={isHome}
+            className="relative hidden h-10 w-28 items-center justify-center overflow-visible md:flex"
+            aria-label="thx4cmn logo"
           >
-            <LogoScene className="h-10 w-28" modelUrl={HEADER_LOGO_MODEL_URL} modelScale={HEADER_LOGO_SCALE} />
+            <span className="sr-only">thx4cmn</span>
+            <div
+              className={`absolute inset-0 transition-opacity duration-100 ${
+                isHome ? 'pointer-events-none opacity-0' : 'opacity-100'
+              }`}
+              aria-hidden={isHome}
+            >
+              <LogoScene className="h-10 w-28" modelUrl={HEADER_LOGO_MODEL_URL} modelScale={HEADER_LOGO_SCALE} />
+            </div>
           </div>
-        </div>
-        <nav className="flex items-center gap-6 text-xs uppercase tracking-[0.3em]">
-          {navItems.map((item) => (
-            <Link key={item.href} href={item.href} className="nav-link">
-              {item.label}
+          <nav className="flex w-full flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[0.62rem] uppercase tracking-[0.22em] md:w-auto md:gap-6 md:text-xs md:tracking-[0.3em]">
+            {navItems.map((item) => (
+              <Link key={item.href} href={item.href} className="nav-link">
+                {item.label}
+              </Link>
+            ))}
+            <Link href="/cart" className="nav-link inline-flex items-center gap-2 md:hidden">
+              <span>CART</span>
+              {totalQuantity > 0 ? (
+                <span className="cart-count inline-flex min-w-[1.25rem] items-center justify-center rounded-full border border-current px-1 text-[0.65rem] font-semibold leading-none">
+                  {totalQuantity}
+                </span>
+              ) : null}
             </Link>
-          ))}
-          <button
-            type="button"
-            className="nav-link inline-flex items-center gap-2"
-            aria-expanded={isMiniCartOpen}
-            aria-controls="mini-cart"
-            onClick={() => setMiniCartOpen(true)}
+            <button
+              type="button"
+              className="nav-link hidden items-center gap-2 md:inline-flex"
+              aria-expanded={isMiniCartOpen}
+              aria-controls="mini-cart"
+              onClick={() => setMiniCartOpen(true)}
+            >
+              <span>CART</span>
+              {totalQuantity > 0 ? (
+                <span className="cart-count inline-flex min-w-[1.25rem] items-center justify-center rounded-full border border-current px-1 text-[0.65rem] font-semibold leading-none">
+                  {totalQuantity}
+                </span>
+              ) : null}
+            </button>
+          </nav>
+        </div>
+        {shouldShowNowPlaying ? (
+          <p
+            className="header-now-playing mt-3 flex items-center gap-2 overflow-hidden text-[0.62rem] uppercase tracking-[0.22em] text-black/70 md:mt-4 md:text-xs md:tracking-[0.3em]"
+            aria-live="polite"
           >
-            <span>CART</span>
-            {totalQuantity > 0 ? (
-              <span className="cart-count inline-flex min-w-[1.25rem] items-center justify-center rounded-full border border-current px-1 text-[0.65rem] font-semibold leading-none">
-                {totalQuantity}
-              </span>
-            ) : null}
-          </button>
-        </nav>
+            <span className="shrink-0">{nowPlayingLabel}:</span>
+            <span className="truncate">{nowPlayingTitle}</span>
+          </p>
+        ) : null}
       </header>
       <div
-        className={`fixed inset-0 z-50 transition-opacity duration-200 ${
+        className={`fixed inset-0 z-[80] hidden transition-opacity duration-200 md:block ${
           isMiniCartOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
         }`}
         aria-hidden={!isMiniCartOpen}

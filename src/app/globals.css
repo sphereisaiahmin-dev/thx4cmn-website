@@ -6,6 +6,7 @@
 
 :root {
   color-scheme: light;
+  --site-header-height: 92px;
 }
 
 html,
@@ -138,5 +139,27 @@ a {
   100% {
     color: rgb(255, 75, 90);
     border-color: rgb(255, 75, 90);
+  }
+}
+
+@media (max-width: 768px) {
+  .home-logo-background {
+    top: calc(var(--site-header-height) + ((100svh - var(--site-header-height)) / 2));
+    right: 0;
+    bottom: auto;
+    left: 0;
+    height: calc((100svh - var(--site-header-height)) / 2);
+  }
+
+  .home-logo-background__scene {
+    height: 100%;
+    width: 100%;
+  }
+
+  .home-logo-background__scene canvas {
+    width: 100% !important;
+    height: 100% !important;
+    transform: scale(0.88);
+    transform-origin: center 42%;
   }
 }
