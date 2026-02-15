@@ -28,9 +28,9 @@ export const products: Product[] = [
   {
     id: 'midi-device',
     slug: 'midi-chord-device',
-    name: 'Handheld MIDI Chord Device',
+    name: 'thx-c',
     description:
-      'Physical chord device with RGB keypad + Pico brain. Ships with custom thx4cmn mappings.',
+      'portable midi chord generator with interactive feedback and customizable configurations',
     type: 'physical',
     priceCents: 14900,
     currency: 'USD',
