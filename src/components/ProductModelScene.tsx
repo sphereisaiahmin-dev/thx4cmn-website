@@ -28,14 +28,14 @@ interface ProductModelRigProps {
   modelUrl: string;
   autoRotate: boolean;
   onToggle: () => void;
-  groupRef: RefObject<Group | null>;
+  groupRef: RefObject<Group>;
 }
 
 interface DetailCameraFitterProps {
   enabled: boolean;
   modelUrl: string;
-  targetRef: RefObject<Group | null>;
-  controlsRef: RefObject<OrbitControlsImpl | null>;
+  targetRef: RefObject<Group>;
+  controlsRef: RefObject<OrbitControlsImpl>;
 }
 
 const scaleByModelUrl: Record<string, number> = {
@@ -185,8 +185,8 @@ export const ProductModelScene = ({
   fitMode = 'default',
 }: ProductModelSceneProps) => {
   const [autoRotate, setAutoRotate] = useState(true);
-  const groupRef = useRef<Group | null>(null);
-  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  const groupRef = useRef<Group>(null);
+  const controlsRef = useRef<OrbitControlsImpl>(null);
 
   return (
     <ThreeCanvas className={className ?? 'h-48 w-full'} camera={{ position: [0, 0, 3.2], fov: 45 }}>
