@@ -1,8 +1,8 @@
 'use client';
 
 import { Center, Html, useGLTF } from '@react-three/drei';
-import { useFrame } from '@react-three/fiber';
-import { Suspense, useEffect, useRef } from 'react';
+import { type ThreeEvent, useFrame } from '@react-three/fiber';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { MathUtils, type Group } from 'three';
 
 import { ThreeCanvas } from './ThreeCanvas';
@@ -12,234 +12,651 @@ export const LOGO_MODEL_URL = `/api/3d/thx4cmnlogo.glb?v=${LOGO_MODEL_VERSION}`;
 export const HEADER_LOGO_MODEL_URL = `/api/3d/thx4cmnlogoheader.glb?v=${LOGO_MODEL_VERSION}`;
 const LOGO_SCALE = 2;
 export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
+
 const TAU = Math.PI * 2;
+const INTRO_X_FLIP_DURATION_MS = 2600;
+const INTRO_PAUSE_AFTER_X_MS = 500;
+const INTRO_JUMP_DURATION_MS = 1200;
+const INTRO_X_SPIN = 4 * Math.PI;
+const JUMP_HEIGHT = 0.55;
+const INACTIVITY_RESET_MS = 10000;
+const PERIODIC_REPLAY_MS = 60000;
 
-// Axis speed asymmetry: keep X baseline spin noticeably faster than Y.
-const BASE_X_ANGULAR_VELOCITY = 1.1;
-const BASE_Y_ANGULAR_VELOCITY = 0.4;
-const BASE_VELOCITY_PULL = 5.2;
-const MOUSE_FORCE_MULTIPLIER = 12;
-const MOUSE_ACCEL_RESPONSE = 8;
-const EDGE_THRESHOLD = 0.72;
-const EDGE_RETURN_FORCE = 16;
-const EDGE_MOUSE_FORCE_FADE = 1;
-const EDGE_VELOCITY_BRAKE = 14;
-const EDGE_MAGNETIC_PULL = 8.4;
-const PLAYER_INTERACTION_RETURN_FORCE = 10;
-const MAGNETIC_PULL_TOWARD_ORIGIN = 3.8;
-const MAGNETIC_PULL_AWAY_FROM_ORIGIN = 1.35;
-const ROTATION_DAMPING = 2.2;
-const FORCE_SCALE = 2;
-const ACCELERATION_SCALE = 2;
+const DRAG_DEADZONE_PX = 6;
+const NORMAL_DRAG_ROTATION_GAIN = 0.0019;
+const NORMAL_DRAG_VELOCITY_GAIN = 0.0048;
+const TWIST_ROTATION_GAIN = 0.35;
+const TWIST_VELOCITY_GAIN = 10;
+const FLICK_MIN_DISTANCE_PX = 24;
+const FLICK_MIN_SPEED_PX_PER_MS = 1.0;
+const FLICK_SPEED_RANGE = 0.9;
+const FLICK_DISTANCE_RANGE_PX = 54;
+const FLIP_MAX_TURNS = 2;
+const FLIP_DECAY_LAMBDA = 3.0;
+const MAX_ANGULAR_SPEED = 7;
+const ANGULAR_DAMPING = 2.45;
 
-type PointerPosition = {
+const MIN_SCALE_FACTOR = 1;
+const MAX_SCALE_FACTOR = 1.15;
+const WHEEL_SCALE_MULTIPLIER = 0.0006;
+const RESET_EPSILON = 0.012;
+const WIGGLE_BLEND_LAMBDA = 8;
+const PERIODIC_RESET_BLEND_LAMBDA = 10.5;
+const WIGGLE_FREQUENCY_HZ = 2.35;
+const WIGGLE_DECAY = 2.7;
+const WIGGLE_AMPLITUDE = 0.28;
+const WIGGLE_MIN_DURATION_MS = 900;
+const PERIODIC_RESET_MIN_DURATION_MS = 650;
+
+type AnimationPhase =
+  | 'introXFlip'
+  | 'introPauseAfterX'
+  | 'introJump'
+  | 'idleSpin'
+  | 'wiggleReset'
+  | 'periodicReplayReset';
+
+type Rotation = {
   x: number;
   y: number;
+  z: number;
 };
 
-const LogoModel = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
+type PointerState = {
+  activePointerId: number | null;
+  isDown: boolean;
+  lastClientX: number;
+  lastClientY: number;
+  lastNdcX: number;
+  lastNdcY: number;
+  lastEventTimeMs: number;
+};
+
+type GestureStats = {
+  totalDistancePx: number;
+  totalAbsDx: number;
+  totalAbsDy: number;
+  peakSpeedPxPerMs: number;
+  crossedDeadzone: boolean;
+  totalSignedDx: number;
+  totalSignedDy: number;
+};
+
+const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
+
+const wrapAngle = (value: number) =>
+  MathUtils.euclideanModulo(value + Math.PI, TAU) - Math.PI;
+
+const clampAngularVelocity = (velocity: Rotation) => {
+  velocity.x = MathUtils.clamp(velocity.x, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+  velocity.y = MathUtils.clamp(velocity.y, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+  velocity.z = MathUtils.clamp(velocity.z, -MAX_ANGULAR_SPEED, MAX_ANGULAR_SPEED);
+};
+
+const isIntroPhase = (phase: AnimationPhase) =>
+  phase === 'introXFlip' ||
+  phase === 'introPauseAfterX' ||
+  phase === 'introJump';
+
+const isUiInteractionTarget = (target: EventTarget | null) => {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('a,button,input,textarea,select,.audio-player,#mini-cart'));
+};
+
+const LogoModel = ({ modelUrl }: { modelUrl: string }) => {
   const { scene } = useGLTF(modelUrl);
-  return <primitive object={scene} scale={scale} />;
+  return <primitive object={scene} />;
 };
 
 const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
   const groupRef = useRef<Group>(null);
-  const pointerRef = useRef<PointerPosition>({ x: 0, y: 0 });
-  const velocityRef = useRef<PointerPosition>({
-    x: BASE_X_ANGULAR_VELOCITY,
-    y: BASE_Y_ANGULAR_VELOCITY,
+  const phaseRef = useRef<AnimationPhase>('introXFlip');
+  const phaseElapsedMsRef = useRef(0);
+  const hasAffectedStateRef = useRef(false);
+  const physicsRotationRef = useRef<Rotation>({ x: 0, y: 0, z: 0 });
+  const angularVelocityRef = useRef<Rotation>({ x: 0, y: 0, z: 0 });
+  const flipRemainingRef = useRef<Rotation>({ x: 0, y: 0, z: 0 });
+  const scaleFactorRef = useRef(1);
+  const lastInteractionAtRef = useRef(0);
+  const lastPeriodicReplayAtRef = useRef(0);
+  const periodicReplayPendingRef = useRef(false);
+  const isHoveringModelRef = useRef(false);
+  const pointerStateRef = useRef<PointerState>({
+    activePointerId: null,
+    isDown: false,
+    lastClientX: 0,
+    lastClientY: 0,
+    lastNdcX: 0,
+    lastNdcY: 0,
+    lastEventTimeMs: 0,
   });
-  const accelerationRef = useRef<PointerPosition>({ x: 0, y: 0 });
-  const isPlayerInteractingRef = useRef(false);
+  const gestureStatsRef = useRef<GestureStats>({
+    totalDistancePx: 0,
+    totalAbsDx: 0,
+    totalAbsDy: 0,
+    peakSpeedPxPerMs: 0,
+    crossedDeadzone: false,
+    totalSignedDx: 0,
+    totalSignedDy: 0,
+  });
 
-  useEffect(() => {
-    const resetPointer = () => {
-      pointerRef.current.x = 0;
-      pointerRef.current.y = 0;
-    };
+  const transitionToIdle = () => {
+    phaseRef.current = 'idleSpin';
+    phaseElapsedMsRef.current = 0;
+  };
 
-    const isInsideAudioPlayer = (target: EventTarget | null) =>
-      target instanceof Element && Boolean(target.closest('.audio-player'));
+  const beginPeriodicReplayReset = () => {
+    phaseRef.current = 'periodicReplayReset';
+    phaseElapsedMsRef.current = 0;
+    periodicReplayPendingRef.current = false;
+  };
 
-    const handlePointerMove = (event: PointerEvent) => {
-      if (isInsideAudioPlayer(event.target)) {
-        isPlayerInteractingRef.current = true;
-        resetPointer();
-        return;
+  const beginIntroSequence = (now: number) => {
+    phaseRef.current = 'introXFlip';
+    phaseElapsedMsRef.current = 0;
+    hasAffectedStateRef.current = false;
+    flipRemainingRef.current.x = 0;
+    flipRemainingRef.current.y = 0;
+    flipRemainingRef.current.z = 0;
+    lastPeriodicReplayAtRef.current = now;
+    periodicReplayPendingRef.current = false;
+  };
+
+  const registerInteraction = (eventTarget: EventTarget | null, interruptIntro = true) => {
+    if (isUiInteractionTarget(eventTarget)) return false;
+    const now = performance.now();
+    lastInteractionAtRef.current = now;
+
+    if (interruptIntro && phaseRef.current !== 'idleSpin') {
+      transitionToIdle();
+    }
+
+    return true;
+  };
+
+  const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
+    if (!registerInteraction(event.nativeEvent.target)) return;
+    event.stopPropagation();
+
+    const pointer = pointerStateRef.current;
+    pointer.activePointerId = event.pointerId;
+    pointer.isDown = true;
+    pointer.lastClientX = event.clientX;
+    pointer.lastClientY = event.clientY;
+    pointer.lastNdcX = event.pointer.x;
+    pointer.lastNdcY = event.pointer.y;
+    pointer.lastEventTimeMs = event.timeStamp;
+
+    const gesture = gestureStatsRef.current;
+    gesture.totalDistancePx = 0;
+    gesture.totalAbsDx = 0;
+    gesture.totalAbsDy = 0;
+    gesture.peakSpeedPxPerMs = 0;
+    gesture.crossedDeadzone = false;
+    gesture.totalSignedDx = 0;
+    gesture.totalSignedDy = 0;
+
+    const eventTarget = event.target as
+      | { setPointerCapture?: (pointerId: number) => void }
+      | null;
+    eventTarget?.setPointerCapture?.(event.pointerId);
+  };
+
+  const handlePointerMove = (event: ThreeEvent<PointerEvent>) => {
+    const pointer = pointerStateRef.current;
+    if (!pointer.isDown || pointer.activePointerId !== event.pointerId) {
+      return;
+    }
+    if (!registerInteraction(event.nativeEvent.target)) return;
+
+    event.stopPropagation();
+
+    const deltaX = event.clientX - pointer.lastClientX;
+    const deltaY = event.clientY - pointer.lastClientY;
+    const elapsedMs = Math.max(1, event.timeStamp - pointer.lastEventTimeMs);
+    const stepDistancePx = Math.hypot(deltaX, deltaY);
+    const stepSpeedPxPerMs = stepDistancePx / elapsedMs;
+    const gesture = gestureStatsRef.current;
+
+    gesture.totalDistancePx += stepDistancePx;
+    gesture.totalAbsDx += Math.abs(deltaX);
+    gesture.totalAbsDy += Math.abs(deltaY);
+    gesture.totalSignedDx += deltaX;
+    gesture.totalSignedDy += deltaY;
+    gesture.peakSpeedPxPerMs = Math.max(gesture.peakSpeedPxPerMs, stepSpeedPxPerMs);
+    if (!gesture.crossedDeadzone && gesture.totalDistancePx >= DRAG_DEADZONE_PX) {
+      gesture.crossedDeadzone = true;
+    }
+
+    pointer.lastClientX = event.clientX;
+    pointer.lastClientY = event.clientY;
+
+    const prevNdcX = pointer.lastNdcX;
+    const prevNdcY = pointer.lastNdcY;
+    const nextNdcX = event.pointer.x;
+    const nextNdcY = event.pointer.y;
+    pointer.lastEventTimeMs = event.timeStamp;
+
+    if (!gesture.crossedDeadzone) {
+      pointer.lastNdcX = nextNdcX;
+      pointer.lastNdcY = nextNdcY;
+      return;
+    }
+
+    let hasChanges = false;
+
+    if (deltaX !== 0 || deltaY !== 0) {
+      physicsRotationRef.current.x = wrapAngle(
+        physicsRotationRef.current.x + deltaY * NORMAL_DRAG_ROTATION_GAIN,
+      );
+      physicsRotationRef.current.y = wrapAngle(
+        physicsRotationRef.current.y + deltaX * NORMAL_DRAG_ROTATION_GAIN,
+      );
+
+      angularVelocityRef.current.x += deltaY * NORMAL_DRAG_VELOCITY_GAIN;
+      angularVelocityRef.current.y += deltaX * NORMAL_DRAG_VELOCITY_GAIN;
+      hasChanges = true;
+    }
+
+    const prevNdcRadiusSq = prevNdcX * prevNdcX + prevNdcY * prevNdcY;
+    const nextNdcRadiusSq = nextNdcX * nextNdcX + nextNdcY * nextNdcY;
+    if (prevNdcRadiusSq > 0.01 && nextNdcRadiusSq > 0.01) {
+      const cross = prevNdcX * nextNdcY - prevNdcY * nextNdcX;
+      const dot = prevNdcX * nextNdcX + prevNdcY * nextNdcY;
+      const signedAngle = Math.atan2(cross, dot);
+
+      physicsRotationRef.current.z = wrapAngle(
+        physicsRotationRef.current.z + signedAngle * TWIST_ROTATION_GAIN,
+      );
+      angularVelocityRef.current.z += signedAngle * TWIST_VELOCITY_GAIN;
+      hasChanges = true;
+    }
+
+    if (hasChanges) {
+      hasAffectedStateRef.current = true;
+    }
+    clampAngularVelocity(angularVelocityRef.current);
+    pointer.lastNdcX = nextNdcX;
+    pointer.lastNdcY = nextNdcY;
+  };
+
+  const finalizePointer = (event: ThreeEvent<PointerEvent>) => {
+    const pointer = pointerStateRef.current;
+    if (pointer.activePointerId !== event.pointerId) {
+      return;
+    }
+
+    if (registerInteraction(event.nativeEvent.target, false)) {
+      event.stopPropagation();
+    }
+
+    const gesture = gestureStatsRef.current;
+    if (
+      gesture.crossedDeadzone &&
+      gesture.totalDistancePx >= FLICK_MIN_DISTANCE_PX &&
+      gesture.peakSpeedPxPerMs >= FLICK_MIN_SPEED_PX_PER_MS
+    ) {
+      const flipAxis = gesture.totalAbsDx >= gesture.totalAbsDy ? 'y' : 'x';
+      const directionalDelta =
+        flipAxis === 'y' ? gesture.totalSignedDx : gesture.totalSignedDy;
+      const direction = directionalDelta === 0 ? 0 : Math.sign(directionalDelta);
+
+      if (direction !== 0) {
+        const speedFactor = MathUtils.clamp(
+          (gesture.peakSpeedPxPerMs - FLICK_MIN_SPEED_PX_PER_MS) / FLICK_SPEED_RANGE,
+          0,
+          1,
+        );
+        const distanceFactor = MathUtils.clamp(
+          (gesture.totalDistancePx - FLICK_MIN_DISTANCE_PX) / FLICK_DISTANCE_RANGE_PX,
+          0,
+          1,
+        );
+        const turns = MathUtils.clamp(
+          1 + speedFactor * 1.4 + distanceFactor * 0.6,
+          1,
+          FLIP_MAX_TURNS,
+        );
+        flipRemainingRef.current[flipAxis] += direction * turns * TAU;
+        hasAffectedStateRef.current = true;
       }
+    }
 
-      isPlayerInteractingRef.current = false;
-      pointerRef.current.x = (event.clientX / window.innerWidth) * 2 - 1;
-      pointerRef.current.y = -((event.clientY / window.innerHeight) * 2 - 1);
-    };
+    const eventTarget = event.target as
+      | { releasePointerCapture?: (pointerId: number) => void }
+      | null;
+    eventTarget?.releasePointerCapture?.(event.pointerId);
 
-    const handlePointerDown = (event: PointerEvent) => {
-      if (isInsideAudioPlayer(event.target)) {
-        isPlayerInteractingRef.current = true;
-        resetPointer();
-      }
-    };
+    pointer.activePointerId = null;
+    pointer.isDown = false;
+  };
 
-    const handlePointerUp = () => {
-      isPlayerInteractingRef.current = false;
-    };
+  const handleWheel = (event: ThreeEvent<WheelEvent>) => {
+    if (!isHoveringModelRef.current) return;
+    if (!registerInteraction(event.nativeEvent.target, false)) return;
 
-    const handlePointerLeaveViewport = (event: PointerEvent) => {
-      if (!event.relatedTarget) {
-        resetPointer();
-      }
-    };
+    event.stopPropagation();
+    event.nativeEvent.preventDefault();
 
-    const handleFocusIn = (event: FocusEvent) => {
-      if (isInsideAudioPlayer(event.target)) {
-        isPlayerInteractingRef.current = true;
-        resetPointer();
-      }
-    };
+    const previousScale = scaleFactorRef.current;
+    const scaleDelta = -event.deltaY * WHEEL_SCALE_MULTIPLIER;
+    scaleFactorRef.current = MathUtils.clamp(
+      scaleFactorRef.current + scaleDelta,
+      MIN_SCALE_FACTOR,
+      MAX_SCALE_FACTOR,
+    );
 
-    const handleFocusOut = (event: FocusEvent) => {
-      if (!isInsideAudioPlayer(event.relatedTarget)) {
-        isPlayerInteractingRef.current = false;
-      }
-    };
-
-    const handleWindowBlur = () => {
-      isPlayerInteractingRef.current = false;
-      resetPointer();
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerdown', handlePointerDown, true);
-    window.addEventListener('pointerup', handlePointerUp, true);
-    document.addEventListener('focusin', handleFocusIn);
-    document.addEventListener('focusout', handleFocusOut);
-    document.addEventListener('pointerleave', handlePointerLeaveViewport);
-    window.addEventListener('blur', handleWindowBlur);
-    window.addEventListener('pointercancel', handleWindowBlur);
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerdown', handlePointerDown, true);
-      window.removeEventListener('pointerup', handlePointerUp, true);
-      document.removeEventListener('focusin', handleFocusIn);
-      document.removeEventListener('focusout', handleFocusOut);
-      document.removeEventListener('pointerleave', handlePointerLeaveViewport);
-      window.removeEventListener('blur', handleWindowBlur);
-      window.removeEventListener('pointercancel', handleWindowBlur);
-    };
-  }, []);
+    if (Math.abs(scaleFactorRef.current - previousScale) > 0.000001) {
+      hasAffectedStateRef.current = true;
+    }
+  };
 
   useFrame((_, delta) => {
-    if (!groupRef.current) return;
+    const group = groupRef.current;
+    if (!group) return;
 
-    const normalizedRotationX = MathUtils.euclideanModulo(
-      groupRef.current.rotation.x + Math.PI,
-      TAU,
-    ) - Math.PI;
-    const normalizedRotationY = MathUtils.euclideanModulo(
-      groupRef.current.rotation.y + Math.PI,
-      TAU,
-    ) - Math.PI;
+    const now = performance.now();
+    if (lastInteractionAtRef.current === 0) {
+      lastInteractionAtRef.current = now;
+    }
+    if (lastPeriodicReplayAtRef.current === 0) {
+      lastPeriodicReplayAtRef.current = now;
+    }
 
-    const pointerX = isPlayerInteractingRef.current ? 0 : pointerRef.current.x;
-    const pointerY = isPlayerInteractingRef.current ? 0 : pointerRef.current.y;
+    const pointer = pointerStateRef.current;
+    const isPointerInteracting = pointer.isDown;
+    const periodicDue = now - lastPeriodicReplayAtRef.current >= PERIODIC_REPLAY_MS;
+    const hasTransformOffset =
+      Math.abs(physicsRotationRef.current.x) > RESET_EPSILON ||
+      Math.abs(physicsRotationRef.current.y) > RESET_EPSILON ||
+      Math.abs(physicsRotationRef.current.z) > RESET_EPSILON ||
+      Math.abs(scaleFactorRef.current - 1) > RESET_EPSILON;
+    const hasResidualMotion =
+      Math.abs(angularVelocityRef.current.x) > RESET_EPSILON ||
+      Math.abs(angularVelocityRef.current.y) > RESET_EPSILON ||
+      Math.abs(angularVelocityRef.current.z) > RESET_EPSILON;
+    const hasPendingFlip =
+      Math.abs(flipRemainingRef.current.x) > RESET_EPSILON ||
+      Math.abs(flipRemainingRef.current.y) > RESET_EPSILON ||
+      Math.abs(flipRemainingRef.current.z) > RESET_EPSILON;
+    const isCurrentlyAffected = hasTransformOffset || hasResidualMotion || hasPendingFlip;
 
-    const distanceFromCenter = Math.min(1, Math.hypot(pointerX, pointerY));
-    const proximityToCenter = MathUtils.clamp(1 - distanceFromCenter, 0, 1);
-    const edgeDistance = Math.max(Math.abs(pointerX), Math.abs(pointerY));
-    // Edge-force behavior: raise torque sharply near canvas bounds for energetic response.
-    const edgeInfluence = MathUtils.clamp(
-      (edgeDistance - EDGE_THRESHOLD) / (1 - EDGE_THRESHOLD),
-      0,
-      1,
-    );
-    const edgeBoost = edgeInfluence * edgeInfluence;
+    if (periodicDue) {
+      if (isPointerInteracting) {
+        periodicReplayPendingRef.current = true;
+      } else if (!isIntroPhase(phaseRef.current) && phaseRef.current !== 'periodicReplayReset') {
+        beginPeriodicReplayReset();
+      }
+    }
 
-    const mouseForceScale =
-      MOUSE_FORCE_MULTIPLIER * (0.35 + proximityToCenter * proximityToCenter * 1.85);
-    const mouseInfluence = MathUtils.clamp(1 - edgeBoost * EDGE_MOUSE_FORCE_FADE, 0, 1);
-    const mouseForceX = -pointerY * mouseForceScale * mouseInfluence * FORCE_SCALE;
-    const mouseForceY = pointerX * mouseForceScale * mouseInfluence * FORCE_SCALE;
+    if (
+      periodicReplayPendingRef.current &&
+      !isPointerInteracting &&
+      !isIntroPhase(phaseRef.current) &&
+      phaseRef.current !== 'periodicReplayReset'
+    ) {
+      beginPeriodicReplayReset();
+    }
 
-    const toOriginX = -normalizedRotationX;
-    const toOriginY = -normalizedRotationY;
-    const movingTowardOriginX = velocityRef.current.x * toOriginX > 0;
-    const movingTowardOriginY = velocityRef.current.y * toOriginY > 0;
+    if (
+      phaseRef.current === 'idleSpin' &&
+      hasAffectedStateRef.current &&
+      isCurrentlyAffected &&
+      !periodicReplayPendingRef.current &&
+      !isPointerInteracting &&
+      now - lastInteractionAtRef.current >= INACTIVITY_RESET_MS
+    ) {
+      phaseRef.current = 'wiggleReset';
+      phaseElapsedMsRef.current = 0;
+    }
 
-    // Return-to-origin spin logic: stronger pull toward home pose when heading back, softer when drifting away.
-    const towardOriginPull = MathUtils.lerp(
-      MAGNETIC_PULL_TOWARD_ORIGIN,
-      EDGE_MAGNETIC_PULL,
-      edgeBoost,
-    );
-    const awayFromOriginPull = MathUtils.lerp(
-      MAGNETIC_PULL_AWAY_FROM_ORIGIN,
-      MAGNETIC_PULL_TOWARD_ORIGIN,
-      edgeBoost,
-    );
+    phaseElapsedMsRef.current += delta * 1000;
 
-    const magneticForceX = toOriginX * (movingTowardOriginX ? towardOriginPull : awayFromOriginPull);
-    const magneticForceY = toOriginY * (movingTowardOriginY ? towardOriginPull : awayFromOriginPull);
+    let baseRotationX = 0;
+    let baseRotationY = 0;
+    let baseRotationZ = 0;
+    let basePositionY = 0;
 
-    const edgeReturnForceX = toOriginX * EDGE_RETURN_FORCE * edgeBoost;
-    const edgeReturnForceY = toOriginY * EDGE_RETURN_FORCE * edgeBoost;
-    const edgeBrakeX = -velocityRef.current.x * EDGE_VELOCITY_BRAKE * edgeBoost;
-    const edgeBrakeY = -velocityRef.current.y * EDGE_VELOCITY_BRAKE * edgeBoost;
-    const playerInteractionReturnX =
-      isPlayerInteractingRef.current ? toOriginX * PLAYER_INTERACTION_RETURN_FORCE : 0;
-    const playerInteractionReturnY =
-      isPlayerInteractingRef.current ? toOriginY * PLAYER_INTERACTION_RETURN_FORCE : 0;
+    switch (phaseRef.current) {
+      case 'introXFlip': {
+        const progress = MathUtils.clamp(
+          phaseElapsedMsRef.current / INTRO_X_FLIP_DURATION_MS,
+          0,
+          1,
+        );
+        baseRotationX = INTRO_X_SPIN * easeOutCubic(progress);
 
-    const targetAccelerationX =
-      ((BASE_X_ANGULAR_VELOCITY - velocityRef.current.x) * BASE_VELOCITY_PULL +
-        mouseForceX +
-        magneticForceX +
-        edgeReturnForceX +
-        edgeBrakeX +
-        playerInteractionReturnX) *
-      ACCELERATION_SCALE;
-    const targetAccelerationY =
-      ((BASE_Y_ANGULAR_VELOCITY - velocityRef.current.y) * BASE_VELOCITY_PULL +
-        mouseForceY +
-        magneticForceY +
-        edgeReturnForceY +
-        edgeBrakeY +
-        playerInteractionReturnY) *
-      ACCELERATION_SCALE;
+        if (progress >= 1) {
+          phaseRef.current = 'introPauseAfterX';
+          phaseElapsedMsRef.current = 0;
+          baseRotationX = 0;
+        }
+        break;
+      }
 
-    const accelSmoothing = 1 - Math.exp(-MOUSE_ACCEL_RESPONSE * delta);
-    accelerationRef.current.x = MathUtils.lerp(
-      accelerationRef.current.x,
-      targetAccelerationX,
-      accelSmoothing,
-    );
-    accelerationRef.current.y = MathUtils.lerp(
-      accelerationRef.current.y,
-      targetAccelerationY,
-      accelSmoothing,
-    );
+      case 'introPauseAfterX': {
+        if (phaseElapsedMsRef.current >= INTRO_PAUSE_AFTER_X_MS) {
+          phaseRef.current = 'introJump';
+          phaseElapsedMsRef.current = 0;
+        }
+        break;
+      }
 
-    velocityRef.current.x += accelerationRef.current.x * delta;
-    velocityRef.current.y += accelerationRef.current.y * delta;
+      case 'introJump': {
+        const progress = MathUtils.clamp(
+          phaseElapsedMsRef.current / INTRO_JUMP_DURATION_MS,
+          0,
+          1,
+        );
+        basePositionY = Math.sin(progress * Math.PI) * JUMP_HEIGHT;
 
-    const damping = Math.exp(-ROTATION_DAMPING * delta);
-    velocityRef.current.x *= damping;
-    velocityRef.current.y *= damping;
+        if (progress >= 1) {
+          phaseRef.current = 'idleSpin';
+          phaseElapsedMsRef.current = 0;
+          lastInteractionAtRef.current = now;
+          basePositionY = 0;
+        }
+        break;
+      }
 
-    groupRef.current.rotation.x = MathUtils.euclideanModulo(
-      groupRef.current.rotation.x + velocityRef.current.x * delta + Math.PI,
-      TAU,
-    ) - Math.PI;
-    groupRef.current.rotation.y = MathUtils.euclideanModulo(
-      groupRef.current.rotation.y + velocityRef.current.y * delta + Math.PI,
-      TAU,
-    ) - Math.PI;
+      case 'idleSpin': {
+        baseRotationY = 0;
+        break;
+      }
+
+      case 'wiggleReset': {
+        const blend = 1 - Math.exp(-WIGGLE_BLEND_LAMBDA * delta);
+        const timeSeconds = phaseElapsedMsRef.current / 1000;
+        const wiggle =
+          Math.sin(timeSeconds * WIGGLE_FREQUENCY_HZ * TAU) *
+          Math.exp(-WIGGLE_DECAY * timeSeconds) *
+          WIGGLE_AMPLITUDE;
+
+        baseRotationX = wiggle * 0.72;
+        baseRotationZ = wiggle * 0.36;
+        basePositionY = wiggle * 0.08;
+
+        physicsRotationRef.current.x = MathUtils.lerp(physicsRotationRef.current.x, 0, blend);
+        physicsRotationRef.current.y = MathUtils.lerp(physicsRotationRef.current.y, 0, blend);
+        physicsRotationRef.current.z = MathUtils.lerp(physicsRotationRef.current.z, 0, blend);
+        flipRemainingRef.current.x = MathUtils.lerp(flipRemainingRef.current.x, 0, blend);
+        flipRemainingRef.current.y = MathUtils.lerp(flipRemainingRef.current.y, 0, blend);
+        flipRemainingRef.current.z = MathUtils.lerp(flipRemainingRef.current.z, 0, blend);
+        angularVelocityRef.current.x = MathUtils.lerp(
+          angularVelocityRef.current.x,
+          0,
+          Math.min(1, blend * 1.2),
+        );
+        angularVelocityRef.current.y = MathUtils.lerp(
+          angularVelocityRef.current.y,
+          0,
+          Math.min(1, blend * 1.2),
+        );
+        angularVelocityRef.current.z = MathUtils.lerp(
+          angularVelocityRef.current.z,
+          0,
+          Math.min(1, blend * 1.2),
+        );
+        scaleFactorRef.current = MathUtils.lerp(scaleFactorRef.current, 1, blend);
+
+        const settled =
+          phaseElapsedMsRef.current >= WIGGLE_MIN_DURATION_MS &&
+          Math.abs(physicsRotationRef.current.x) < RESET_EPSILON &&
+          Math.abs(physicsRotationRef.current.y) < RESET_EPSILON &&
+          Math.abs(physicsRotationRef.current.z) < RESET_EPSILON &&
+          Math.abs(flipRemainingRef.current.x) < RESET_EPSILON &&
+          Math.abs(flipRemainingRef.current.y) < RESET_EPSILON &&
+          Math.abs(flipRemainingRef.current.z) < RESET_EPSILON &&
+          Math.abs(angularVelocityRef.current.x) < RESET_EPSILON &&
+          Math.abs(angularVelocityRef.current.y) < RESET_EPSILON &&
+          Math.abs(angularVelocityRef.current.z) < RESET_EPSILON &&
+          Math.abs(scaleFactorRef.current - 1) < RESET_EPSILON;
+
+        if (settled) {
+          physicsRotationRef.current.x = 0;
+          physicsRotationRef.current.y = 0;
+          physicsRotationRef.current.z = 0;
+          flipRemainingRef.current.x = 0;
+          flipRemainingRef.current.y = 0;
+          flipRemainingRef.current.z = 0;
+          angularVelocityRef.current.x = 0;
+          angularVelocityRef.current.y = 0;
+          angularVelocityRef.current.z = 0;
+          scaleFactorRef.current = 1;
+          hasAffectedStateRef.current = false;
+
+          transitionToIdle();
+          lastInteractionAtRef.current = now;
+          baseRotationX = 0;
+          baseRotationZ = 0;
+          basePositionY = 0;
+        }
+        break;
+      }
+
+      case 'periodicReplayReset': {
+        const blend = 1 - Math.exp(-PERIODIC_RESET_BLEND_LAMBDA * delta);
+        physicsRotationRef.current.x = MathUtils.lerp(physicsRotationRef.current.x, 0, blend);
+        physicsRotationRef.current.y = MathUtils.lerp(physicsRotationRef.current.y, 0, blend);
+        physicsRotationRef.current.z = MathUtils.lerp(physicsRotationRef.current.z, 0, blend);
+        flipRemainingRef.current.x = MathUtils.lerp(flipRemainingRef.current.x, 0, blend);
+        flipRemainingRef.current.y = MathUtils.lerp(flipRemainingRef.current.y, 0, blend);
+        flipRemainingRef.current.z = MathUtils.lerp(flipRemainingRef.current.z, 0, blend);
+        angularVelocityRef.current.x = MathUtils.lerp(
+          angularVelocityRef.current.x,
+          0,
+          Math.min(1, blend * 1.4),
+        );
+        angularVelocityRef.current.y = MathUtils.lerp(
+          angularVelocityRef.current.y,
+          0,
+          Math.min(1, blend * 1.4),
+        );
+        angularVelocityRef.current.z = MathUtils.lerp(
+          angularVelocityRef.current.z,
+          0,
+          Math.min(1, blend * 1.4),
+        );
+        scaleFactorRef.current = MathUtils.lerp(scaleFactorRef.current, 1, blend);
+
+        const settled =
+          phaseElapsedMsRef.current >= PERIODIC_RESET_MIN_DURATION_MS &&
+          Math.abs(physicsRotationRef.current.x) < RESET_EPSILON &&
+          Math.abs(physicsRotationRef.current.y) < RESET_EPSILON &&
+          Math.abs(physicsRotationRef.current.z) < RESET_EPSILON &&
+          Math.abs(flipRemainingRef.current.x) < RESET_EPSILON &&
+          Math.abs(flipRemainingRef.current.y) < RESET_EPSILON &&
+          Math.abs(flipRemainingRef.current.z) < RESET_EPSILON &&
+          Math.abs(angularVelocityRef.current.x) < RESET_EPSILON &&
+          Math.abs(angularVelocityRef.current.y) < RESET_EPSILON &&
+          Math.abs(angularVelocityRef.current.z) < RESET_EPSILON &&
+          Math.abs(scaleFactorRef.current - 1) < RESET_EPSILON;
+
+        if (settled) {
+          physicsRotationRef.current.x = 0;
+          physicsRotationRef.current.y = 0;
+          physicsRotationRef.current.z = 0;
+          flipRemainingRef.current.x = 0;
+          flipRemainingRef.current.y = 0;
+          flipRemainingRef.current.z = 0;
+          angularVelocityRef.current.x = 0;
+          angularVelocityRef.current.y = 0;
+          angularVelocityRef.current.z = 0;
+          scaleFactorRef.current = 1;
+          beginIntroSequence(now);
+          lastInteractionAtRef.current = now;
+          baseRotationX = 0;
+          baseRotationY = 0;
+          baseRotationZ = 0;
+          basePositionY = 0;
+        }
+        break;
+      }
+    }
+
+    if (phaseRef.current !== 'wiggleReset' && phaseRef.current !== 'periodicReplayReset') {
+      physicsRotationRef.current.x = wrapAngle(
+        physicsRotationRef.current.x + angularVelocityRef.current.x * delta,
+      );
+      physicsRotationRef.current.y = wrapAngle(
+        physicsRotationRef.current.y + angularVelocityRef.current.y * delta,
+      );
+      physicsRotationRef.current.z = wrapAngle(
+        physicsRotationRef.current.z + angularVelocityRef.current.z * delta,
+      );
+
+      const damping = Math.exp(-ANGULAR_DAMPING * delta);
+      angularVelocityRef.current.x *= damping;
+      angularVelocityRef.current.y *= damping;
+      angularVelocityRef.current.z *= damping;
+      clampAngularVelocity(angularVelocityRef.current);
+
+      if (Math.abs(angularVelocityRef.current.x) < 0.0005) angularVelocityRef.current.x = 0;
+      if (Math.abs(angularVelocityRef.current.y) < 0.0005) angularVelocityRef.current.y = 0;
+      if (Math.abs(angularVelocityRef.current.z) < 0.0005) angularVelocityRef.current.z = 0;
+
+      const flipBlend = 1 - Math.exp(-FLIP_DECAY_LAMBDA * delta);
+      const flipDeltaX = flipRemainingRef.current.x * flipBlend;
+      const flipDeltaY = flipRemainingRef.current.y * flipBlend;
+      const flipDeltaZ = flipRemainingRef.current.z * flipBlend;
+
+      flipRemainingRef.current.x -= flipDeltaX;
+      flipRemainingRef.current.y -= flipDeltaY;
+      flipRemainingRef.current.z -= flipDeltaZ;
+
+      physicsRotationRef.current.x = wrapAngle(physicsRotationRef.current.x + flipDeltaX);
+      physicsRotationRef.current.y = wrapAngle(physicsRotationRef.current.y + flipDeltaY);
+      physicsRotationRef.current.z = wrapAngle(physicsRotationRef.current.z + flipDeltaZ);
+
+      if (Math.abs(flipRemainingRef.current.x) < 0.001) flipRemainingRef.current.x = 0;
+      if (Math.abs(flipRemainingRef.current.y) < 0.001) flipRemainingRef.current.y = 0;
+      if (Math.abs(flipRemainingRef.current.z) < 0.001) flipRemainingRef.current.z = 0;
+    }
+
+    group.rotation.x = wrapAngle(baseRotationX + physicsRotationRef.current.x);
+    group.rotation.y = wrapAngle(baseRotationY + physicsRotationRef.current.y);
+    group.rotation.z = wrapAngle(baseRotationZ + physicsRotationRef.current.z);
+    group.position.y = basePositionY;
+    group.scale.setScalar(scale * scaleFactorRef.current);
   });
 
   return (
-    <group ref={groupRef}>
+    <group
+      ref={groupRef}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={finalizePointer}
+      onPointerCancel={finalizePointer}
+      onPointerOver={() => {
+        isHoveringModelRef.current = true;
+      }}
+      onPointerOut={() => {
+        isHoveringModelRef.current = false;
+      }}
+      onWheel={handleWheel}
+    >
       <Center>
-        <LogoModel modelUrl={modelUrl} scale={scale} />
+        <LogoModel modelUrl={modelUrl} />
       </Center>
     </group>
   );
@@ -256,10 +673,18 @@ export const LogoScene = ({
   modelUrl = LOGO_MODEL_URL,
   modelScale = LOGO_SCALE,
 }: LogoSceneProps) => {
+  const [eventSource, setEventSource] = useState<HTMLElement | undefined>(undefined);
+
+  useEffect(() => {
+    setEventSource(document.body);
+  }, []);
+
   return (
     <ThreeCanvas
       className={className}
       camera={{ position: [0, 0, 8.5], fov: 40 }}
+      eventSource={eventSource}
+      eventPrefix="client"
     >
       <ambientLight intensity={0.8} />
       <directionalLight position={[-3, 0, 4]} intensity={1.2} />
