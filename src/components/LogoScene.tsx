@@ -22,19 +22,11 @@ const JUMP_HEIGHT = 0.55;
 const INACTIVITY_RESET_MS = 10000;
 const PERIODIC_REPLAY_MS = 60000;
 
-const DRAG_DEADZONE_PX = 6;
-const NORMAL_DRAG_ROTATION_GAIN = 0.0019;
-const NORMAL_DRAG_VELOCITY_GAIN = 0.0048;
-const TWIST_ROTATION_GAIN = 0.35;
-const TWIST_VELOCITY_GAIN = 10;
-const FLICK_MIN_DISTANCE_PX = 24;
-const FLICK_MIN_SPEED_PX_PER_MS = 1.0;
-const FLICK_SPEED_RANGE = 0.9;
-const FLICK_DISTANCE_RANGE_PX = 54;
-const FLIP_MAX_TURNS = 2;
-const FLIP_DECAY_LAMBDA = 3.0;
-const MAX_ANGULAR_SPEED = 7;
-const ANGULAR_DAMPING = 2.45;
+const DRAG_ROTATION_SENSITIVITY = 0.005;
+const DRAG_VELOCITY_BLEND = 0.42;
+const RELEASE_VELOCITY_BOOST = 1.28;
+const MAX_ANGULAR_SPEED = 12;
+const ANGULAR_DAMPING = 2.1;
 
 const MIN_SCALE_FACTOR = 1;
 const MAX_SCALE_FACTOR = 1.15;
@@ -67,19 +59,7 @@ type PointerState = {
   isDown: boolean;
   lastClientX: number;
   lastClientY: number;
-  lastNdcX: number;
-  lastNdcY: number;
   lastEventTimeMs: number;
-};
-
-type GestureStats = {
-  totalDistancePx: number;
-  totalAbsDx: number;
-  totalAbsDy: number;
-  peakSpeedPxPerMs: number;
-  crossedDeadzone: boolean;
-  totalSignedDx: number;
-  totalSignedDy: number;
 };
 
 const easeOutCubic = (value: number) => 1 - (1 - value) ** 3;
@@ -108,14 +88,19 @@ const LogoModel = ({ modelUrl }: { modelUrl: string }) => {
   return <primitive object={scene} />;
 };
 
-const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
+interface LogoRigProps {
+  modelUrl: string;
+  scale: number;
+  onDragStateChange?: (isDragging: boolean) => void;
+}
+
+const LogoRig = ({ modelUrl, scale, onDragStateChange }: LogoRigProps) => {
   const groupRef = useRef<Group>(null);
   const phaseRef = useRef<AnimationPhase>('introXFlip');
   const phaseElapsedMsRef = useRef(0);
   const hasAffectedStateRef = useRef(false);
   const physicsRotationRef = useRef<Rotation>({ x: 0, y: 0, z: 0 });
   const angularVelocityRef = useRef<Rotation>({ x: 0, y: 0, z: 0 });
-  const flipRemainingRef = useRef<Rotation>({ x: 0, y: 0, z: 0 });
   const scaleFactorRef = useRef(1);
   const lastInteractionAtRef = useRef(0);
   const lastPeriodicReplayAtRef = useRef(0);
@@ -126,18 +111,7 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     isDown: false,
     lastClientX: 0,
     lastClientY: 0,
-    lastNdcX: 0,
-    lastNdcY: 0,
     lastEventTimeMs: 0,
-  });
-  const gestureStatsRef = useRef<GestureStats>({
-    totalDistancePx: 0,
-    totalAbsDx: 0,
-    totalAbsDy: 0,
-    peakSpeedPxPerMs: 0,
-    crossedDeadzone: false,
-    totalSignedDx: 0,
-    totalSignedDy: 0,
   });
 
   const transitionToIdle = () => {
@@ -155,12 +129,16 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     phaseRef.current = 'introXFlip';
     phaseElapsedMsRef.current = 0;
     hasAffectedStateRef.current = false;
-    flipRemainingRef.current.x = 0;
-    flipRemainingRef.current.y = 0;
-    flipRemainingRef.current.z = 0;
     lastPeriodicReplayAtRef.current = now;
     periodicReplayPendingRef.current = false;
   };
+
+  useEffect(
+    () => () => {
+      onDragStateChange?.(false);
+    },
+    [onDragStateChange],
+  );
 
   const registerInteraction = (eventTarget: EventTarget | null, interruptIntro = true) => {
     if (isUiInteractionTarget(eventTarget)) return false;
@@ -183,18 +161,12 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     pointer.isDown = true;
     pointer.lastClientX = event.clientX;
     pointer.lastClientY = event.clientY;
-    pointer.lastNdcX = event.pointer.x;
-    pointer.lastNdcY = event.pointer.y;
     pointer.lastEventTimeMs = event.timeStamp;
+    onDragStateChange?.(true);
 
-    const gesture = gestureStatsRef.current;
-    gesture.totalDistancePx = 0;
-    gesture.totalAbsDx = 0;
-    gesture.totalAbsDy = 0;
-    gesture.peakSpeedPxPerMs = 0;
-    gesture.crossedDeadzone = false;
-    gesture.totalSignedDx = 0;
-    gesture.totalSignedDy = 0;
+    angularVelocityRef.current.x = 0;
+    angularVelocityRef.current.y = 0;
+    angularVelocityRef.current.z = 0;
 
     const eventTarget = event.target as
       | { setPointerCapture?: (pointerId: number) => void }
@@ -214,70 +186,39 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
     const deltaX = event.clientX - pointer.lastClientX;
     const deltaY = event.clientY - pointer.lastClientY;
     const elapsedMs = Math.max(1, event.timeStamp - pointer.lastEventTimeMs);
-    const stepDistancePx = Math.hypot(deltaX, deltaY);
-    const stepSpeedPxPerMs = stepDistancePx / elapsedMs;
-    const gesture = gestureStatsRef.current;
-
-    gesture.totalDistancePx += stepDistancePx;
-    gesture.totalAbsDx += Math.abs(deltaX);
-    gesture.totalAbsDy += Math.abs(deltaY);
-    gesture.totalSignedDx += deltaX;
-    gesture.totalSignedDy += deltaY;
-    gesture.peakSpeedPxPerMs = Math.max(gesture.peakSpeedPxPerMs, stepSpeedPxPerMs);
-    if (!gesture.crossedDeadzone && gesture.totalDistancePx >= DRAG_DEADZONE_PX) {
-      gesture.crossedDeadzone = true;
-    }
+    const elapsedSeconds = elapsedMs / 1000;
 
     pointer.lastClientX = event.clientX;
     pointer.lastClientY = event.clientY;
-
-    const prevNdcX = pointer.lastNdcX;
-    const prevNdcY = pointer.lastNdcY;
-    const nextNdcX = event.pointer.x;
-    const nextNdcY = event.pointer.y;
     pointer.lastEventTimeMs = event.timeStamp;
 
-    if (!gesture.crossedDeadzone) {
-      pointer.lastNdcX = nextNdcX;
-      pointer.lastNdcY = nextNdcY;
+    if (deltaX === 0 && deltaY === 0) {
       return;
     }
 
-    let hasChanges = false;
+    physicsRotationRef.current.x = wrapAngle(
+      physicsRotationRef.current.x + deltaY * DRAG_ROTATION_SENSITIVITY,
+    );
+    physicsRotationRef.current.y = wrapAngle(
+      physicsRotationRef.current.y + deltaX * DRAG_ROTATION_SENSITIVITY,
+    );
 
-    if (deltaX !== 0 || deltaY !== 0) {
-      physicsRotationRef.current.x = wrapAngle(
-        physicsRotationRef.current.x + deltaY * NORMAL_DRAG_ROTATION_GAIN,
-      );
-      physicsRotationRef.current.y = wrapAngle(
-        physicsRotationRef.current.y + deltaX * NORMAL_DRAG_ROTATION_GAIN,
-      );
+    const targetVelocityX = (deltaY * DRAG_ROTATION_SENSITIVITY) / elapsedSeconds;
+    const targetVelocityY = (deltaX * DRAG_ROTATION_SENSITIVITY) / elapsedSeconds;
+    angularVelocityRef.current.x = MathUtils.lerp(
+      angularVelocityRef.current.x,
+      targetVelocityX,
+      DRAG_VELOCITY_BLEND,
+    );
+    angularVelocityRef.current.y = MathUtils.lerp(
+      angularVelocityRef.current.y,
+      targetVelocityY,
+      DRAG_VELOCITY_BLEND,
+    );
+    angularVelocityRef.current.z = MathUtils.lerp(angularVelocityRef.current.z, 0, DRAG_VELOCITY_BLEND);
 
-      angularVelocityRef.current.x += deltaY * NORMAL_DRAG_VELOCITY_GAIN;
-      angularVelocityRef.current.y += deltaX * NORMAL_DRAG_VELOCITY_GAIN;
-      hasChanges = true;
-    }
-
-    const prevNdcRadiusSq = prevNdcX * prevNdcX + prevNdcY * prevNdcY;
-    const nextNdcRadiusSq = nextNdcX * nextNdcX + nextNdcY * nextNdcY;
-    if (prevNdcRadiusSq > 0.01 && nextNdcRadiusSq > 0.01) {
-      const cross = prevNdcX * nextNdcY - prevNdcY * nextNdcX;
-      const dot = prevNdcX * nextNdcX + prevNdcY * nextNdcY;
-      const signedAngle = Math.atan2(cross, dot);
-
-      physicsRotationRef.current.z = wrapAngle(
-        physicsRotationRef.current.z + signedAngle * TWIST_ROTATION_GAIN,
-      );
-      angularVelocityRef.current.z += signedAngle * TWIST_VELOCITY_GAIN;
-      hasChanges = true;
-    }
-
-    if (hasChanges) {
-      hasAffectedStateRef.current = true;
-    }
+    hasAffectedStateRef.current = true;
     clampAngularVelocity(angularVelocityRef.current);
-    pointer.lastNdcX = nextNdcX;
-    pointer.lastNdcY = nextNdcY;
   };
 
   const finalizePointer = (event: ThreeEvent<PointerEvent>) => {
@@ -290,36 +231,16 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
       event.stopPropagation();
     }
 
-    const gesture = gestureStatsRef.current;
+    angularVelocityRef.current.x *= RELEASE_VELOCITY_BOOST;
+    angularVelocityRef.current.y *= RELEASE_VELOCITY_BOOST;
+    angularVelocityRef.current.z *= RELEASE_VELOCITY_BOOST;
+    clampAngularVelocity(angularVelocityRef.current);
     if (
-      gesture.crossedDeadzone &&
-      gesture.totalDistancePx >= FLICK_MIN_DISTANCE_PX &&
-      gesture.peakSpeedPxPerMs >= FLICK_MIN_SPEED_PX_PER_MS
+      Math.abs(angularVelocityRef.current.x) > 0.00001 ||
+      Math.abs(angularVelocityRef.current.y) > 0.00001 ||
+      Math.abs(angularVelocityRef.current.z) > 0.00001
     ) {
-      const flipAxis = gesture.totalAbsDx >= gesture.totalAbsDy ? 'y' : 'x';
-      const directionalDelta =
-        flipAxis === 'y' ? gesture.totalSignedDx : gesture.totalSignedDy;
-      const direction = directionalDelta === 0 ? 0 : Math.sign(directionalDelta);
-
-      if (direction !== 0) {
-        const speedFactor = MathUtils.clamp(
-          (gesture.peakSpeedPxPerMs - FLICK_MIN_SPEED_PX_PER_MS) / FLICK_SPEED_RANGE,
-          0,
-          1,
-        );
-        const distanceFactor = MathUtils.clamp(
-          (gesture.totalDistancePx - FLICK_MIN_DISTANCE_PX) / FLICK_DISTANCE_RANGE_PX,
-          0,
-          1,
-        );
-        const turns = MathUtils.clamp(
-          1 + speedFactor * 1.4 + distanceFactor * 0.6,
-          1,
-          FLIP_MAX_TURNS,
-        );
-        flipRemainingRef.current[flipAxis] += direction * turns * TAU;
-        hasAffectedStateRef.current = true;
-      }
+      hasAffectedStateRef.current = true;
     }
 
     const eventTarget = event.target as
@@ -329,6 +250,7 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
 
     pointer.activePointerId = null;
     pointer.isDown = false;
+    onDragStateChange?.(false);
   };
 
   const handleWheel = (event: ThreeEvent<WheelEvent>) => {
@@ -375,11 +297,7 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
       Math.abs(angularVelocityRef.current.x) > RESET_EPSILON ||
       Math.abs(angularVelocityRef.current.y) > RESET_EPSILON ||
       Math.abs(angularVelocityRef.current.z) > RESET_EPSILON;
-    const hasPendingFlip =
-      Math.abs(flipRemainingRef.current.x) > RESET_EPSILON ||
-      Math.abs(flipRemainingRef.current.y) > RESET_EPSILON ||
-      Math.abs(flipRemainingRef.current.z) > RESET_EPSILON;
-    const isCurrentlyAffected = hasTransformOffset || hasResidualMotion || hasPendingFlip;
+    const isCurrentlyAffected = hasTransformOffset || hasResidualMotion;
 
     if (periodicDue) {
       if (isPointerInteracting) {
@@ -479,9 +397,6 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
         physicsRotationRef.current.x = MathUtils.lerp(physicsRotationRef.current.x, 0, blend);
         physicsRotationRef.current.y = MathUtils.lerp(physicsRotationRef.current.y, 0, blend);
         physicsRotationRef.current.z = MathUtils.lerp(physicsRotationRef.current.z, 0, blend);
-        flipRemainingRef.current.x = MathUtils.lerp(flipRemainingRef.current.x, 0, blend);
-        flipRemainingRef.current.y = MathUtils.lerp(flipRemainingRef.current.y, 0, blend);
-        flipRemainingRef.current.z = MathUtils.lerp(flipRemainingRef.current.z, 0, blend);
         angularVelocityRef.current.x = MathUtils.lerp(
           angularVelocityRef.current.x,
           0,
@@ -504,9 +419,6 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
           Math.abs(physicsRotationRef.current.x) < RESET_EPSILON &&
           Math.abs(physicsRotationRef.current.y) < RESET_EPSILON &&
           Math.abs(physicsRotationRef.current.z) < RESET_EPSILON &&
-          Math.abs(flipRemainingRef.current.x) < RESET_EPSILON &&
-          Math.abs(flipRemainingRef.current.y) < RESET_EPSILON &&
-          Math.abs(flipRemainingRef.current.z) < RESET_EPSILON &&
           Math.abs(angularVelocityRef.current.x) < RESET_EPSILON &&
           Math.abs(angularVelocityRef.current.y) < RESET_EPSILON &&
           Math.abs(angularVelocityRef.current.z) < RESET_EPSILON &&
@@ -516,9 +428,6 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
           physicsRotationRef.current.x = 0;
           physicsRotationRef.current.y = 0;
           physicsRotationRef.current.z = 0;
-          flipRemainingRef.current.x = 0;
-          flipRemainingRef.current.y = 0;
-          flipRemainingRef.current.z = 0;
           angularVelocityRef.current.x = 0;
           angularVelocityRef.current.y = 0;
           angularVelocityRef.current.z = 0;
@@ -539,9 +448,6 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
         physicsRotationRef.current.x = MathUtils.lerp(physicsRotationRef.current.x, 0, blend);
         physicsRotationRef.current.y = MathUtils.lerp(physicsRotationRef.current.y, 0, blend);
         physicsRotationRef.current.z = MathUtils.lerp(physicsRotationRef.current.z, 0, blend);
-        flipRemainingRef.current.x = MathUtils.lerp(flipRemainingRef.current.x, 0, blend);
-        flipRemainingRef.current.y = MathUtils.lerp(flipRemainingRef.current.y, 0, blend);
-        flipRemainingRef.current.z = MathUtils.lerp(flipRemainingRef.current.z, 0, blend);
         angularVelocityRef.current.x = MathUtils.lerp(
           angularVelocityRef.current.x,
           0,
@@ -564,9 +470,6 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
           Math.abs(physicsRotationRef.current.x) < RESET_EPSILON &&
           Math.abs(physicsRotationRef.current.y) < RESET_EPSILON &&
           Math.abs(physicsRotationRef.current.z) < RESET_EPSILON &&
-          Math.abs(flipRemainingRef.current.x) < RESET_EPSILON &&
-          Math.abs(flipRemainingRef.current.y) < RESET_EPSILON &&
-          Math.abs(flipRemainingRef.current.z) < RESET_EPSILON &&
           Math.abs(angularVelocityRef.current.x) < RESET_EPSILON &&
           Math.abs(angularVelocityRef.current.y) < RESET_EPSILON &&
           Math.abs(angularVelocityRef.current.z) < RESET_EPSILON &&
@@ -576,9 +479,6 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
           physicsRotationRef.current.x = 0;
           physicsRotationRef.current.y = 0;
           physicsRotationRef.current.z = 0;
-          flipRemainingRef.current.x = 0;
-          flipRemainingRef.current.y = 0;
-          flipRemainingRef.current.z = 0;
           angularVelocityRef.current.x = 0;
           angularVelocityRef.current.y = 0;
           angularVelocityRef.current.z = 0;
@@ -614,23 +514,6 @@ const LogoRig = ({ modelUrl, scale }: { modelUrl: string; scale: number }) => {
       if (Math.abs(angularVelocityRef.current.x) < 0.0005) angularVelocityRef.current.x = 0;
       if (Math.abs(angularVelocityRef.current.y) < 0.0005) angularVelocityRef.current.y = 0;
       if (Math.abs(angularVelocityRef.current.z) < 0.0005) angularVelocityRef.current.z = 0;
-
-      const flipBlend = 1 - Math.exp(-FLIP_DECAY_LAMBDA * delta);
-      const flipDeltaX = flipRemainingRef.current.x * flipBlend;
-      const flipDeltaY = flipRemainingRef.current.y * flipBlend;
-      const flipDeltaZ = flipRemainingRef.current.z * flipBlend;
-
-      flipRemainingRef.current.x -= flipDeltaX;
-      flipRemainingRef.current.y -= flipDeltaY;
-      flipRemainingRef.current.z -= flipDeltaZ;
-
-      physicsRotationRef.current.x = wrapAngle(physicsRotationRef.current.x + flipDeltaX);
-      physicsRotationRef.current.y = wrapAngle(physicsRotationRef.current.y + flipDeltaY);
-      physicsRotationRef.current.z = wrapAngle(physicsRotationRef.current.z + flipDeltaZ);
-
-      if (Math.abs(flipRemainingRef.current.x) < 0.001) flipRemainingRef.current.x = 0;
-      if (Math.abs(flipRemainingRef.current.y) < 0.001) flipRemainingRef.current.y = 0;
-      if (Math.abs(flipRemainingRef.current.z) < 0.001) flipRemainingRef.current.z = 0;
     }
 
     group.rotation.x = wrapAngle(baseRotationX + physicsRotationRef.current.x);
@@ -674,6 +557,14 @@ export const LogoScene = ({
   modelScale = LOGO_SCALE,
 }: LogoSceneProps) => {
   const [eventSource, setEventSource] = useState<HTMLElement | undefined>(undefined);
+  const [isDragging, setIsDragging] = useState(false);
+  const interactiveClassName = [
+    'logo-scene-interactive',
+    className,
+    isDragging ? 'logo-scene-canvas--dragging' : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   useEffect(() => {
     setEventSource(document.body);
@@ -681,7 +572,7 @@ export const LogoScene = ({
 
   return (
     <ThreeCanvas
-      className={className}
+      className={interactiveClassName}
       camera={{ position: [0, 0, 8.5], fov: 40 }}
       eventSource={eventSource}
       eventPrefix="client"
@@ -689,7 +580,7 @@ export const LogoScene = ({
       <ambientLight intensity={0.8} />
       <directionalLight position={[-3, 0, 4]} intensity={1.2} />
       <Suspense fallback={<Html center className="text-xs text-black/50">Loading logo…</Html>}>
-        <LogoRig modelUrl={modelUrl} scale={modelScale} />
+        <LogoRig modelUrl={modelUrl} scale={modelScale} onDragStateChange={setIsDragging} />
       </Suspense>
     </ThreeCanvas>
   );
