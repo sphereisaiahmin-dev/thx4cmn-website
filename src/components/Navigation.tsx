@@ -22,8 +22,6 @@ export const Navigation = () => {
   const items = useCartStore((state) => state.items);
   const isMiniCartOpen = useUiStore((state) => state.isMiniCartOpen);
   const setMiniCartOpen = useUiStore((state) => state.setMiniCartOpen);
-  const nowPlayingTitle = useUiStore((state) => state.nowPlayingTitle);
-  const nowPlayingPlaybackState = useUiStore((state) => state.nowPlayingPlaybackState);
   const headerRef = useRef<HTMLElement>(null);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
   const totalQuantity = useMemo(
@@ -34,8 +32,6 @@ export const Navigation = () => {
     () => items.reduce((total, item) => total + item.priceCents * item.quantity, 0),
     [items],
   );
-  const shouldShowNowPlaying = !isHome && Boolean(nowPlayingTitle);
-  const nowPlayingLabel = nowPlayingPlaybackState === 'playing' ? 'Playing' : 'Paused';
 
   useEffect(() => {
     const updateHeaderHeight = () => {
@@ -48,7 +44,7 @@ export const Navigation = () => {
     return () => {
       window.removeEventListener('resize', updateHeaderHeight);
     };
-  }, [pathname, shouldShowNowPlaying]);
+  }, [pathname]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -116,7 +112,7 @@ export const Navigation = () => {
     <>
       <header
         ref={headerRef}
-        className="sticky top-0 z-[60] border-b border-black/10 bg-white/90 py-4 backdrop-blur-md md:static md:bg-transparent md:py-6 md:backdrop-blur-none"
+        className="fixed left-0 right-0 top-0 z-[60] border-b border-black/10 bg-white/65 px-6 py-4 backdrop-blur-xl md:static md:left-auto md:right-auto md:top-auto md:bg-transparent md:px-0 md:py-6 md:backdrop-blur-none"
       >
         <div className="flex w-full items-center justify-center gap-4 md:justify-between md:gap-0">
           <div
@@ -163,15 +159,6 @@ export const Navigation = () => {
             </button>
           </nav>
         </div>
-        {shouldShowNowPlaying ? (
-          <p
-            className="header-now-playing mt-3 flex items-center gap-2 overflow-hidden text-[0.62rem] uppercase tracking-[0.22em] text-black/70 md:mt-4 md:hidden md:text-xs md:tracking-[0.3em]"
-            aria-live="polite"
-          >
-            <span className="shrink-0">{nowPlayingLabel}:</span>
-            <span className="truncate">{nowPlayingTitle}</span>
-          </p>
-        ) : null}
       </header>
       <div
         className={`fixed inset-0 z-[80] hidden transition-opacity duration-200 md:block ${
