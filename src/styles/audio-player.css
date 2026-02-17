@@ -5,32 +5,17 @@
   width: min(260px, calc(100vw - 48px));
   padding: 12px 14px;
   border-radius: 20px;
-  background: rgba(4, 4, 6, 0.6);
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
-  color: rgba(255, 255, 255, 0.52);
+  background: rgba(10, 12, 18, 0.56);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28);
+  color: rgba(255, 255, 255, 0.74);
   font-family: 'Doto', sans-serif;
   z-index: 50;
   overflow: hidden;
   isolation: isolate;
-  --gradient-x: 50%;
-  --gradient-y: 50%;
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
   transition: opacity 0.25s ease, transform 0.25s ease;
-}
-
-.audio-player::before {
-  content: '';
-  position: absolute;
-  inset: -40%;
-  background: radial-gradient(
-    circle at var(--gradient-x) var(--gradient-y),
-    rgba(120, 120, 255, 0.25),
-    rgba(0, 0, 0, 0) 55%
-  );
-  filter: blur(35px);
-  opacity: 0.6;
-  transition: background 0.2s ease-out, opacity 0.2s ease-out;
-  z-index: 0;
 }
 
 .audio-player > * {
@@ -53,6 +38,8 @@
 
 .audio-player__title {
   display: flex;
+  flex: 1;
+  min-width: 0;
   flex-direction: column;
   gap: 4px;
   font-size: 12px;
@@ -452,10 +439,6 @@
     backdrop-filter: blur(22px);
     -webkit-backdrop-filter: blur(22px);
     transform: translateX(-50%);
-  }
-
-  .audio-player::before {
-    display: none;
   }
 
   .audio-player--hidden {
