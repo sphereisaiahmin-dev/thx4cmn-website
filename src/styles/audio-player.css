@@ -395,6 +395,10 @@
 }
 
 @media (max-width: 768px) {
+  .audio-player--offhome {
+    display: none;
+  }
+
   .audio-player--home {
     top: calc(var(--site-header-height) + 10px);
     right: 12px;
