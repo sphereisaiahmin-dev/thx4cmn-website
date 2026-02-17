@@ -86,6 +86,34 @@ const run = async () => {
     // Desktop home: full player + transport correctness.
     await page.waitForSelector('.audio-player__controls button');
     assert((await page.locator('.audio-player').count()) === 1, 'Home page should show the player widget.');
+    const desktopPlayerWidth = await page.evaluate(() => {
+      const player = document.querySelector('.audio-player');
+      return player ? player.getBoundingClientRect().width : null;
+    });
+    assert(desktopPlayerWidth !== null && desktopPlayerWidth > 0, 'Desktop player width should be measurable.');
+    const desktopDotSpacing = await page.evaluate(() => {
+      const dots = Array.from(document.querySelectorAll('.audio-player__dot'));
+      if (dots.length < 2) return null;
+      const firstRect = dots[0].getBoundingClientRect();
+      const secondRect = dots[1].getBoundingClientRect();
+      return secondRect.left - firstRect.left;
+    });
+    assert(desktopDotSpacing !== null && desktopDotSpacing > 0, 'Desktop timeline dot spacing should be measurable.');
+    const desktopMarqueeState = await page.evaluate(() => {
+      const titleViewport = document.querySelector('.audio-player__track-title');
+      const titleText = document.querySelector('.audio-player__track-title-text');
+      if (!titleViewport || !titleText) return null;
+      const overflow = Math.max(titleText.scrollWidth - titleViewport.clientWidth, 0);
+      return {
+        overflow,
+        hasMarquee: titleText.classList.contains('audio-player__track-title-text--marquee'),
+      };
+    });
+    assert(desktopMarqueeState !== null, 'Desktop track title element should exist.');
+    assert(
+      desktopMarqueeState.hasMarquee === (desktopMarqueeState.overflow > 1),
+      'Desktop track title marquee class should only appear when title overflows.',
+    );
 
     await page.getByRole('button', { name: 'ctrl', exact: true }).click();
     const rpmSlider = page.locator('.audio-player__rpm-slider');
@@ -157,6 +185,29 @@ const run = async () => {
       const player = document.querySelector('.audio-player');
       const appShell = document.querySelector('.app-shell');
       const appMain = document.querySelector('.app-main');
+      const dots = Array.from(document.querySelectorAll('.audio-player__dot'));
+
+      const parseColor = (value) => {
+        if (!value) return null;
+        const match = value.match(/rgba?\(([^)]+)\)/);
+        if (!match) return null;
+        const parts = match[1]
+          .split(',')
+          .map((part) => Number.parseFloat(part.trim()))
+          .filter((part) => Number.isFinite(part));
+        if (parts.length < 3) return null;
+        return {
+          r: parts[0],
+          g: parts[1],
+          b: parts[2],
+          a: parts[3] ?? 1,
+        };
+      };
+
+      const playerDotSpacing =
+        dots.length >= 2
+          ? dots[1].getBoundingClientRect().left - dots[0].getBoundingClientRect().left
+          : null;
 
       const headerRect = header?.getBoundingClientRect();
       const playerRect = player?.getBoundingClientRect();
@@ -170,6 +221,13 @@ const run = async () => {
         playerPosition: playerStyles?.position ?? null,
         headerBackground: headerStyles?.backgroundColor ?? null,
         playerBackground: playerStyles?.backgroundColor ?? null,
+        playerBackgroundRgba: parseColor(playerStyles?.backgroundColor ?? null),
+        playerBackdropFilter: playerStyles?.backdropFilter ?? null,
+        playerWebkitBackdropFilter: playerStyles?.webkitBackdropFilter ?? null,
+        playerDotSpacing,
+        playerWidth: playerRect?.width ?? null,
+        playerCenterX: playerRect ? playerRect.left + playerRect.width / 2 : null,
+        viewportCenterX: window.innerWidth / 2,
         playerBottomGap: playerRect ? window.innerHeight - playerRect.bottom : null,
         shellPaddingTop: shellStyles ? Number.parseFloat(shellStyles.paddingTop) : null,
         headerHeight: headerRect?.height ?? null,
@@ -185,8 +243,37 @@ const run = async () => {
       'Mobile header should keep glass-style translucent white background.',
     );
     assert(
-      mobileChromeMetrics.playerBackground !== null && mobileChromeMetrics.playerBackground.includes('255, 255, 255'),
-      'Mobile player should match header glass-style translucent white background.',
+      mobileChromeMetrics.playerBackgroundRgba !== null &&
+        mobileChromeMetrics.playerBackgroundRgba.r <= 24 &&
+        mobileChromeMetrics.playerBackgroundRgba.g <= 26 &&
+        mobileChromeMetrics.playerBackgroundRgba.b <= 34 &&
+        mobileChromeMetrics.playerBackgroundRgba.a > 0 &&
+        mobileChromeMetrics.playerBackgroundRgba.a < 1,
+      'Mobile player should use dark translucent glass background.',
+    );
+    assert(
+      (mobileChromeMetrics.playerBackdropFilter && mobileChromeMetrics.playerBackdropFilter.includes('blur')) ||
+        (mobileChromeMetrics.playerWebkitBackdropFilter &&
+          mobileChromeMetrics.playerWebkitBackdropFilter.includes('blur')),
+      'Mobile player should keep backdrop blur enabled.',
+    );
+    assert(
+      mobileChromeMetrics.playerDotSpacing !== null &&
+        desktopDotSpacing !== null &&
+        Math.abs(mobileChromeMetrics.playerDotSpacing - desktopDotSpacing) <= 1.2,
+      'Mobile timeline dot spacing should match desktop spacing.',
+    );
+    assert(
+      mobileChromeMetrics.playerWidth !== null &&
+        desktopPlayerWidth !== null &&
+        Math.abs(mobileChromeMetrics.playerWidth - desktopPlayerWidth) <= 1.5,
+      'Mobile player width should match desktop player width.',
+    );
+    assert(
+      mobileChromeMetrics.playerCenterX !== null &&
+        mobileChromeMetrics.viewportCenterX !== null &&
+        Math.abs(mobileChromeMetrics.playerCenterX - mobileChromeMetrics.viewportCenterX) <= 1.5,
+      'Mobile player should be centered horizontally.',
     );
     assert(
       mobileChromeMetrics.playerBottomGap !== null &&
@@ -212,12 +299,13 @@ const run = async () => {
     assert((await page.locator('.audio-player__collapse-button').count()) === 0, 'Mobile player should not show collapse controls.');
 
     const marqueeState = await page.evaluate(() => {
-      const title = document.querySelector('.audio-player__track-title');
-      if (!title) return null;
-      const overflow = Math.max(title.scrollWidth - title.clientWidth, 0);
+      const titleViewport = document.querySelector('.audio-player__track-title');
+      const titleText = document.querySelector('.audio-player__track-title-text');
+      if (!titleViewport || !titleText) return null;
+      const overflow = Math.max(titleText.scrollWidth - titleViewport.clientWidth, 0);
       return {
         overflow,
-        hasMarquee: title.classList.contains('audio-player__track-title--marquee'),
+        hasMarquee: titleText.classList.contains('audio-player__track-title-text--marquee'),
       };
     });
     assert(marqueeState !== null, 'Mobile track title element should exist.');
@@ -232,7 +320,98 @@ const run = async () => {
       (await mobileFooterText.count()) > 0 ? await mobileFooterText.first().isVisible() : false;
     assert(!mobileFooterTextVisible, 'Mobile footer text/content should be hidden.');
 
-    // Mobile non-home: compact transport-only footer player.
+    await page.getByRole('button', { name: 'ctrl', exact: true }).click();
+    await page.waitForSelector('.audio-player__dsp.is-open');
+
+    await page.waitForFunction(() => {
+      const startButton = document.querySelector('button[aria-label="Set loop start"]');
+      const endButton = document.querySelector('button[aria-label="Set loop end"]');
+      const dots = Array.from(document.querySelectorAll('.audio-player__dot'));
+      return Boolean(
+        startButton &&
+          endButton &&
+          !startButton.hasAttribute('disabled') &&
+          !endButton.hasAttribute('disabled') &&
+          dots.length > 18 &&
+          !dots[6].hasAttribute('disabled') &&
+          !dots[16].hasAttribute('disabled'),
+      );
+    });
+
+    const loopStartButton = page.getByRole('button', { name: 'Set loop start', exact: true });
+    const loopEndButton = page.getByRole('button', { name: 'Set loop end', exact: true });
+    const mobileDots = page.locator('.audio-player__dot');
+
+    await mobileDots.nth(6).click();
+    await loopStartButton.click();
+    const loopStartState = await page.evaluate(() => ({
+      startCount: document.querySelectorAll('.audio-player__dot.loop-marker--start').length,
+      bothCount: document.querySelectorAll('.audio-player__dot.loop-marker--both').length,
+    }));
+    assert(
+      loopStartState.startCount + loopStartState.bothCount > 0,
+      'Mobile loop start marker should be visible immediately after setting loop start.',
+    );
+
+    await mobileDots.nth(16).click();
+    await loopEndButton.click();
+    const loopVisualState = await page.evaluate(() => {
+      const startDots = Array.from(document.querySelectorAll('.audio-player__dot.loop-marker--start'));
+      const endDots = Array.from(document.querySelectorAll('.audio-player__dot.loop-marker--end'));
+      const sectionDots = Array.from(document.querySelectorAll('.audio-player__dot.loop-section'));
+      const plainActiveDot = Array.from(document.querySelectorAll('.audio-player__dot.active')).find(
+        (dot) => !dot.classList.contains('loop-marker') && !dot.classList.contains('loop-section'),
+      );
+      const readStyle = (dot) => {
+        if (!dot) return null;
+        const styles = window.getComputedStyle(dot);
+        return {
+          backgroundColor: styles.backgroundColor,
+          boxShadow: styles.boxShadow,
+        };
+      };
+
+      return {
+        startCount: startDots.length,
+        endCount: endDots.length,
+        sectionCount: sectionDots.length,
+        markerStyle: readStyle(startDots[0] ?? endDots[0] ?? null),
+        sectionStyle: readStyle(sectionDots[0] ?? null),
+        plainActiveStyle: readStyle(plainActiveDot ?? null),
+      };
+    });
+    assert(loopVisualState.startCount > 0, 'Mobile timeline should show a loop start marker when loop is set.');
+    assert(loopVisualState.endCount > 0, 'Mobile timeline should show a loop end marker when loop is set.');
+    assert(loopVisualState.sectionCount > 0, 'Mobile timeline should show highlighted loop section between markers.');
+    assert(
+      loopVisualState.markerStyle !== null && loopVisualState.markerStyle.boxShadow !== 'none',
+      'Mobile loop marker should have distinct visual emphasis.',
+    );
+    if (loopVisualState.plainActiveStyle && loopVisualState.markerStyle && loopVisualState.sectionStyle) {
+      assert(
+        loopVisualState.markerStyle.backgroundColor !== loopVisualState.plainActiveStyle.backgroundColor,
+        'Loop marker color should differ from plain active dot color on mobile.',
+      );
+      assert(
+        loopVisualState.sectionStyle.backgroundColor !== loopVisualState.plainActiveStyle.backgroundColor,
+        'Loop section color should differ from plain active dot color on mobile.',
+      );
+    }
+
+    await page.waitForTimeout(450);
+    const loopCountsAfterDelay = await page.evaluate(() => ({
+      startCount: document.querySelectorAll('.audio-player__dot.loop-marker--start').length,
+      endCount: document.querySelectorAll('.audio-player__dot.loop-marker--end').length,
+      sectionCount: document.querySelectorAll('.audio-player__dot.loop-section').length,
+    }));
+    assert(
+      loopCountsAfterDelay.startCount > 0 &&
+        loopCountsAfterDelay.endCount > 0 &&
+        loopCountsAfterDelay.sectionCount > 0,
+      'Mobile loop timeline visuals should remain stable after being set.',
+    );
+
+    // Mobile non-home: compact state should collapse details without unmounting them.
     await page.goto(`${BASE_URL}/store`, { waitUntil: 'networkidle' });
     const mobileOffHomePlayer = page.locator('.audio-player');
     assert((await mobileOffHomePlayer.count()) === 1, 'Mobile non-home route should keep player mounted.');
@@ -241,12 +420,65 @@ const run = async () => {
       await mobileOffHomePlayer.evaluate((element) => element.classList.contains('audio-player--mobile-compact')),
       'Mobile non-home route should use compact footer player variant.',
     );
-    assert((await page.locator('.audio-player__dot').count()) === 0, 'Mobile non-home should hide dotted timeline controls.');
-    assert((await page.getByRole('button', { name: 'ctrl', exact: true }).count()) === 0, 'Mobile non-home should hide ctrl toggle.');
+
+    await page.waitForFunction(() => {
+      const details = document.querySelector('.audio-player__details');
+      if (!details) return false;
+      const styles = window.getComputedStyle(details);
+      return (
+        Number.parseFloat(styles.maxHeight) <= 1 &&
+        Number.parseFloat(styles.opacity) <= 0.05 &&
+        styles.pointerEvents === 'none'
+      );
+    });
+
+    const offHomeDetailsState = await page.evaluate(() => {
+      const details = document.querySelector('.audio-player__details');
+      if (!details) return null;
+      const styles = window.getComputedStyle(details);
+      const rect = details.getBoundingClientRect();
+      return {
+        maxHeight: Number.parseFloat(styles.maxHeight),
+        opacity: Number.parseFloat(styles.opacity),
+        pointerEvents: styles.pointerEvents,
+        height: rect.height,
+      };
+    });
+    assert(offHomeDetailsState !== null, 'Mobile non-home should keep details section mounted.');
+    assert(
+      offHomeDetailsState.maxHeight <= 1 || offHomeDetailsState.height < 2,
+      'Mobile non-home details should collapse in compact mode.',
+    );
+    assert(offHomeDetailsState.opacity <= 0.05, 'Mobile non-home details should be visually hidden in compact mode.');
+    assert(offHomeDetailsState.pointerEvents === 'none', 'Compact details should not accept pointer events.');
+
+    const offHomeDots = page.locator('.audio-player__dot');
+    assert((await offHomeDots.count()) > 0, 'Mobile non-home should keep timeline controls mounted for animation continuity.');
+
+    const offHomeCtrlToggle = page.locator('.audio-player__dsp-toggle-button');
+    assert((await offHomeCtrlToggle.count()) > 0, 'Mobile non-home should keep ctrl toggle mounted for expansion animation.');
+
     assert((await page.getByRole('button', { name: 'prev', exact: true }).count()) > 0, 'Mobile non-home should keep prev control.');
     assert((await page.getByRole('button', { name: 'play', exact: true }).count()) > 0, 'Mobile non-home should keep play control.');
     assert((await page.getByRole('button', { name: 'next', exact: true }).count()) > 0, 'Mobile non-home should keep next control.');
     assert((await page.locator('.header-now-playing').count()) === 0, 'Mobile header now-playing text should be removed.');
+
+    await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+    const mobileReturnHomePlayer = page.locator('.audio-player');
+    assert(
+      await mobileReturnHomePlayer.evaluate((element) => element.classList.contains('audio-player--mobile-full')),
+      'Mobile home route should restore full player variant.',
+    );
+    await page.waitForFunction(() => {
+      const details = document.querySelector('.audio-player__details');
+      if (!details) return false;
+      const styles = window.getComputedStyle(details);
+      return (
+        Number.parseFloat(styles.maxHeight) > 100 &&
+        Number.parseFloat(styles.opacity) >= 0.9 &&
+        styles.pointerEvents !== 'none'
+      );
+    });
 
     // Mobile cart navigation keeps in-page cart behavior and persistent footer player.
     const mobileCartLink = page.locator('nav a[href="/cart"]');
