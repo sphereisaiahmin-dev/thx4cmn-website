@@ -109,16 +109,15 @@ export const AudioPlayer = () => {
     }
     setNowPlaying(currentTrackTitle, state.isPlaying ? 'playing' : 'paused');
   }, [currentTrackTitle, setNowPlaying, state.isPlaying]);
-
-  if (!isHome) {
-    return null;
-  }
+  useEffect(() => {
+    setIsCollapsed(!isHome);
+  }, [isHome, pathname]);
 
   return (
     <div
-      className={`audio-player audio-player--home ${isDspOpen ? 'audio-player--expanded' : ''} ${
-        isCollapsed ? 'audio-player--collapsed' : ''
-      } ${isMiniCartOpen ? 'audio-player--hidden' : ''}`}
+      className={`audio-player ${isHome ? 'audio-player--home' : 'audio-player--offhome'} ${
+        isDspOpen ? 'audio-player--expanded' : ''
+      } ${isCollapsed ? 'audio-player--collapsed' : ''} ${isMiniCartOpen ? 'audio-player--hidden' : ''}`}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       style={{

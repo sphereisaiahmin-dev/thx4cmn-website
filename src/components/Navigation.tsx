@@ -165,7 +165,7 @@ export const Navigation = () => {
         </div>
         {shouldShowNowPlaying ? (
           <p
-            className="header-now-playing mt-3 flex items-center gap-2 overflow-hidden text-[0.62rem] uppercase tracking-[0.22em] text-black/70 md:mt-4 md:text-xs md:tracking-[0.3em]"
+            className="header-now-playing mt-3 flex items-center gap-2 overflow-hidden text-[0.62rem] uppercase tracking-[0.22em] text-black/70 md:mt-4 md:hidden md:text-xs md:tracking-[0.3em]"
             aria-live="polite"
           >
             <span className="shrink-0">{nowPlayingLabel}:</span>

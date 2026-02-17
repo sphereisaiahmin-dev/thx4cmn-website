@@ -130,14 +130,20 @@ const run = async () => {
     const titleAfter = await page.locator('.audio-player__title > span').first().textContent();
     assert(titleBefore !== null && titleAfter !== null, 'Track title unavailable for next/prev verification.');
 
-    // Widget should be hidden off-home while header still shows now-playing.
+    // Desktop off-home should keep player mounted and auto-collapsed, with header now-playing hidden.
     await page.goto(`${BASE_URL}/store`, { waitUntil: 'networkidle' });
-    assert((await page.locator('.audio-player').count()) === 0, 'Player widget should be hidden on non-home routes.');
-    const nowPlayingText = await page.locator('.header-now-playing').textContent();
+    const desktopPlayer = page.locator('.audio-player');
+    assert((await desktopPlayer.count()) === 1, 'Desktop non-home route should keep the player mounted.');
+    await page.waitForFunction(() => {
+      const player = document.querySelector('.audio-player');
+      return Boolean(player?.classList.contains('audio-player--collapsed'));
+    });
     assert(
-      nowPlayingText !== null && /(Playing|Paused):/i.test(nowPlayingText),
-      'Header now-playing line missing or malformed on non-home route.',
+      await desktopPlayer.evaluate((element) => element.classList.contains('audio-player--offhome')),
+      'Desktop non-home player should use off-home route class.',
     );
+    const desktopNowPlaying = page.locator('.header-now-playing');
+    assert(!(await desktopNowPlaying.isVisible()), 'Desktop header now-playing should be hidden.');
     const desktopCartButton = page.locator('button[aria-controls="mini-cart"]');
     assert((await desktopCartButton.count()) > 0, 'Desktop cart button missing.');
     await desktopCartButton.first().click();
@@ -230,9 +236,22 @@ const run = async () => {
     assert((await mobileCartLink.count()) > 0, 'Mobile cart link missing.');
     await mobileCartLink.first().click();
     await page.waitForURL(`${BASE_URL}/cart`);
+    await page.waitForTimeout(200);
     assert(
       !(await page.locator('#mini-cart').isVisible()),
       'Mini-cart overlay should not appear on mobile cart navigation.',
+    );
+    const mobileOffHomePlayer = page.locator('.audio-player');
+    assert((await mobileOffHomePlayer.count()) === 1, 'Mobile non-home route should keep player mounted for continuity.');
+    assert(!(await mobileOffHomePlayer.isVisible()), 'Mobile non-home route should hide the player widget.');
+    assert(
+      await mobileOffHomePlayer.evaluate((element) => element.classList.contains('audio-player--offhome')),
+      'Mobile non-home player should use off-home route class.',
+    );
+    const mobileNowPlayingText = await page.locator('.header-now-playing').textContent();
+    assert(
+      mobileNowPlayingText !== null && /(Playing|Paused):/i.test(mobileNowPlayingText),
+      'Mobile header now-playing should remain visible on non-home routes.',
     );
 
     // Shuffle behavior check via API payload ordering variability marker.
