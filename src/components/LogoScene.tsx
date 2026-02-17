@@ -1,9 +1,9 @@
 'use client';
 
 import { Center, Html, useGLTF } from '@react-three/drei';
-import { type ThreeEvent, useFrame } from '@react-three/fiber';
-import { Suspense, useEffect, useRef, useState } from 'react';
-import { MathUtils, type Group } from 'three';
+import { type ThreeEvent, useFrame, useThree } from '@react-three/fiber';
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Box3, MathUtils, PerspectiveCamera, type Group, Vector3 } from 'three';
 
 import { ThreeCanvas } from './ThreeCanvas';
 
@@ -31,6 +31,8 @@ const ANGULAR_DAMPING = 2.1;
 const MIN_SCALE_FACTOR = 1;
 const MAX_SCALE_FACTOR = 1.15;
 const WHEEL_SCALE_MULTIPLIER = 0.0006;
+const HOME_LOGO_DESKTOP_ANCHOR_WIDTH_PX = 1366;
+const HOME_LOGO_EDGE_PADDING_RATIO = 0.08;
 const RESET_EPSILON = 0.012;
 const WIGGLE_BLEND_LAMBDA = 8;
 const PERIODIC_RESET_BLEND_LAMBDA = 10.5;
@@ -83,18 +85,99 @@ const isUiInteractionTarget = (target: EventTarget | null) => {
   return Boolean(target.closest('a,button,input,textarea,select,.audio-player,#mini-cart'));
 };
 
-const LogoModel = ({ modelUrl }: { modelUrl: string }) => {
+const computeWidthAnchoredScaleFactor = ({
+  fitMobileAspect,
+  canvasWidthPx,
+  canvasHeightPx,
+  modelBoundsWidthWorld,
+  modelScale,
+  camera,
+  group,
+  groupWorldPosition,
+  groupViewPosition,
+}: {
+  fitMobileAspect: boolean;
+  canvasWidthPx: number;
+  canvasHeightPx: number;
+  modelBoundsWidthWorld: number | null;
+  modelScale: number;
+  camera: unknown;
+  group: Group;
+  groupWorldPosition: Vector3;
+  groupViewPosition: Vector3;
+}) => {
+  if (!fitMobileAspect || canvasWidthPx >= HOME_LOGO_DESKTOP_ANCHOR_WIDTH_PX) {
+    return 1;
+  }
+
+  if (canvasWidthPx <= 0 || canvasHeightPx <= 0 || !modelBoundsWidthWorld || modelBoundsWidthWorld <= 0) {
+    return 1;
+  }
+
+  if (!(camera instanceof PerspectiveCamera)) {
+    return 1;
+  }
+
+  group.getWorldPosition(groupWorldPosition);
+  groupViewPosition.copy(groupWorldPosition).applyMatrix4(camera.matrixWorldInverse);
+  const depth = Math.abs(groupViewPosition.z);
+  if (depth <= 0.0001) {
+    return 1;
+  }
+
+  const fovRad = MathUtils.degToRad(camera.fov);
+  const visibleHeightWorld = 2 * Math.tan(fovRad * 0.5) * depth;
+  if (visibleHeightWorld <= 0) {
+    return 1;
+  }
+
+  const projectedModelWidthPx =
+    (modelBoundsWidthWorld * modelScale * canvasHeightPx) / visibleHeightWorld;
+  const targetDrawableWidthPx = canvasWidthPx * (1 - 2 * HOME_LOGO_EDGE_PADDING_RATIO);
+  if (projectedModelWidthPx <= 0 || targetDrawableWidthPx <= 0) {
+    return 1;
+  }
+
+  const widthFitFactor = targetDrawableWidthPx / projectedModelWidthPx;
+  if (!Number.isFinite(widthFitFactor) || widthFitFactor <= 0) {
+    return 1;
+  }
+
+  return Math.min(1, widthFitFactor);
+};
+
+const LogoModel = ({
+  modelUrl,
+  onBoundsWidthChange,
+}: {
+  modelUrl: string;
+  onBoundsWidthChange?: (width: number) => void;
+}) => {
   const { scene } = useGLTF(modelUrl);
+
+  useEffect(() => {
+    if (!onBoundsWidthChange) return;
+
+    const bounds = new Box3().setFromObject(scene);
+    const size = new Vector3();
+    bounds.getSize(size);
+    if (Number.isFinite(size.x) && size.x > 0) {
+      onBoundsWidthChange(size.x);
+    }
+  }, [onBoundsWidthChange, scene]);
+
   return <primitive object={scene} />;
 };
 
 interface LogoRigProps {
   modelUrl: string;
   scale: number;
+  fitMobileAspect: boolean;
   onDragStateChange?: (isDragging: boolean) => void;
 }
 
-const LogoRig = ({ modelUrl, scale, onDragStateChange }: LogoRigProps) => {
+const LogoRig = ({ modelUrl, scale, fitMobileAspect, onDragStateChange }: LogoRigProps) => {
+  const { camera, size } = useThree();
   const groupRef = useRef<Group>(null);
   const phaseRef = useRef<AnimationPhase>('introXFlip');
   const phaseElapsedMsRef = useRef(0);
@@ -106,6 +189,7 @@ const LogoRig = ({ modelUrl, scale, onDragStateChange }: LogoRigProps) => {
   const lastPeriodicReplayAtRef = useRef(0);
   const periodicReplayPendingRef = useRef(false);
   const isHoveringModelRef = useRef(false);
+  const modelBoundsWidthRef = useRef<number | null>(null);
   const pointerStateRef = useRef<PointerState>({
     activePointerId: null,
     isDown: false,
@@ -113,6 +197,13 @@ const LogoRig = ({ modelUrl, scale, onDragStateChange }: LogoRigProps) => {
     lastClientY: 0,
     lastEventTimeMs: 0,
   });
+  const groupWorldPositionRef = useRef(new Vector3());
+  const groupViewPositionRef = useRef(new Vector3());
+
+  const handleBoundsWidthChange = useCallback((width: number) => {
+    if (!Number.isFinite(width) || width <= 0) return;
+    modelBoundsWidthRef.current = width;
+  }, []);
 
   const transitionToIdle = () => {
     phaseRef.current = 'idleSpin';
@@ -520,7 +611,18 @@ const LogoRig = ({ modelUrl, scale, onDragStateChange }: LogoRigProps) => {
     group.rotation.y = wrapAngle(baseRotationY + physicsRotationRef.current.y);
     group.rotation.z = wrapAngle(baseRotationZ + physicsRotationRef.current.z);
     group.position.y = basePositionY;
-    group.scale.setScalar(scale * scaleFactorRef.current);
+    const responsiveScaleFactor = computeWidthAnchoredScaleFactor({
+      fitMobileAspect,
+      canvasWidthPx: size.width,
+      canvasHeightPx: size.height,
+      modelBoundsWidthWorld: modelBoundsWidthRef.current,
+      modelScale: scale,
+      camera,
+      group,
+      groupWorldPosition: groupWorldPositionRef.current,
+      groupViewPosition: groupViewPositionRef.current,
+    });
+    group.scale.setScalar(scale * responsiveScaleFactor * scaleFactorRef.current);
   });
 
   return (
@@ -539,7 +641,7 @@ const LogoRig = ({ modelUrl, scale, onDragStateChange }: LogoRigProps) => {
       onWheel={handleWheel}
     >
       <Center>
-        <LogoModel modelUrl={modelUrl} />
+        <LogoModel modelUrl={modelUrl} onBoundsWidthChange={handleBoundsWidthChange} />
       </Center>
     </group>
   );
@@ -549,12 +651,14 @@ interface LogoSceneProps {
   className?: string;
   modelUrl?: string;
   modelScale?: number;
+  fitMobileAspect?: boolean;
 }
 
 export const LogoScene = ({
   className = 'h-[320px] w-full',
   modelUrl = LOGO_MODEL_URL,
   modelScale = LOGO_SCALE,
+  fitMobileAspect = false,
 }: LogoSceneProps) => {
   const [isDragging, setIsDragging] = useState(false);
   const interactiveClassName = [
@@ -573,7 +677,12 @@ export const LogoScene = ({
       <ambientLight intensity={0.8} />
       <directionalLight position={[-3, 0, 4]} intensity={1.2} />
       <Suspense fallback={<Html center className="text-xs text-black/50">Loading logo…</Html>}>
-        <LogoRig modelUrl={modelUrl} scale={modelScale} onDragStateChange={setIsDragging} />
+        <LogoRig
+          modelUrl={modelUrl}
+          scale={modelScale}
+          fitMobileAspect={fitMobileAspect}
+          onDragStateChange={setIsDragging}
+        />
       </Suspense>
     </ThreeCanvas>
   );
