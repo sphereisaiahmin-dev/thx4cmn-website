@@ -556,7 +556,6 @@ export const LogoScene = ({
   modelUrl = LOGO_MODEL_URL,
   modelScale = LOGO_SCALE,
 }: LogoSceneProps) => {
-  const [eventSource, setEventSource] = useState<HTMLElement | undefined>(undefined);
   const [isDragging, setIsDragging] = useState(false);
   const interactiveClassName = [
     'logo-scene-interactive',
@@ -566,16 +565,10 @@ export const LogoScene = ({
     .filter(Boolean)
     .join(' ');
 
-  useEffect(() => {
-    setEventSource(document.body);
-  }, []);
-
   return (
     <ThreeCanvas
       className={interactiveClassName}
       camera={{ position: [0, 0, 8.5], fov: 40 }}
-      eventSource={eventSource}
-      eventPrefix="client"
     >
       <ambientLight intensity={0.8} />
       <directionalLight position={[-3, 0, 4]} intensity={1.2} />
