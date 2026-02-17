@@ -29,7 +29,6 @@ export const AudioPlayer = () => {
     handleLoopStartToggle,
     handleLoopEndToggle,
   } = actions;
-  const [gradientPosition, setGradientPosition] = useState({ x: 50, y: 50 });
   const [isMobile, setIsMobile] = useState(false);
   const [isDspOpen, setIsDspOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -87,17 +86,6 @@ export const AudioPlayer = () => {
       return 1 - (1 - 0.35) * curved;
     }
     return 1 + (2.35 - 1) * curved;
-  };
-
-  const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = clamp(((event.clientX - rect.left) / rect.width) * 100, 0, 100);
-    const y = clamp(((event.clientY - rect.top) / rect.height) * 100, 0, 100);
-    setGradientPosition({ x, y });
-  };
-
-  const handleMouseLeave = () => {
-    setGradientPosition({ x: 50, y: 50 });
   };
 
   useEffect(() => {
@@ -158,24 +146,7 @@ export const AudioPlayer = () => {
         setTitleOverflowWidth(0);
         return;
       }
-
-      const probe = titleText.cloneNode(true) as HTMLSpanElement;
-      probe.className = 'audio-player__track-title-text';
-      probe.style.position = 'absolute';
-      probe.style.visibility = 'hidden';
-      probe.style.pointerEvents = 'none';
-      probe.style.maxWidth = 'none';
-      probe.style.width = 'max-content';
-      probe.style.overflow = 'visible';
-      probe.style.textOverflow = 'clip';
-      probe.style.animation = 'none';
-      probe.style.transform = 'none';
-      probe.style.paddingRight = '0';
-      titleViewport.appendChild(probe);
-
-      const textWidth = probe.getBoundingClientRect().width;
-      probe.remove();
-
+      const textWidth = Math.max(titleText.scrollWidth, 0);
       const overflow = Math.max(textWidth - viewportWidth, 0);
       setTitleOverflowWidth(overflow > 1 ? overflow : 0);
     };
@@ -255,12 +226,6 @@ export const AudioPlayer = () => {
       } ${isCollapsed ? 'audio-player--collapsed' : ''} ${isMiniCartOpen ? 'audio-player--hidden' : ''} ${
         isMobile ? 'audio-player--mobile' : 'audio-player--desktop'
       } ${isMobileCompact ? 'audio-player--mobile-compact' : 'audio-player--mobile-full'}`}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      style={{
-        '--gradient-x': `${gradientPosition.x}%`,
-        '--gradient-y': `${gradientPosition.y}%`,
-      } as CSSProperties}
     >
       <div className="audio-player__header">
         <div className="audio-player__title">
