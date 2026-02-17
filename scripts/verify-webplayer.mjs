@@ -79,14 +79,15 @@ const run = async () => {
       headless: true,
       args: ['--autoplay-policy=no-user-gesture-required'],
     });
+
     const page = await browser.newPage();
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
 
+    // Desktop home: full player + transport correctness.
     await page.waitForSelector('.audio-player__controls button');
-    assert((await page.locator('.audio-player').count()) === 1, 'Home page should show the full player widget.');
+    assert((await page.locator('.audio-player').count()) === 1, 'Home page should show the player widget.');
 
-    // Open DSP controls and verify RPM slider range mapping is present.
-    await page.getByRole('button', { name: 'ctrl' }).click();
+    await page.getByRole('button', { name: 'ctrl', exact: true }).click();
     const rpmSlider = page.locator('.audio-player__rpm-slider');
     await rpmSlider.waitFor();
     await rpmSlider.fill('1');
@@ -99,20 +100,16 @@ const run = async () => {
     await page.locator('.audio-player__dot').nth(12).click();
     await page.waitForTimeout(200);
 
-    // Play / pause
     await enterPlayingState(page);
     const playButton = page.getByRole('button', { name: 'play', exact: true });
-    const pauseButton = page.getByRole('button', { name: 'pause', exact: true });
 
-    // Reverse while playing should not trigger loading-track status.
-    const reverseButton = page.getByRole('button', { name: 'reverse' });
+    const reverseButton = page.getByRole('button', { name: 'reverse', exact: true });
     await reverseButton.click();
     await page.waitForTimeout(300);
     const statusLocator = page.locator('.audio-player__status');
     const statusAfterReverseWhilePlaying = (await statusLocator.count()) > 0 ? await statusLocator.first().textContent() : null;
     assert(statusAfterReverseWhilePlaying !== 'Loading track...', 'Reverse while playing triggered track reload status.');
 
-    // Pause and reverse again.
     await enterPlayingState(page);
     await page.getByRole('button', { name: 'pause', exact: true }).click();
     await playButton.waitFor({ timeout: 3000 });
@@ -121,16 +118,15 @@ const run = async () => {
     const statusAfterReversePaused = (await statusLocator.count()) > 0 ? await statusLocator.first().textContent() : null;
     assert(statusAfterReversePaused !== 'Loading track...', 'Reverse while paused triggered track reload status.');
 
-    // Next / prev still function after reverse interactions.
-    const titleBefore = await page.locator('.audio-player__title > span').first().textContent();
-    await page.getByRole('button', { name: 'next' }).click();
+    const titleBefore = await page.locator('.audio-player__track-title').first().textContent();
+    await page.getByRole('button', { name: 'next', exact: true }).click();
     await page.waitForTimeout(500);
-    await page.getByRole('button', { name: 'prev' }).click();
+    await page.getByRole('button', { name: 'prev', exact: true }).click();
     await page.waitForTimeout(500);
-    const titleAfter = await page.locator('.audio-player__title > span').first().textContent();
+    const titleAfter = await page.locator('.audio-player__track-title').first().textContent();
     assert(titleBefore !== null && titleAfter !== null, 'Track title unavailable for next/prev verification.');
 
-    // Desktop off-home should keep player mounted and auto-collapsed, with header now-playing hidden.
+    // Desktop off-home: mounted + collapsed remains unchanged.
     await page.goto(`${BASE_URL}/store`, { waitUntil: 'networkidle' });
     const desktopPlayer = page.locator('.audio-player');
     assert((await desktopPlayer.count()) === 1, 'Desktop non-home route should keep the player mounted.');
@@ -142,8 +138,8 @@ const run = async () => {
       await desktopPlayer.evaluate((element) => element.classList.contains('audio-player--offhome')),
       'Desktop non-home player should use off-home route class.',
     );
-    const desktopNowPlaying = page.locator('.header-now-playing');
-    assert(!(await desktopNowPlaying.isVisible()), 'Desktop header now-playing should be hidden.');
+    assert((await page.locator('.header-now-playing').count()) === 0, 'Header now-playing label should not be rendered.');
+
     const desktopCartButton = page.locator('button[aria-controls="mini-cart"]');
     assert((await desktopCartButton.count()) > 0, 'Desktop cart button missing.');
     await desktopCartButton.first().click();
@@ -151,87 +147,108 @@ const run = async () => {
     await page.getByRole('button', { name: 'Close cart' }).click();
     await page.waitForTimeout(200);
 
-    // Mobile home split layout check: rounded inset player in top-half region, logo bottom-half.
+    // Mobile home: fixed glass header + fixed glass footer player with full controls.
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
     await page.waitForSelector('.audio-player');
-    const splitMetrics = await page.evaluate(() => {
+
+    const mobileChromeMetrics = await page.evaluate(() => {
+      const header = document.querySelector('header');
       const player = document.querySelector('.audio-player');
+      const appShell = document.querySelector('.app-shell');
+      const appMain = document.querySelector('.app-main');
+
+      const headerRect = header?.getBoundingClientRect();
       const playerRect = player?.getBoundingClientRect();
-      const logoRect = document.querySelector('.home-logo-background')?.getBoundingClientRect();
-      const headerRect = document.querySelector('header')?.getBoundingClientRect();
+      const shellStyles = appShell ? window.getComputedStyle(appShell) : null;
+      const mainStyles = appMain ? window.getComputedStyle(appMain) : null;
+      const headerStyles = header ? window.getComputedStyle(header) : null;
       const playerStyles = player ? window.getComputedStyle(player) : null;
 
       return {
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-        playerLeft: playerRect?.left ?? null,
-        playerRight: playerRect?.right ?? null,
-        playerTop: playerRect?.top ?? null,
+        headerPosition: headerStyles?.position ?? null,
+        playerPosition: playerStyles?.position ?? null,
+        headerBackground: headerStyles?.backgroundColor ?? null,
+        playerBackground: playerStyles?.backgroundColor ?? null,
+        playerBottomGap: playerRect ? window.innerHeight - playerRect.bottom : null,
+        shellPaddingTop: shellStyles ? Number.parseFloat(shellStyles.paddingTop) : null,
+        headerHeight: headerRect?.height ?? null,
+        mainPaddingBottom: mainStyles ? Number.parseFloat(mainStyles.paddingBottom) : null,
         playerHeight: playerRect?.height ?? null,
-        playerBorderRadius: playerStyles ? Number.parseFloat(playerStyles.borderTopLeftRadius) : null,
-        logoTop: logoRect?.top ?? null,
-        logoHeight: logoRect?.height ?? null,
-        headerBottom: headerRect?.bottom ?? null,
       };
     });
-    assert(splitMetrics.viewportWidth !== null, 'Missing viewport width metric on mobile home.');
-    assert(splitMetrics.playerLeft !== null, 'Missing player left metric on mobile home.');
-    assert(splitMetrics.playerRight !== null, 'Missing player right metric on mobile home.');
-    assert(splitMetrics.playerTop !== null, 'Missing player top metric on mobile home.');
-    assert(splitMetrics.playerHeight !== null, 'Missing player height metric on mobile home.');
-    assert(splitMetrics.playerBorderRadius !== null, 'Missing player border radius metric on mobile home.');
-    assert(splitMetrics.logoTop !== null, 'Missing logo top metric on mobile home.');
-    assert(splitMetrics.logoHeight !== null, 'Missing logo height metric on mobile home.');
-    assert(splitMetrics.headerBottom !== null, 'Missing header bottom metric on mobile home.');
-    assert(splitMetrics.playerBorderRadius > 0, 'Mobile player should retain rounded corners.');
-    assert(splitMetrics.playerLeft >= 8, 'Mobile player should be inset from the left edge.');
+
+    assert(mobileChromeMetrics.headerPosition === 'fixed', 'Mobile header should be fixed.');
+    assert(mobileChromeMetrics.playerPosition === 'fixed', 'Mobile player should be fixed.');
     assert(
-      splitMetrics.viewportWidth - splitMetrics.playerRight >= 8,
-      'Mobile player should be inset from the right edge.',
-    );
-    const remainingHeight = splitMetrics.viewportHeight - splitMetrics.headerBottom;
-    assert(splitMetrics.playerTop >= splitMetrics.headerBottom - 2, 'Mobile player should start below the header.');
-    assert(
-      splitMetrics.playerHeight <= remainingHeight / 2 + 8 && splitMetrics.playerHeight >= 120,
-      'Mobile player height should remain a substantial inset card in the top-half region.',
+      mobileChromeMetrics.headerBackground !== null && mobileChromeMetrics.headerBackground.includes('255, 255, 255'),
+      'Mobile header should keep glass-style translucent white background.',
     );
     assert(
-      Math.abs(splitMetrics.logoHeight - remainingHeight / 2) < 48,
-      'Mobile logo section height is not approximately half of the post-header viewport.',
+      mobileChromeMetrics.playerBackground !== null && mobileChromeMetrics.playerBackground.includes('255, 255, 255'),
+      'Mobile player should match header glass-style translucent white background.',
     );
     assert(
-      splitMetrics.logoTop >= splitMetrics.playerTop + splitMetrics.playerHeight - 2,
-      'Mobile logo section should be positioned below the player section.',
+      mobileChromeMetrics.playerBottomGap !== null &&
+        mobileChromeMetrics.playerBottomGap >= 0 &&
+        mobileChromeMetrics.playerBottomGap < 56,
+      'Mobile player should be anchored near the bottom edge.',
+    );
+    assert(
+      mobileChromeMetrics.shellPaddingTop !== null &&
+        mobileChromeMetrics.headerHeight !== null &&
+        mobileChromeMetrics.shellPaddingTop >= mobileChromeMetrics.headerHeight - 2,
+      'Mobile layout should offset content below fixed header.',
+    );
+    assert(
+      mobileChromeMetrics.mainPaddingBottom !== null &&
+        mobileChromeMetrics.playerHeight !== null &&
+        mobileChromeMetrics.mainPaddingBottom >= mobileChromeMetrics.playerHeight - 2,
+      'Mobile layout should offset content above fixed footer player.',
     );
 
-    const mobileCardHeightBeforeCollapse = await page.locator('.audio-player').evaluate((element) =>
-      element.getBoundingClientRect().height,
-    );
-    await page.getByRole('button', { name: 'Collapse player', exact: true }).click();
-    await page.waitForTimeout(350);
-    const mobileCardHeightCollapsed = await page.locator('.audio-player').evaluate((element) =>
-      element.getBoundingClientRect().height,
-    );
+    assert((await page.locator('.audio-player__dot').count()) > 0, 'Mobile home should keep dotted timeline controls.');
+    assert((await page.getByRole('button', { name: 'ctrl', exact: true }).count()) > 0, 'Mobile home should show ctrl toggle.');
+    assert((await page.locator('.audio-player__collapse-button').count()) === 0, 'Mobile player should not show collapse controls.');
+
+    const marqueeState = await page.evaluate(() => {
+      const title = document.querySelector('.audio-player__track-title');
+      if (!title) return null;
+      const overflow = Math.max(title.scrollWidth - title.clientWidth, 0);
+      return {
+        overflow,
+        hasMarquee: title.classList.contains('audio-player__track-title--marquee'),
+      };
+    });
+    assert(marqueeState !== null, 'Mobile track title element should exist.');
+    const isOverflowing = marqueeState.overflow > 1;
     assert(
-      mobileCardHeightCollapsed < mobileCardHeightBeforeCollapse - 40,
-      'Mobile collapse button should reduce overall widget height.',
-    );
-    await page.getByRole('button', { name: 'Expand player', exact: true }).click();
-    await page.waitForTimeout(350);
-    const mobileCardHeightAfterExpand = await page.locator('.audio-player').evaluate((element) =>
-      element.getBoundingClientRect().height,
-    );
-    await page.getByRole('button', { name: 'ctrl', exact: true }).click();
-    await page.waitForTimeout(350);
-    const mobileCardHeightAfterCtrl = await page.locator('.audio-player').evaluate((element) =>
-      element.getBoundingClientRect().height,
-    );
-    assert(
-      mobileCardHeightAfterCtrl > mobileCardHeightAfterExpand + 20,
-      'Mobile ctrl toggle should increase overall widget height when expanded.',
+      marqueeState.hasMarquee === isOverflowing,
+      'Track title marquee class should only appear when title overflows.',
     );
 
+    const mobileFooterText = page.locator('footer').getByText(/thx4cmn ©/i);
+    const mobileFooterTextVisible =
+      (await mobileFooterText.count()) > 0 ? await mobileFooterText.first().isVisible() : false;
+    assert(!mobileFooterTextVisible, 'Mobile footer text/content should be hidden.');
+
+    // Mobile non-home: compact transport-only footer player.
+    await page.goto(`${BASE_URL}/store`, { waitUntil: 'networkidle' });
+    const mobileOffHomePlayer = page.locator('.audio-player');
+    assert((await mobileOffHomePlayer.count()) === 1, 'Mobile non-home route should keep player mounted.');
+    assert(await mobileOffHomePlayer.isVisible(), 'Mobile non-home route should keep footer player visible.');
+    assert(
+      await mobileOffHomePlayer.evaluate((element) => element.classList.contains('audio-player--mobile-compact')),
+      'Mobile non-home route should use compact footer player variant.',
+    );
+    assert((await page.locator('.audio-player__dot').count()) === 0, 'Mobile non-home should hide dotted timeline controls.');
+    assert((await page.getByRole('button', { name: 'ctrl', exact: true }).count()) === 0, 'Mobile non-home should hide ctrl toggle.');
+    assert((await page.getByRole('button', { name: 'prev', exact: true }).count()) > 0, 'Mobile non-home should keep prev control.');
+    assert((await page.getByRole('button', { name: 'play', exact: true }).count()) > 0, 'Mobile non-home should keep play control.');
+    assert((await page.getByRole('button', { name: 'next', exact: true }).count()) > 0, 'Mobile non-home should keep next control.');
+    assert((await page.locator('.header-now-playing').count()) === 0, 'Mobile header now-playing text should be removed.');
+
+    // Mobile cart navigation keeps in-page cart behavior and persistent footer player.
     const mobileCartLink = page.locator('nav a[href="/cart"]');
     assert((await mobileCartLink.count()) > 0, 'Mobile cart link missing.');
     await mobileCartLink.first().click();
@@ -241,20 +258,9 @@ const run = async () => {
       !(await page.locator('#mini-cart').isVisible()),
       'Mini-cart overlay should not appear on mobile cart navigation.',
     );
-    const mobileOffHomePlayer = page.locator('.audio-player');
-    assert((await mobileOffHomePlayer.count()) === 1, 'Mobile non-home route should keep player mounted for continuity.');
-    assert(!(await mobileOffHomePlayer.isVisible()), 'Mobile non-home route should hide the player widget.');
-    assert(
-      await mobileOffHomePlayer.evaluate((element) => element.classList.contains('audio-player--offhome')),
-      'Mobile non-home player should use off-home route class.',
-    );
-    const mobileNowPlayingText = await page.locator('.header-now-playing').textContent();
-    assert(
-      mobileNowPlayingText !== null && /(Playing|Paused):/i.test(mobileNowPlayingText),
-      'Mobile header now-playing should remain visible on non-home routes.',
-    );
+    assert(await page.locator('.audio-player').isVisible(), 'Mobile cart route should keep footer player visible.');
 
-    // Shuffle behavior check via API payload ordering variability marker.
+    // Shuffle behavior payload remains structurally valid.
     const listResponse = await page.request.get(`${BASE_URL}/api/music/list`);
     const listPayload = await listResponse.json();
     assert(Array.isArray(listPayload.tracks), 'Track list payload is invalid.');
