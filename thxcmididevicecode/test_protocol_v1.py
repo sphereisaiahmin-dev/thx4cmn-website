@@ -38,7 +38,7 @@ class ProtocolV1Tests(unittest.TestCase):
             },
         }
         self.capabilities = {
-            "device": "thx-c",
+            "device": "hx01",
             "protocolVersion": PROTOCOL_VERSION,
             "features": [
                 "handshake",

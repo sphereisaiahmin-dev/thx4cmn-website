@@ -28,7 +28,7 @@ export const products: Product[] = [
   {
     id: 'midi-device',
     slug: 'midi-chord-device',
-    name: 'thx-c',
+    name: 'hx01',
     description:
       'portable midi chord generator with interactive feedback and customizable configurations',
     type: 'physical',

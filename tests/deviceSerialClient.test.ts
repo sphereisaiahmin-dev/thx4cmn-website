@@ -129,7 +129,7 @@ class MockSerial implements SerialLike {
 }
 
 const buildHelloAckPayload = (state: unknown = baseState) => ({
-  device: 'thx-c',
+  device: 'hx01',
   protocolVersion: DEVICE_PROTOCOL_VERSION,
   features: ['handshake', 'get_state', 'apply_config', 'ping', 'note_presets_v1', 'firmware_update_v1'],
   firmwareVersion: '0.9.0',
@@ -162,7 +162,7 @@ test('handshake success', async () => {
   const helloAck = await client.handshake();
 
   assert.equal(helloAck.type, 'hello_ack');
-  assert.equal(helloAck.payload.device, 'thx-c');
+  assert.equal(helloAck.payload.device, 'hx01');
   assert.deepEqual(helloAck.payload.state, baseState);
   assert.equal(port.receivedHostFrames.length, 1);
 

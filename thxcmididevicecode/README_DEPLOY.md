@@ -1,4 +1,4 @@
-# thx-c Firmware Deploy (Source of Truth)
+# hx01 Firmware Deploy (Source of Truth)
 
 `thxcmididevicecode/` is the single source of truth for firmware code and release packaging.
 
@@ -12,7 +12,7 @@ npm run build:firmware-package
 
 This creates:
 
-- `dist/thx-c-firmware-<version>-direct.json`
+- `dist/hx01-firmware-<version>-direct.json`
 
 The package is a `DeviceFirmwarePackage` payload used by website "Update Me" direct flash.
 
@@ -21,7 +21,7 @@ The package is a `DeviceFirmwarePackage` payload used by website "Update Me" dir
 From repository root:
 
 ```bash
-npm run publish:firmware-update -- --artifact dist/thx-c-firmware-<version>-direct.json
+npm run publish:firmware-update -- --artifact dist/hx01-firmware-<version>-direct.json
 ```
 
 Publish behavior:

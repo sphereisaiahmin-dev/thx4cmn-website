@@ -10,7 +10,7 @@ except Exception:
 try:
     import supervisor
 
-    supervisor.set_usb_identification(product="thx-c")
+    supervisor.set_usb_identification(product="hx01")
 except Exception:
     # Older CircuitPython builds may not expose USB identification controls.
     pass
