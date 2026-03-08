@@ -98,7 +98,7 @@ const parseArtifactArgs = () => {
   const argv = process.argv.slice(2);
   const artifactArgIndex = argv.indexOf('--artifact');
   const defaultVersion = getCurrentFirmwareVersion();
-  const defaultArtifact = `dist/thx-c-firmware-${defaultVersion}-direct.json`;
+  const defaultArtifact = `dist/hx01-firmware-${defaultVersion}-direct.json`;
 
   return resolve(
     workspaceRoot,
@@ -242,7 +242,7 @@ filteredReleases.sort((a, b) => (b.releaseRank ?? 0) - (a.releaseRank ?? 0));
 
 const latestRelease = filteredReleases[0];
 const manifest = {
-  device: 'thx-c',
+  device: 'hx01',
   generatedAt: new Date().toISOString(),
   latestVersion: latestRelease.version,
   latestReleaseRank: latestRelease.releaseRank,

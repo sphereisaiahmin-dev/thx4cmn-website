@@ -86,7 +86,7 @@ export const normalizeFirmwareManifest = (candidate: unknown): DeviceFirmwareMan
 
   const latestRelease = releases[0];
   return {
-    device: typeof candidate.device === 'string' ? candidate.device : 'thx-c',
+    device: typeof candidate.device === 'string' ? candidate.device : 'hx01',
     generatedAt:
       typeof candidate.generatedAt === 'string' ? candidate.generatedAt : new Date().toISOString(),
     latestVersion:

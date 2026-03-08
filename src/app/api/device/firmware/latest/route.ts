@@ -28,7 +28,7 @@ type LatestFirmwareResponse = {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const currentVersion = searchParams.get('currentVersion');
-  const device = searchParams.get('device') ?? 'thx-c';
+  const device = searchParams.get('device') ?? 'hx01';
 
   if (!currentVersion) {
     return NextResponse.json({ error: 'Missing currentVersion.' }, { status: 400 });

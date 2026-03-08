@@ -23,7 +23,7 @@ for (const requiredFile of requiredFiles) {
 }
 
 const firmwareVersion = getFirmwareVersion(resolve(sourceDir, 'code.py'));
-const outputJsonPath = resolve(distDir, `thx-c-firmware-${firmwareVersion}-direct.json`);
+const outputJsonPath = resolve(distDir, `hx01-firmware-${firmwareVersion}-direct.json`);
 
 const files = requiredFiles.map((filename) => {
   const absolutePath = resolve(sourceDir, filename);

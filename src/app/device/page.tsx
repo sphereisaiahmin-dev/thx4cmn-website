@@ -98,7 +98,7 @@ const flashFirmwareViaLegacyRepl = async (
   }
 
   if (!port) {
-    appendLog('Select thx-c in the browser prompt to run legacy recovery update.');
+    appendLog('Select hx01 in the browser prompt to run legacy recovery update.');
     port = await serial.requestPort();
   }
 
@@ -550,7 +550,7 @@ export default function DevicePage() {
 
       try {
         const response = await fetch(
-          `/api/device/firmware/latest?currentVersion=${encodeURIComponent(firmwareVersion)}&device=${encodeURIComponent('thx-c')}`,
+          `/api/device/firmware/latest?currentVersion=${encodeURIComponent(firmwareVersion)}&device=${encodeURIComponent('hx01')}`,
           {
             method: 'GET',
             cache: 'no-store',
@@ -641,7 +641,7 @@ export default function DevicePage() {
     clientRef.current = client;
     setStatus('connecting');
     hasLoggedConnectionLostRef.current = false;
-    appendLog('Connecting to thx-c...');
+    appendLog('Connecting to hx01...');
 
     try {
       await client.connect();
@@ -658,7 +658,7 @@ export default function DevicePage() {
 
       setStatus('ready');
       startKeepalive();
-      appendLog('Connected to thx-c. Settings synced.');
+      appendLog('Connected to hx01. Settings synced.');
     } catch (error) {
       console.error(error);
       setStatus('error');
@@ -689,7 +689,7 @@ export default function DevicePage() {
     setConnectedFeatures([]);
     setFirmwareUpdateState(null);
     setIsUpdatePanelOpen(false);
-    appendLog('Disconnected from thx-c.');
+    appendLog('Disconnected from hx01.');
   }, [appendLog, disconnectClient]);
 
   const handleApplyConfig = useCallback(async () => {
@@ -707,7 +707,7 @@ export default function DevicePage() {
 
       hydrateState(response.state);
 
-      appendLog('Configuration updated on thx-c.');
+      appendLog('Configuration updated on hx01.');
     } catch (error) {
       const detail =
         error instanceof Error && error.message ? ` ${error.message}` : '';
@@ -987,9 +987,9 @@ export default function DevicePage() {
     <section className="relative space-y-8">
       <div className="space-y-3">
         <p className="text-xs uppercase tracking-[0.4em] text-black/60">Device</p>
-        <h1 className="text-3xl uppercase tracking-[0.3em]">thx-c</h1>
+        <h1 className="text-3xl uppercase tracking-[0.3em]">hx01</h1>
         <p className="max-w-2xl text-sm text-black/70">
-          change your colors, patterns, and chords here for your thx-c device.
+          change your colors, patterns, and chords here for your hx01 device.
         </p>
       </div>
 
@@ -1248,7 +1248,7 @@ export default function DevicePage() {
       <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
         <h2 className="text-sm uppercase tracking-[0.3em]">Session log</h2>
         <div className="mt-4 space-y-2 text-xs text-black/70">
-          {log.length === 0 && <p>No activity yet. Connect your thx-c to begin.</p>}
+          {log.length === 0 && <p>No activity yet. Connect your hx01 to begin.</p>}
           {log.map((entry, index) => (
             <p key={`${entry.timestamp}-${index}`}>
               [{formatLogTimestamp(entry.timestamp)}] {entry.message}

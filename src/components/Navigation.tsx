@@ -13,7 +13,7 @@ const navItems = [
   { href: '/', label: 'Home' },
   { href: '/store', label: 'Store' },
   { href: '/projects', label: 'Projects' },
-  { href: '/device', label: 'thx-c' },
+  { href: '/device', label: 'hx01' },
 ];
 
 export const Navigation = () => {

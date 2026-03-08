@@ -30,7 +30,7 @@ keys = keybow.keys
 
 BRIGHTNESS_SCALE = 0.9
 FIRMWARE_VERSION = "0.9.4"
-DEVICE_NAME = "thx-c"
+DEVICE_NAME = "hx01"
 DEVICE_STATE_FILE = "/device_state.json"
 FIRMWARE_ALLOWED_PATHS = ("/boot.py", "/code.py", "/protocol_v1.py")
 
