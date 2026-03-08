@@ -37,11 +37,11 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
       <div className="lg:col-span-6">
         <div className="h-full rounded-3xl border border-black/10 bg-black/5 p-3 md:p-4">
           {modelUrl ? (
-            <div className="flex aspect-[4/5] w-full items-center justify-center rounded-2xl bg-white/70 p-3 md:p-4 lg:h-[560px] lg:aspect-auto">
+            <div className="flex aspect-[4/5] w-full items-center justify-center rounded-2xl border border-black/10 bg-white p-3 md:p-4 lg:h-[560px] lg:aspect-auto">
               <ProductModelScene modelUrl={modelUrl} className="h-full w-full" fitMode="detail-fill" />
             </div>
           ) : (
-            <div className="flex aspect-[4/5] w-full items-center justify-center rounded-2xl bg-white/70 p-3 text-sm text-black/50 md:p-4 lg:h-[560px] lg:aspect-auto">
+            <div className="flex aspect-[4/5] w-full items-center justify-center rounded-2xl border border-black/10 bg-white p-3 text-sm text-black/50 md:p-4 lg:h-[560px] lg:aspect-auto">
               3D preview unavailable.
             </div>
           )}

@@ -28,22 +28,25 @@ export const ProductCard = ({ product }: ProductCardProps) => {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col justify-between gap-4 border border-black/10 bg-black/5 p-4 md:gap-6 md:p-6">
-      <div className="flex min-h-0 flex-1 flex-col gap-4 md:gap-6">
-        <div className="space-y-2 md:space-y-3">
+    <div className="mx-auto flex h-full w-full max-w-[520px] flex-col justify-center gap-4 rounded-[1.75rem] border border-black/10 bg-black/5 px-2 py-2 text-center md:min-h-[560px]">
+      <div className="flex min-h-0 flex-1 flex-col justify-center gap-4 md:gap-5">
+        <div className="space-y-2">
           <h3 className="text-base uppercase tracking-[0.25em] md:text-lg">{product.name}</h3>
         </div>
         {modelUrl ? (
-          <div className="flex min-h-0 flex-1 flex-col rounded-2xl bg-white/70 p-2 md:p-3">
-            <ProductModelScene modelUrl={modelUrl} className="h-full w-full" />
+          <div className="flex w-full items-center justify-center rounded-2xl border border-black/10 bg-white">
+            <ProductModelScene
+              modelUrl={modelUrl}
+              className="aspect-square h-auto min-h-[280px] w-full max-w-[440px] md:min-h-[340px] md:max-w-[500px]"
+            />
           </div>
         ) : null}
       </div>
-      <div className="flex flex-col gap-2 md:gap-3">
+      <div className="flex flex-col items-center gap-2">
         <span className="text-xs text-black/60 md:text-sm">
           {formatCurrency(product.priceCents)}
         </span>
-        <div className="flex items-center gap-3 md:gap-4">
+        <div className="flex items-center justify-center gap-3 md:gap-4">
           <button
             type="button"
             onClick={handleAdd}
