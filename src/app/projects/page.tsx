@@ -70,14 +70,14 @@ const projects: Project[] = [
 export default function ProjectsPage() {
   return (
     <section className="space-y-10">
-      <div className="space-y-3 text-center">
+      <div className="showcase-transition-title space-y-3 text-center">
         <h1 className="text-3xl uppercase tracking-[0.3em]">Selected works</h1>
         <p className="mx-auto max-w-2xl text-sm text-black/70">
           A cross-section of recent releases, campaigns, and collaborations.
         </p>
       </div>
 
-      <div className="max-h-[60vh] w-full overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6 lg:mx-auto lg:max-w-5xl">
+      <div className="showcase-transition-cards max-h-[60vh] w-full overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6 lg:mx-auto lg:max-w-5xl">
         <ul className="space-y-4 text-sm uppercase tracking-[0.3em]">
           {projects.map((project) => (
             <li

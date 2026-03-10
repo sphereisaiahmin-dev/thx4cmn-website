@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 
 import { formatCurrency } from '@/lib/format';
 import { HEADER_LOGO_MODEL_URL, HEADER_LOGO_SCALE, LogoScene } from '@/components/LogoScene';
@@ -16,13 +17,71 @@ const navItems = [
   { href: '/device', label: 'hx01' },
 ];
 
+const NAV_ROUTE_TRANSITION_CLASS = 'route-transition-out';
+const DEFAULT_ROUTE_EXIT_DURATION_MS = 300;
+
+const normalizePath = (path: string) => (path !== '/' && path.endsWith('/') ? path.slice(0, -1) : path);
+
+const parseCssDurationMs = (rawValue: string, fallbackMs: number) => {
+  const value = rawValue.trim().toLowerCase();
+  if (!value) {
+    return fallbackMs;
+  }
+
+  if (value.endsWith('ms')) {
+    const parsed = Number.parseFloat(value.slice(0, -2));
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallbackMs;
+  }
+
+  if (value.endsWith('s')) {
+    const parsed = Number.parseFloat(value.slice(0, -1));
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed * 1000 : fallbackMs;
+  }
+
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallbackMs;
+};
+
+const isNavItemActive = (pathname: string, href: string) => {
+  const currentPath = normalizePath(pathname);
+  const navPath = normalizePath(href);
+
+  if (navPath === '/') {
+    return currentPath === '/';
+  }
+
+  return currentPath === navPath || currentPath.startsWith(`${navPath}/`);
+};
+
+const shouldBypassClientTransition = (event: MouseEvent<HTMLAnchorElement>) => {
+  if (event.defaultPrevented) {
+    return true;
+  }
+
+  if (event.button !== 0) {
+    return true;
+  }
+
+  if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    return true;
+  }
+
+  const target = event.currentTarget.target;
+  return Boolean(target && target !== '_self');
+};
+
 export const Navigation = () => {
   const pathname = usePathname();
+  const router = useRouter();
   const isHome = pathname === '/';
   const items = useCartStore((state) => state.items);
   const isMiniCartOpen = useUiStore((state) => state.isMiniCartOpen);
   const setMiniCartOpen = useUiStore((state) => state.setMiniCartOpen);
   const headerRef = useRef<HTMLElement>(null);
+  const transitionTimerRef = useRef<number | null>(null);
+  const pendingHrefRef = useRef<string | null>(null);
+  const routeExitDurationMsRef = useRef<number>(DEFAULT_ROUTE_EXIT_DURATION_MS);
+  const [isRouteTransitioning, setIsRouteTransitioning] = useState(false);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
   const totalQuantity = useMemo(
     () => items.reduce((total, item) => total + item.quantity, 0),
@@ -32,6 +91,26 @@ export const Navigation = () => {
     () => items.reduce((total, item) => total + item.priceCents * item.quantity, 0),
     [items],
   );
+  const shouldShowHeaderLogo = !isHome || isRouteTransitioning;
+
+  const syncRouteExitDuration = useCallback(() => {
+    const rootStyles = window.getComputedStyle(document.documentElement);
+    routeExitDurationMsRef.current = parseCssDurationMs(
+      rootStyles.getPropertyValue('--route-exit-ms'),
+      DEFAULT_ROUTE_EXIT_DURATION_MS,
+    );
+  }, []);
+
+  const clearRouteTransition = useCallback(() => {
+    if (transitionTimerRef.current !== null) {
+      window.clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = null;
+    }
+
+    pendingHrefRef.current = null;
+    setIsRouteTransitioning(false);
+    document.documentElement.classList.remove(NAV_ROUTE_TRANSITION_CLASS);
+  }, []);
 
   useEffect(() => {
     const updateHeaderHeight = () => {
@@ -39,12 +118,21 @@ export const Navigation = () => {
       document.documentElement.style.setProperty('--site-header-height', `${headerRef.current.offsetHeight}px`);
     };
 
+    syncRouteExitDuration();
     updateHeaderHeight();
     window.addEventListener('resize', updateHeaderHeight);
+    window.addEventListener('resize', syncRouteExitDuration);
     return () => {
       window.removeEventListener('resize', updateHeaderHeight);
+      window.removeEventListener('resize', syncRouteExitDuration);
     };
-  }, [pathname]);
+  }, [pathname, syncRouteExitDuration]);
+
+  useEffect(() => {
+    for (const item of navItems) {
+      router.prefetch(item.href);
+    }
+  }, [router]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -69,6 +157,70 @@ export const Navigation = () => {
     mediaQuery.addListener(handleChange);
     return () => mediaQuery.removeListener(handleChange);
   }, [setMiniCartOpen]);
+
+  useEffect(() => {
+    clearRouteTransition();
+  }, [clearRouteTransition, pathname]);
+
+  useEffect(() => {
+    return () => {
+      if (transitionTimerRef.current !== null) {
+        window.clearTimeout(transitionTimerRef.current);
+      }
+      document.documentElement.classList.remove(NAV_ROUTE_TRANSITION_CLASS);
+    };
+  }, []);
+
+  const handleNavRouteChange = (href: string) => {
+    syncRouteExitDuration();
+    const currentPath = normalizePath(pathname);
+    const nextPath = normalizePath(href);
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const transitionDurationMs = routeExitDurationMsRef.current;
+
+    setMiniCartOpen(false);
+
+    if (currentPath === nextPath) {
+      clearRouteTransition();
+      return;
+    }
+
+    if (prefersReducedMotion || transitionDurationMs <= 0) {
+      router.push(href);
+      return;
+    }
+
+    pendingHrefRef.current = href;
+    setIsRouteTransitioning(true);
+    document.documentElement.classList.add(NAV_ROUTE_TRANSITION_CLASS);
+
+    if (transitionTimerRef.current !== null) {
+      window.clearTimeout(transitionTimerRef.current);
+    }
+
+    transitionTimerRef.current = window.setTimeout(() => {
+      const pendingHref = pendingHrefRef.current;
+      pendingHrefRef.current = null;
+      transitionTimerRef.current = null;
+
+      if (pendingHref) {
+        router.push(pendingHref);
+      }
+    }, transitionDurationMs);
+  };
+
+  const handleNavLinkIntent = (href: string) => {
+    router.prefetch(href);
+  };
+
+  const handleNavLinkClick = (event: MouseEvent<HTMLAnchorElement>, href: string) => {
+    if (shouldBypassClientTransition(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    handleNavRouteChange(href);
+  };
 
   const handleCheckout = async () => {
     if (items.length === 0 || isCheckoutLoading) return;
@@ -121,21 +273,36 @@ export const Navigation = () => {
           >
             <span className="sr-only">thx4cmn</span>
             <div
-              className={`absolute inset-0 transition-opacity duration-100 ${
-                isHome ? 'pointer-events-none opacity-0' : 'opacity-100'
+              className={`header-logo-transition absolute inset-0 ${
+                shouldShowHeaderLogo ? 'opacity-100' : 'pointer-events-none opacity-0'
               }`}
-              aria-hidden={isHome}
+              aria-hidden={!shouldShowHeaderLogo}
             >
               <LogoScene className="h-10 w-28" modelUrl={HEADER_LOGO_MODEL_URL} modelScale={HEADER_LOGO_SCALE} />
             </div>
           </div>
           <nav className="flex w-full flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[0.62rem] uppercase tracking-[0.22em] md:w-auto md:gap-6 md:text-xs md:tracking-[0.3em]">
-            {navItems.map((item) => (
-              <Link key={item.href} href={item.href} className="nav-link">
-                {item.label}
-              </Link>
-            ))}
-            <Link href="/cart" className="nav-link inline-flex items-center gap-2 md:hidden">
+            {navItems.map((item) => {
+              const isActive = isNavItemActive(pathname, item.href);
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`nav-link${isActive ? ' nav-link-active' : ''}`}
+                  onClick={(event) => handleNavLinkClick(event, item.href)}
+                  onMouseEnter={() => handleNavLinkIntent(item.href)}
+                  onFocus={() => handleNavLinkIntent(item.href)}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+            <Link
+              href="/cart"
+              className="nav-link inline-flex items-center gap-2 md:hidden"
+              onClick={(event) => handleNavLinkClick(event, '/cart')}
+            >
               <span>CART</span>
               {totalQuantity > 0 ? (
                 <span className="cart-count inline-flex min-w-[1.25rem] items-center justify-center rounded-full border border-current px-1 text-[0.65rem] font-semibold leading-none">

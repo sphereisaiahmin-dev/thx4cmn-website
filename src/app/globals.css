@@ -8,6 +8,11 @@
   color-scheme: light;
   --site-header-height: 92px;
   --mobile-player-offset: 0px;
+  --route-exit-ms: 300ms;
+  --route-enter-title-ms: 340ms;
+  --route-enter-cards-ms: 380ms;
+  --route-enter-stagger-ms: 60ms;
+  --route-transition-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --site-bg-base: #ffffff;
   --site-bg-red: rgba(255, 150, 150, 0.085);
   --site-bg-green: rgba(162, 232, 196, 0.07);
@@ -30,29 +35,6 @@ body {
   background-color: var(--site-bg-base);
   position: relative;
   overflow-x: hidden;
-}
-
-body.route-store-locked {
-  overflow: hidden;
-}
-
-body.route-store-locked .app-shell {
-  min-height: 100vh;
-}
-
-body.route-store-locked .app-main {
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  padding-top: 0;
-  padding-bottom: 0;
-}
-
-body.route-store-locked .store-page {
-  display: flex;
-  min-height: 100%;
-  width: 100%;
-  align-items: center;
 }
 
 .site-background {
@@ -193,6 +175,67 @@ a {
   animation: nav-rgb-cycle 1.2s linear infinite;
 }
 
+.nav-link-active {
+  animation: nav-rgb-cycle 1.2s linear infinite;
+}
+
+.header-logo-transition {
+  transition: opacity var(--route-exit-ms) var(--route-transition-ease);
+  will-change: opacity;
+  transform: translateZ(0);
+}
+
+.home-logo-background {
+  transition: opacity var(--route-exit-ms) var(--route-transition-ease);
+  will-change: opacity;
+  transform: translateZ(0);
+}
+
+.home-logo-background--visible {
+  opacity: 1;
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.home-logo-background--hidden {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+html.route-transition-out .home-logo-background--visible {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.showcase-transition-title {
+  animation: showcase-fade-in-title var(--route-enter-title-ms) var(--route-transition-ease) both;
+  transition:
+    opacity var(--route-exit-ms) var(--route-transition-ease),
+    transform var(--route-exit-ms) var(--route-transition-ease);
+  will-change: opacity, transform;
+  transform: translateZ(0) translateY(0);
+  backface-visibility: hidden;
+}
+
+.showcase-transition-cards {
+  animation: showcase-fade-in-cards var(--route-enter-cards-ms) var(--route-transition-ease) both;
+  animation-delay: var(--route-enter-stagger-ms);
+  transition:
+    opacity var(--route-exit-ms) var(--route-transition-ease),
+    transform var(--route-exit-ms) var(--route-transition-ease);
+  will-change: opacity, transform;
+  transform: translateZ(0) translateY(0);
+  backface-visibility: hidden;
+}
+
+html.route-transition-out .showcase-transition-title,
+html.route-transition-out .showcase-transition-cards {
+  animation: none;
+  opacity: 0;
+  transform: translateZ(0) translateY(11px);
+}
+
 .cart-count {
   animation: cart-rgb-cycle 2.6s linear infinite;
 }
@@ -247,6 +290,28 @@ a {
   100% {
     color: rgb(255, 80, 80);
     border-color: rgb(255, 80, 80);
+  }
+}
+
+@keyframes showcase-fade-in-title {
+  from {
+    opacity: 0;
+    transform: translateZ(0) translateY(11px);
+  }
+  to {
+    opacity: 1;
+    transform: translateZ(0) translateY(0);
+  }
+}
+
+@keyframes showcase-fade-in-cards {
+  from {
+    opacity: 0;
+    transform: translateZ(0) translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateZ(0) translateY(0);
   }
 }
 
@@ -394,22 +459,29 @@ a {
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .header-logo-transition,
+  .home-logo-background,
+  .showcase-transition-title,
+  .showcase-transition-cards {
+    animation: none !important;
+    animation-delay: 0s !important;
+    transition: none !important;
+  }
+
+  html.route-transition-out .showcase-transition-title,
+  html.route-transition-out .showcase-transition-cards {
+    opacity: 1;
+    transform: none;
+  }
+
+  html.route-transition-out .home-logo-background--visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 @media (max-width: 768px) {
-  body.route-store-locked {
-    overflow-y: auto;
-  }
-
-  body.route-store-locked .app-main {
-    display: block;
-    overflow: visible;
-    padding-bottom: calc(var(--mobile-player-offset) + 2rem);
-  }
-
-  body.route-store-locked .store-page {
-    display: block;
-    min-height: auto;
-  }
-
   .site-background::before,
   .site-background::after,
   .site-background__layer {

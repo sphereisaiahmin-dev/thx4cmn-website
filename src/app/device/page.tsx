@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { HexColorPicker } from 'react-colorful';
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -984,11 +984,11 @@ export default function DevicePage() {
 
   return (
     <section className="relative space-y-8">
-      <div className="text-center">
+      <div className="showcase-transition-title text-center">
         <h1 className="text-3xl uppercase tracking-[0.3em]">hx01</h1>
       </div>
 
-      <div className="mx-auto w-full max-w-[1188px]">
+      <div className="showcase-transition-cards mx-auto w-full max-w-[1188px]">
         <div className="grid gap-[2.2rem] lg:grid-cols-[minmax(0,308px)_auto_minmax(0,308px)] lg:items-start lg:justify-center">
           <div className="flex w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:min-h-[616px] lg:w-[308px]">
           <h2 className="text-sm uppercase tracking-[0.3em]">...</h2>
