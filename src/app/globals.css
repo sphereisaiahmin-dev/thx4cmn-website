@@ -260,6 +260,14 @@ a {
   border-color: rgba(0, 0, 0, 0.4);
 }
 
+.device-connect-hover-cycle {
+  border-color: rgba(0, 0, 0, 0.3);
+}
+
+.device-connect-hover-cycle:hover:not(:disabled) {
+  animation: device-update-rgb-cycle 1.3s linear infinite;
+}
+
 .logo-scene-interactive canvas {
   touch-action: none;
   cursor: grab;
