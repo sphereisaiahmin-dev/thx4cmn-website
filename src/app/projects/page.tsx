@@ -48,6 +48,7 @@ const projects: Project[] = [
   {
     title: 'MUSE SESSIONS -',
     tags: ['marketing'],
+    details: ['Marketing collaboration'],
   },
   {
     title: 'NOT THE WEATHER - KING CHIP / WIZ KHALIFA',
@@ -57,25 +58,26 @@ const projects: Project[] = [
   {
     title: 'OMAR APOLLO - GOD SAID NO WORLD TOUR',
     tags: ['media'],
+    details: ['Media programming'],
   },
   {
     title: 'M-AUDIO',
     tags: ['marketing'],
+    details: ['Marketing collaboration'],
   },
 ];
 
 export default function ProjectsPage() {
   return (
     <section className="space-y-10">
-      <div className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.4em] text-black/60">Projects</p>
-        <h1 className="text-3xl uppercase tracking-[0.3em]">Selected work</h1>
-        <p className="max-w-2xl text-sm text-black/70">
+      <div className="space-y-3 text-center">
+        <h1 className="text-3xl uppercase tracking-[0.3em]">Selected works</h1>
+        <p className="mx-auto max-w-2xl text-sm text-black/70">
           A cross-section of recent releases, campaigns, and collaborations.
         </p>
       </div>
 
-      <div className="max-h-[60vh] overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6">
+      <div className="max-h-[60vh] w-full overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6 lg:mx-auto lg:max-w-5xl">
         <ul className="space-y-4 text-sm uppercase tracking-[0.3em]">
           {projects.map((project) => (
             <li

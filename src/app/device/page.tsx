@@ -984,12 +984,8 @@ export default function DevicePage() {
 
   return (
     <section className="relative space-y-8">
-      <div className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.4em] text-black/60">Device</p>
+      <div className="text-center">
         <h1 className="text-3xl uppercase tracking-[0.3em]">hx01</h1>
-        <p className="max-w-2xl text-sm text-black/70">
-          change your colors, patterns, and chords here for your hx01 device.
-        </p>
       </div>
 
       <div className="mx-auto w-full max-w-[1188px]">
@@ -1123,56 +1119,62 @@ export default function DevicePage() {
           </div>
         </div>
 
-          <div className="flex h-fit w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:w-fit lg:justify-self-center">
-            <h2 className="mb-4 text-sm uppercase tracking-[0.3em]">Keypad</h2>
+          <div className="flex w-full flex-col items-center gap-4 lg:justify-self-center">
+            <div className="flex h-fit w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:w-fit">
+              <h2 className="mb-4 text-sm uppercase tracking-[0.3em]">Keypad</h2>
 
-            <div className="mx-auto grid w-full max-w-[462px] grid-cols-4 gap-[0.825rem] lg:w-[462px]">
-              {KEYPAD_LAYOUT.flat().map((keyIndex) => {
-                const isModifier = keyIndex >= 12;
-                const keyId = `${keyIndex}` as ModifierKeyId;
+              <div className="mx-auto grid w-full max-w-[462px] grid-cols-4 gap-[0.825rem] lg:w-[462px]">
+                {KEYPAD_LAYOUT.flat().map((keyIndex) => {
+                  const isModifier = keyIndex >= 12;
+                  const keyId = `${keyIndex}` as ModifierKeyId;
 
-                if (isModifier) {
-                  const delayMs = (keyIndex - 12) * 120;
-                  const style = {
-                    '--modifier-delay': `${delayMs}ms`,
-                  } as CSSProperties;
+                  if (isModifier) {
+                    const delayMs = (keyIndex - 12) * 120;
+                    const style = {
+                      '--modifier-delay': `${delayMs}ms`,
+                    } as CSSProperties;
+
+                    return (
+                      <button
+                        key={keyIndex}
+                        type="button"
+                        onClick={() => setSelectedModifierKey(keyId)}
+                        style={style}
+                        className={`device-modifier-cycle flex aspect-square flex-col items-center justify-center rounded-xl border text-xs uppercase tracking-[0.2em] transition ${
+                          selectedModifierKey === keyId
+                            ? 'border-black bg-black text-white shadow-[0_0_0_2px_rgba(0,0,0,0.9)] ring-2 ring-black'
+                            : 'border-black/40 bg-black text-white'
+                        }`}
+                      >
+                        <span className="text-[10px] opacity-70">K{keyIndex}</span>
+                        <span className="mt-1 text-[11px]">{draftState.modifierChords[keyId]}</span>
+                      </button>
+                    );
+                  }
+
+                  const previewColor = getNotePreviewColor(draftState, keyIndex, previewTick);
+                  const noteTextClass =
+                    previewColor.startsWith('#') && isColorDark(previewColor)
+                      ? 'text-white'
+                      : 'text-black';
 
                   return (
-                    <button
+                    <div
                       key={keyIndex}
-                      type="button"
-                      onClick={() => setSelectedModifierKey(keyId)}
-                      style={style}
-                      className={`device-modifier-cycle flex aspect-square flex-col items-center justify-center rounded-xl border text-xs uppercase tracking-[0.2em] transition ${
-                        selectedModifierKey === keyId
-                          ? 'border-black bg-black text-white shadow-[0_0_0_2px_rgba(0,0,0,0.9)] ring-2 ring-black'
-                          : 'border-black/40 bg-black text-white'
-                      }`}
+                      className={`flex aspect-square flex-col items-center justify-center rounded-xl border border-black/30 text-xs uppercase tracking-[0.2em] ${noteTextClass}`}
+                      style={{ backgroundColor: previewColor }}
                     >
                       <span className="text-[10px] opacity-70">K{keyIndex}</span>
-                      <span className="mt-1 text-[11px]">{draftState.modifierChords[keyId]}</span>
-                    </button>
+                      <span className="mt-1 text-[11px]">N{keyIndex}</span>
+                    </div>
                   );
-                }
-
-                const previewColor = getNotePreviewColor(draftState, keyIndex, previewTick);
-                const noteTextClass =
-                  previewColor.startsWith('#') && isColorDark(previewColor)
-                    ? 'text-white'
-                    : 'text-black';
-
-                return (
-                  <div
-                    key={keyIndex}
-                    className={`flex aspect-square flex-col items-center justify-center rounded-xl border border-black/30 text-xs uppercase tracking-[0.2em] ${noteTextClass}`}
-                    style={{ backgroundColor: previewColor }}
-                  >
-                    <span className="text-[10px] opacity-70">K{keyIndex}</span>
-                    <span className="mt-1 text-[11px]">N{keyIndex}</span>
-                  </div>
-                );
-              })}
+                })}
+              </div>
             </div>
+
+            <p className="w-full max-w-[462px] text-center text-sm text-black/70">
+              change your colors, patterns, and chords here for your hx01 device.
+            </p>
           </div>
 
           <div className="flex w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:min-h-[616px] lg:w-[308px]">
