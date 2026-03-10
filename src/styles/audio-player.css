@@ -1,13 +1,12 @@
 .audio-player {
   position: fixed;
-  top: 96px;
+  top: 106px;
   right: 24px;
   width: min(260px, calc(100vw - 48px));
   padding: 12px 14px;
   border-radius: 20px;
   background: rgba(10, 12, 18, 0.56);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28);
   color: rgba(255, 255, 255, 0.74);
   font-family: 'Doto', sans-serif;
   z-index: 50;
@@ -434,7 +433,6 @@
     border-radius: 18px;
     background: rgba(10, 12, 18, 0.56);
     border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28);
     color: rgba(255, 255, 255, 0.74);
     backdrop-filter: blur(22px);
     -webkit-backdrop-filter: blur(22px);
