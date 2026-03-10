@@ -270,7 +270,7 @@ const KEYPAD_LAYOUT: number[][] = buildKeypadLayout();
 
 const BLACK_NOTE_KEY_INDICES = new Set([1, 3, 6, 8, 10]);
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
-const COLOR_PICKER_WIDTH_PX = 200;
+const COLOR_PICKER_WIDTH_PX = 220;
 const PRESET_MODE_LABELS: Record<NotePresetMode, string> = {
   piano: 'Piano',
   gradient: 'Rain',
@@ -448,11 +448,6 @@ const getAnimatedPresetSection = (mode: NotePresetMode): AnimatedPresetSection |
   return null;
 };
 
-const getPresetColorFieldLabel = (
-  section: AnimatedPresetSection,
-  field: 'colorA' | 'colorB',
-) => `${PRESET_MODE_LABELS[section]} color ${field === 'colorA' ? 'A' : 'B'}`;
-
 const getPresetSpeedLabel = (section: AnimatedPresetSection) => `${PRESET_MODE_LABELS[section]} speed`;
 
 const isFirmwarePackage = (candidate: unknown): candidate is DeviceFirmwarePackage => {
@@ -623,16 +618,21 @@ export default function DevicePage() {
     }
 
     if (!DeviceSerialClient.isSupported()) {
-      setStatus('error');
       appendLog('Web Serial is not supported in this browser.');
+      setStatus('error');
       return;
     }
 
-    await disconnectClient();
+    setIsUpdatePanelOpen(false);
+    stopKeepalive();
+    hasLoggedConnectionLostRef.current = false;
+
+    if (clientRef.current) {
+      await disconnectClient();
+    }
 
     const client = new DeviceSerialClient({
       onDisconnect: () => {
-        stopKeepalive();
         setStatus('error');
         logConnectionLost();
       },
@@ -640,42 +640,41 @@ export default function DevicePage() {
 
     clientRef.current = client;
     setStatus('connecting');
-    hasLoggedConnectionLostRef.current = false;
-    appendLog('Connecting to hx01...');
 
     try {
       await client.connect();
       setStatus('handshaking');
 
-      const helloResponse = await client.handshake();
-      setConnectedFirmwareVersion(helloResponse.payload.firmwareVersion);
-      setConnectedFeatures(helloResponse.payload.features);
-      await refreshFirmwareUpdateState(helloResponse.payload.firmwareVersion);
-      hydrateState(helloResponse.payload.state);
+      const handshakeResponse = await client.handshake();
+      hydrateState(handshakeResponse.payload.state);
 
-      const stateResponse = await client.getState();
-      hydrateState(stateResponse);
+      const firmwareVersion = handshakeResponse.payload.firmwareVersion;
+      const features = handshakeResponse.payload.features;
+
+      setConnectedFirmwareVersion(firmwareVersion);
+      setConnectedFeatures(features);
 
       setStatus('ready');
+      appendLog(`Connected to hx01 (${firmwareVersion}).`);
+
+      await refreshFirmwareUpdateState(firmwareVersion, { silent: true });
       startKeepalive();
-      appendLog('Connected to hx01. Settings synced.');
     } catch (error) {
       console.error(error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      appendLog(`Connection failed: ${message}`);
       setStatus('error');
-      logConnectionLost();
       setConnectedFirmwareVersion(null);
       setConnectedFeatures([]);
       setFirmwareUpdateState(null);
-      setIsUpdatePanelOpen(false);
-
       await disconnectClient();
     }
   }, [
     appendLog,
-    refreshFirmwareUpdateState,
     disconnectClient,
     hydrateState,
     logConnectionLost,
+    refreshFirmwareUpdateState,
     startKeepalive,
     status,
     stopKeepalive,
@@ -993,267 +992,266 @@ export default function DevicePage() {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={handleConnect}
-          disabled={isBusy || isUpdatingFirmware}
-          className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {status === 'ready' ? 'Reconnect device' : 'Connect device'}
-        </button>
+      <div className="mx-auto w-full max-w-[1188px]">
+        <div className="grid gap-[2.2rem] lg:grid-cols-[minmax(0,308px)_auto_minmax(0,308px)] lg:items-start lg:justify-center">
+          <div className="flex w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:min-h-[616px] lg:w-[308px]">
+          <h2 className="text-sm uppercase tracking-[0.3em]">...</h2>
 
-        <button
-          type="button"
-          onClick={handleDisconnect}
-          disabled={!clientRef.current || isBusy || isUpdatingFirmware}
-          className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          Disconnect
-        </button>
+          <div className="mt-4 flex flex-1 flex-col items-center gap-3">
+            {draftState.notePreset.mode === 'piano' && (
+              <>
+                <ColorPaletteField
+                  label="White keys"
+                  value={draftState.notePreset.piano.whiteKeyColor}
+                  onChange={(color) => handlePianoColorChange('whiteKeyColor', color)}
+                />
+                <ColorPaletteField
+                  label="Black keys"
+                  value={draftState.notePreset.piano.blackKeyColor}
+                  onChange={(color) => handlePianoColorChange('blackKeyColor', color)}
+                />
+              </>
+            )}
 
-        {showUpdateButton && (
-          <button
-            type="button"
-            onClick={handleUpdateMe}
-            disabled={isBusy || isUpdatingFirmware}
-            className="device-update-cycle rounded-full border px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isUpdatingFirmware
-              ? 'Updating...'
-              : `Update me${updateTargetVersion ? ` (${updateTargetVersion})` : ''}`}
-          </button>
-        )}
+            {draftState.notePreset.mode === 'gradient' && (
+              <>
+                <ColorPaletteField
+                  label="Color"
+                  value={draftState.notePreset.gradient.colorA}
+                  onChange={(color) => handleAnimatedColorChange('gradient', 'colorA', color)}
+                />
+                <ColorPaletteField
+                  label="Color"
+                  value={draftState.notePreset.gradient.colorB}
+                  onChange={(color) => handleAnimatedColorChange('gradient', 'colorB', color)}
+                />
+              </>
+            )}
 
-        <span className="text-xs uppercase tracking-[0.3em] text-black/60">
-          Status: {statusLabel}
-        </span>
+            {draftState.notePreset.mode === 'rain' && (
+              <>
+                <ColorPaletteField
+                  label="Color"
+                  value={draftState.notePreset.rain.colorA}
+                  onChange={(color) => handleAnimatedColorChange('rain', 'colorA', color)}
+                />
+                <ColorPaletteField
+                  label="Color"
+                  value={draftState.notePreset.rain.colorB}
+                  onChange={(color) => handleAnimatedColorChange('rain', 'colorB', color)}
+                />
+              </>
+            )}
 
-        {connectedFirmwareVersion && (
-          <span className="text-xs uppercase tracking-[0.3em] text-black/60">
-            Firmware: {connectedFirmwareVersion}
-          </span>
-        )}
-
-        {isCheckingFirmware && (
-          <span className="text-xs uppercase tracking-[0.3em] text-black/60">
-            Checking updates...
-          </span>
-        )}
-      </div>
-
-      {isUpdatePanelOpen && firmwareUpdateState?.updateAvailable && (
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-xs uppercase tracking-[0.2em] text-black/70">
-          <p>
-            Update target: {updateTargetVersion ?? firmwareUpdateState.latestVersion} (direct flash)
-          </p>
-          {firmwareUpdateState.notes && <p className="mt-2">{firmwareUpdateState.notes}</p>}
-          {firmwareUpdateState.sha256 && <p className="mt-3 normal-case">sha256: {firmwareUpdateState.sha256}</p>}
-        </div>
-      )}
-
-      <div className="grid gap-8 lg:grid-cols-[minmax(280px,420px)_minmax(280px,1fr)]">
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
-          <h2 className="mb-4 text-sm uppercase tracking-[0.3em]">Keypad</h2>
-
-          <div className="grid grid-cols-4 gap-3">
-            {KEYPAD_LAYOUT.flat().map((keyIndex) => {
-              const isModifier = keyIndex >= 12;
-              const keyId = `${keyIndex}` as ModifierKeyId;
-
-              if (isModifier) {
-                const delayMs = (keyIndex - 12) * 120;
-                const style = {
-                  '--modifier-delay': `${delayMs}ms`,
-                } as CSSProperties;
-
-                return (
-                  <button
-                    key={keyIndex}
-                    type="button"
-                    onClick={() => setSelectedModifierKey(keyId)}
-                    style={style}
-                    className={`device-modifier-cycle flex aspect-square flex-col items-center justify-center rounded-xl border text-xs uppercase tracking-[0.2em] transition ${
-                      selectedModifierKey === keyId
-                        ? 'border-black bg-black text-white shadow-[0_0_0_2px_rgba(0,0,0,0.9)] ring-2 ring-black'
-                        : 'border-black/40 bg-black text-white'
-                    }`}
-                  >
-                    <span className="text-[10px] opacity-70">K{keyIndex}</span>
-                    <span className="mt-1 text-[11px]">{draftState.modifierChords[keyId]}</span>
-                  </button>
-                );
-              }
-
-              const previewColor = getNotePreviewColor(draftState, keyIndex, previewTick);
-              const noteTextClass =
-                previewColor.startsWith('#') && isColorDark(previewColor)
-                  ? 'text-white'
-                  : 'text-black';
-
-              return (
-                <div
-                  key={keyIndex}
-                  className={`flex aspect-square flex-col items-center justify-center rounded-xl border border-black/30 text-xs uppercase tracking-[0.2em] ${noteTextClass}`}
-                  style={{ backgroundColor: previewColor }}
-                >
-                  <span className="text-[10px] opacity-70">K{keyIndex}</span>
-                  <span className="mt-1 text-[11px]">N{keyIndex}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
-          <h2 className="text-sm uppercase tracking-[0.3em]">Configuration</h2>
-
-          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(220px,1fr)_220px]">
-            <div className="space-y-3">
-              {draftState.notePreset.mode === 'piano' && (
-                <>
-                  <ColorPaletteField
-                    label="Piano white key color"
-                    value={draftState.notePreset.piano.whiteKeyColor}
-                    onChange={(color) => handlePianoColorChange('whiteKeyColor', color)}
-                  />
-                  <ColorPaletteField
-                    label="Piano black key color"
-                    value={draftState.notePreset.piano.blackKeyColor}
-                    onChange={(color) => handlePianoColorChange('blackKeyColor', color)}
-                  />
-                </>
-              )}
-
-              {draftState.notePreset.mode === 'gradient' && (
-                <>
-                  <ColorPaletteField
-                    label={getPresetColorFieldLabel('gradient', 'colorA')}
-                    value={draftState.notePreset.gradient.colorA}
-                    onChange={(color) => handleAnimatedColorChange('gradient', 'colorA', color)}
-                  />
-                  <ColorPaletteField
-                    label={getPresetColorFieldLabel('gradient', 'colorB')}
-                    value={draftState.notePreset.gradient.colorB}
-                    onChange={(color) => handleAnimatedColorChange('gradient', 'colorB', color)}
-                  />
-                </>
-              )}
-
-              {draftState.notePreset.mode === 'rain' && (
-                <>
-                  <ColorPaletteField
-                    label={getPresetColorFieldLabel('rain', 'colorA')}
-                    value={draftState.notePreset.rain.colorA}
-                    onChange={(color) => handleAnimatedColorChange('rain', 'colorA', color)}
-                  />
-                  <ColorPaletteField
-                    label={getPresetColorFieldLabel('rain', 'colorB')}
-                    value={draftState.notePreset.rain.colorB}
-                    onChange={(color) => handleAnimatedColorChange('rain', 'colorB', color)}
-                  />
-                </>
-              )}
-
-              {animatedPresetSection && animatedPresetSpeed !== null && (
-                <div
-                  className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70"
-                  style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
-                >
-                  <span className="flex items-center justify-between gap-3">
-                    <span>{getPresetSpeedLabel(animatedPresetSection)}</span>
-                    <span className="text-[11px]">{animatedPresetSpeed.toFixed(1)}x</span>
-                  </span>
-                  <input
-                    type="range"
-                    min={NOTE_PRESET_SPEED_MIN}
-                    max={NOTE_PRESET_SPEED_MAX}
-                    step={0.1}
-                    value={animatedPresetSpeed}
-                    onChange={(event) => handlePresetSpeedChange(animatedPresetSection, event.target.value)}
-                    className="audio-player__rpm-slider block w-full"
-                    style={{ '--rpm-progress': animatedPresetSpeedProgress } as CSSProperties}
-                  />
-                </div>
-              )}
+            <div
+              className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3"
+              style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
+            >
+              <label className="text-xs uppercase tracking-[0.2em] text-black/70">Preset change</label>
+              <select
+                value={draftState.notePreset.mode}
+                onChange={(event) => handlePresetModeChange(event.target.value as NotePresetMode)}
+                className="w-full rounded-lg border border-black/25 bg-white/80 px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
+              >
+                {NOTE_PRESET_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {PRESET_MODE_LABELS[mode]}
+                  </option>
+                ))}
+              </select>
             </div>
 
-            <div className="space-y-3 lg:self-start">
-              <div className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3">
-                <label className="text-xs uppercase tracking-[0.2em] text-black/70">
-                  Note key preset
-                </label>
-                <select
-                  value={draftState.notePreset.mode}
-                  onChange={(event) => handlePresetModeChange(event.target.value as NotePresetMode)}
-                  className="w-full rounded-lg border border-black/25 bg-white/80 px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
-                >
-                  {NOTE_PRESET_MODES.map((mode) => (
-                    <option key={mode} value={mode}>
-                      {PRESET_MODE_LABELS[mode]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3">
-                {selectedModifierKey ? (
-                  <>
-                    <label className="text-[11px] uppercase tracking-[0.2em] text-black/65">
-                      Change chord
-                    </label>
-                    <select
-                      value={selectedModifierChord ?? CHORD_TYPES[0]}
-                      onChange={(event) => handleModifierChordChange(selectedModifierKey, event.target.value)}
-                      className="w-full rounded-lg border border-black/25 bg-white px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
-                    >
-                      {CHORD_TYPES.map((chord) => (
-                        <option key={chord} value={chord}>
-                          {chord}
-                        </option>
-                      ))}
-                    </select>
-                  </>
-                ) : (
+            <div
+              className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3"
+              style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
+            >
+              {selectedModifierKey ? (
+                <>
+                  <label className="text-[11px] uppercase tracking-[0.2em] text-black/65">Chord change</label>
+                  <select
+                    value={selectedModifierChord ?? CHORD_TYPES[0]}
+                    onChange={(event) => handleModifierChordChange(selectedModifierKey, event.target.value)}
+                    className="w-full rounded-lg border border-black/25 bg-white px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
+                  >
+                    {CHORD_TYPES.map((chord) => (
+                      <option key={chord} value={chord}>
+                        {chord}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <>
+                  <label className="text-[11px] uppercase tracking-[0.2em] text-black/65">Chord change</label>
                   <p className="text-[11px] uppercase tracking-[0.2em] text-black/65">
                     Select a modifier key
                   </p>
-                )}
-              </div>
+                </>
+              )}
             </div>
-          </div>
 
-          <div className="mt-6 flex flex-wrap gap-3">
+            {animatedPresetSection && animatedPresetSpeed !== null && (
+              <div
+                className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70"
+                style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
+              >
+                <span className="flex items-center justify-between gap-3">
+                  <span>{getPresetSpeedLabel(animatedPresetSection)}</span>
+                  <span className="text-[11px]">{animatedPresetSpeed.toFixed(1)}x</span>
+                </span>
+                <input
+                  type="range"
+                  min={NOTE_PRESET_SPEED_MIN}
+                  max={NOTE_PRESET_SPEED_MAX}
+                  step={0.1}
+                  value={animatedPresetSpeed}
+                  onChange={(event) => handlePresetSpeedChange(animatedPresetSection, event.target.value)}
+                  className="audio-player__rpm-slider block w-full"
+                  style={{ '--rpm-progress': animatedPresetSpeedProgress } as CSSProperties}
+                />
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleApplyConfig}
               disabled={status !== 'ready' || !hasDirtyConfig || isApplying || isBusy || isUpdatingFirmware}
-              className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-auto self-start rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {isApplying ? 'Applying…' : 'Apply'}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setDraftState(cloneState(deviceState))}
-              disabled={!hasDirtyConfig || isApplying || isUpdatingFirmware}
-              className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Undo
+              {isApplying ? 'Applying...' : 'Apply'}
             </button>
           </div>
         </div>
-      </div>
 
-      <div className="rounded-2xl border border-black/10 bg-black/5 p-6">
-        <h2 className="text-sm uppercase tracking-[0.3em]">Session log</h2>
-        <div className="mt-4 space-y-2 text-xs text-black/70">
-          {log.length === 0 && <p>No activity yet. Connect your hx01 to begin.</p>}
-          {log.map((entry, index) => (
-            <p key={`${entry.timestamp}-${index}`}>
-              [{formatLogTimestamp(entry.timestamp)}] {entry.message}
-            </p>
-          ))}
+          <div className="flex h-fit w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:w-fit lg:justify-self-center">
+            <h2 className="mb-4 text-sm uppercase tracking-[0.3em]">Keypad</h2>
+
+            <div className="mx-auto grid w-full max-w-[462px] grid-cols-4 gap-[0.825rem] lg:w-[462px]">
+              {KEYPAD_LAYOUT.flat().map((keyIndex) => {
+                const isModifier = keyIndex >= 12;
+                const keyId = `${keyIndex}` as ModifierKeyId;
+
+                if (isModifier) {
+                  const delayMs = (keyIndex - 12) * 120;
+                  const style = {
+                    '--modifier-delay': `${delayMs}ms`,
+                  } as CSSProperties;
+
+                  return (
+                    <button
+                      key={keyIndex}
+                      type="button"
+                      onClick={() => setSelectedModifierKey(keyId)}
+                      style={style}
+                      className={`device-modifier-cycle flex aspect-square flex-col items-center justify-center rounded-xl border text-xs uppercase tracking-[0.2em] transition ${
+                        selectedModifierKey === keyId
+                          ? 'border-black bg-black text-white shadow-[0_0_0_2px_rgba(0,0,0,0.9)] ring-2 ring-black'
+                          : 'border-black/40 bg-black text-white'
+                      }`}
+                    >
+                      <span className="text-[10px] opacity-70">K{keyIndex}</span>
+                      <span className="mt-1 text-[11px]">{draftState.modifierChords[keyId]}</span>
+                    </button>
+                  );
+                }
+
+                const previewColor = getNotePreviewColor(draftState, keyIndex, previewTick);
+                const noteTextClass =
+                  previewColor.startsWith('#') && isColorDark(previewColor)
+                    ? 'text-white'
+                    : 'text-black';
+
+                return (
+                  <div
+                    key={keyIndex}
+                    className={`flex aspect-square flex-col items-center justify-center rounded-xl border border-black/30 text-xs uppercase tracking-[0.2em] ${noteTextClass}`}
+                    style={{ backgroundColor: previewColor }}
+                  >
+                    <span className="text-[10px] opacity-70">K{keyIndex}</span>
+                    <span className="mt-1 text-[11px]">N{keyIndex}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:min-h-[616px] lg:w-[308px]">
+            <h2 className="text-sm uppercase tracking-[0.3em]">Session log</h2>
+
+            <div className="mt-4 flex-1 space-y-2 overflow-y-auto pr-1 text-xs text-black/70">
+              {log.length === 0 && <p>No activity yet. Connect your hx01 to begin.</p>}
+              {log.map((entry, index) => (
+                <p key={`${entry.timestamp}-${index}`}>
+                  [{formatLogTimestamp(entry.timestamp)}] {entry.message}
+                </p>
+              ))}
+            </div>
+
+            <div className="mt-6 space-y-3 border-t border-black/10 pt-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleConnect}
+                  disabled={isBusy || isUpdatingFirmware}
+                  className="device-connect-hover-cycle rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {status === 'ready' ? 'Reconnect' : 'Connect'}
+                </button>
+
+                {status === 'ready' && (
+                  <button
+                    type="button"
+                    onClick={handleDisconnect}
+                    disabled={!clientRef.current || isBusy || isUpdatingFirmware}
+                    className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                )}
+
+                {showUpdateButton && (
+                  <button
+                    type="button"
+                    onClick={handleUpdateMe}
+                    disabled={isBusy || isUpdatingFirmware}
+                    className="device-update-cycle rounded-full border px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isUpdatingFirmware
+                      ? 'Updating...'
+                      : `Update me${updateTargetVersion ? ` (${updateTargetVersion})` : ''}`}
+                  </button>
+                )}
+
+                <span className="text-xs uppercase tracking-[0.3em] text-black/60">
+                  Status: {statusLabel}
+                </span>
+
+                {connectedFirmwareVersion && (
+                  <span className="text-xs uppercase tracking-[0.3em] text-black/60">
+                    Firmware: {connectedFirmwareVersion}
+                  </span>
+                )}
+
+                {isCheckingFirmware && (
+                  <span className="text-xs uppercase tracking-[0.3em] text-black/60">
+                    Checking updates...
+                  </span>
+                )}
+              </div>
+
+              {isUpdatePanelOpen && firmwareUpdateState?.updateAvailable && (
+                <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-xs uppercase tracking-[0.2em] text-black/70">
+                  <p>
+                    Update target: {updateTargetVersion ?? firmwareUpdateState.latestVersion} (direct flash)
+                  </p>
+                  {firmwareUpdateState.notes && <p className="mt-2">{firmwareUpdateState.notes}</p>}
+                  {firmwareUpdateState.sha256 && (
+                    <p className="mt-3 normal-case">sha256: {firmwareUpdateState.sha256}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </section>
