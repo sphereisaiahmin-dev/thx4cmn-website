@@ -35,6 +35,10 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 | `R2_ACCESS_KEY_ID` | R2 access key ID |
 | `R2_SECRET_ACCESS_KEY` | R2 secret access key |
 | `R2_BUCKET` | R2 bucket name |
+| `OPENWEATHER_API_KEY` | OpenWeather API key for `/api/weather/current` |
+
+Security note:
+If credentials were ever committed with real values, rotate them immediately in Stripe, Supabase, and R2 before deploying.
 
 Security note:
 If credentials were ever committed with real values, rotate them immediately in Stripe, Supabase, and R2 before deploying.
@@ -116,3 +120,4 @@ Run both:
 ```bash
 npm run test:device-protocol
 ```
+

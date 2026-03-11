@@ -1,6 +1,6 @@
 .audio-player {
   position: fixed;
-  top: 106px;
+  top: 188px;
   right: 24px;
   width: min(260px, calc(100vw - 48px));
   padding: 12px 14px;
@@ -14,7 +14,7 @@
   isolation: isolate;
   backdrop-filter: blur(22px);
   -webkit-backdrop-filter: blur(22px);
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: top 0.28s ease, opacity 0.25s ease, transform 0.25s ease;
 }
 
 .audio-player > * {
@@ -26,6 +26,205 @@
   opacity: 0;
   transform: translateY(-12px);
   pointer-events: none;
+}
+
+.audio-weather-card {
+  position: fixed;
+  top: 106px;
+  right: 24px;
+  width: min(260px, calc(100vw - 48px));
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(10, 12, 18, 0.56);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.74);
+  font-family: 'Doto', sans-serif;
+  z-index: 50;
+  overflow: hidden;
+  isolation: isolate;
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.audio-weather-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.audio-weather-card__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.audio-weather-card__header-temp {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+.audio-weather-card__title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  opacity: 0.8;
+}
+
+.audio-weather-card__collapse-button {
+  background: transparent;
+  border: none;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  white-space: nowrap;
+  transform: rotate(90deg);
+}
+
+.audio-weather-card__collapse-button[data-collapsed='true'] {
+  transform: rotate(0deg);
+}
+
+.audio-weather-card__collapse-button:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.audio-weather-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  opacity: 1;
+  margin-top: 8px;
+  transform: translateY(0);
+  transition: max-height 0.3s ease, opacity 0.3s ease, transform 0.3s ease, margin-top 0.3s ease;
+}
+
+.audio-weather-card__collapsed-content {
+  margin-top: 8px;
+}
+
+.audio-weather-card--collapsed .audio-weather-card__content {
+  max-height: 0;
+  opacity: 0;
+  margin-top: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+}
+
+.audio-weather-card--hidden {
+  opacity: 0;
+  transform: translateY(-12px);
+  pointer-events: none;
+}
+
+.audio-weather__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-weather__summary-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.audio-weather__location {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-weather__time {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  opacity: 0.72;
+}
+
+.audio-weather__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.audio-weather__condition {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.8;
+}
+
+.audio-weather__temp {
+  white-space: nowrap;
+  opacity: 0.9;
+}
+
+.audio-weather__status {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  opacity: 0.72;
+}
+
+.audio-weather__collapsed-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.audio-weather__collapsed-country {
+  min-width: 0;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.audio-weather__collapsed-time {
+  white-space: nowrap;
+  opacity: 0.82;
+}
+
+.audio-weather-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  opacity: 0.92;
+}
+
+.audio-weather-inline {
+  display: none;
+}
+
+.audio-weather-mobile-badge {
+  display: none;
 }
 
 .audio-player__header {
@@ -85,7 +284,7 @@
 
 .audio-player__collapse-button {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: none;
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 9px;
@@ -103,7 +302,6 @@
 }
 
 .audio-player__collapse-button:hover {
-  border-color: rgba(255, 255, 255, 0.6);
   color: rgba(255, 255, 255, 0.85);
 }
 
@@ -422,6 +620,10 @@
 }
 
 @media (max-width: 768px) {
+  .audio-weather-card {
+    display: none;
+  }
+
   .audio-player {
     top: auto;
     right: auto;
@@ -463,6 +665,37 @@
   .audio-player__controls {
     margin-bottom: 0;
     font-size: 11px;
+  }
+
+  .audio-weather-inline {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .audio-weather-mobile-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-top: 2px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .audio-weather-mobile-badge__temp {
+    white-space: nowrap;
+    opacity: 0.88;
+  }
+
+  .audio-weather-mobile-badge .audio-weather-icon {
+    width: 12px;
+    height: 12px;
   }
 
   .audio-player--mobile-compact .audio-player__details {
@@ -530,7 +763,9 @@
   }
 
   .audio-player__rpm-marks,
-  .audio-player__dsp-header {
+  .audio-player__dsp-header,
+  .audio-weather__time,
+  .audio-weather__status {
     color: rgba(255, 255, 255, 0.66);
     opacity: 1;
   }
