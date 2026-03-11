@@ -28,12 +28,17 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key for server routes |
 | `STRIPE_SECRET_KEY` | Stripe secret key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+| `APP_ORIGIN` | Canonical site origin for production checkout redirects (e.g. `https://thx4cmn.com`) |
 | `NEXT_PUBLIC_STRIPE_PRICE_SAMPLE_PACK` | Stripe price ID for the sample pack |
 | `NEXT_PUBLIC_STRIPE_PRICE_MIDI_DEVICE` | Stripe price ID for the hardware device |
 | `R2_ENDPOINT` | Cloudflare R2 S3 endpoint |
 | `R2_ACCESS_KEY_ID` | R2 access key ID |
 | `R2_SECRET_ACCESS_KEY` | R2 secret access key |
 | `R2_BUCKET` | R2 bucket name |
+| `OPENWEATHER_API_KEY` | OpenWeather API key for `/api/weather/current` |
+
+Security note:
+If credentials were ever committed with real values, rotate them immediately in Stripe, Supabase, and R2 before deploying.
 
 ## Stripe webhook setup
 
@@ -112,3 +117,4 @@ Run both:
 ```bash
 npm run test:device-protocol
 ```
+
