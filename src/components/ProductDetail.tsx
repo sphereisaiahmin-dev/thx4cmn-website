@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { ProductModelScene } from '@/components/ProductModelScene';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
+import { normalizeCheckoutQuantity } from '@/lib/checkout';
 import { formatCurrency } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
 
@@ -73,9 +74,12 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
                   id="quantity"
                   type="number"
                   min={1}
+                  step={1}
                   value={quantity}
                   onChange={(event) => {
-                    const nextValue = Math.max(1, Number(event.target.value) || 1);
+                    const nextValue = normalizeCheckoutQuantity(
+                      Number.parseInt(event.target.value, 10),
+                    );
                     setQuantity(nextValue);
                   }}
                   className="w-24 rounded-full border border-black/30 px-3 py-2 text-sm"

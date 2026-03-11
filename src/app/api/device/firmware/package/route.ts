@@ -57,9 +57,10 @@ export async function GET(request: Request) {
           }
           return response.text();
         });
-    const payload = JSON.parse(text) as unknown;
-    return NextResponse.json(payload, {
+
+    return new NextResponse(text, {
       headers: {
+        'Content-Type': 'application/json; charset=utf-8',
         'Cache-Control': 'no-store',
       },
     });

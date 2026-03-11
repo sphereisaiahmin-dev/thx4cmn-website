@@ -19,8 +19,81 @@ const waitForServer = async (timeoutMs = 60000) => {
   throw new Error('Next.js server did not become ready in time.');
 };
 
+const resolvePackageManagerCommand = () => {
+  const npmExecPath = process.env.npm_execpath;
+  if (npmExecPath) {
+    const looksLikeScript = /\.(?:c?m?js)$/i.test(npmExecPath);
+    if (looksLikeScript) {
+      return {
+        command: process.execPath,
+        args: [npmExecPath],
+      };
+    }
+
+    return {
+      command: npmExecPath,
+      args: [],
+    };
+  }
+
+  return {
+    command: process.platform === 'win32' ? 'npm.cmd' : 'npm',
+    args: [],
+  };
+};
+
+const stopChildProcess = (child) =>
+  new Promise((resolve) => {
+    if (!child || child.killed) {
+      resolve();
+      return;
+    }
+
+    const finish = () => {
+      clearTimeout(timeoutId);
+      resolve();
+    };
+
+    const timeoutId = setTimeout(() => {
+      if (process.platform === 'win32') {
+        const hardKiller = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+          stdio: 'ignore',
+        });
+        hardKiller.once('exit', finish);
+        hardKiller.once('error', finish);
+        return;
+      }
+
+      child.kill('SIGKILL');
+      finish();
+    }, 5000);
+
+    child.once('exit', finish);
+
+    if (process.platform === 'win32') {
+      const killer = spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+        stdio: 'ignore',
+      });
+      killer.once('exit', finish);
+      killer.once('error', () => {
+        child.kill();
+      });
+      return;
+    }
+
+    child.kill('SIGTERM');
+  });
+
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
+};
+
+const waitForPlayerMounted = async (page, timeout = 10000) => {
+  await page.waitForFunction(
+    () => document.querySelectorAll('.audio-player').length === 1,
+    undefined,
+    { timeout },
+  );
 };
 
 const enterPlayingState = async (page) => {
@@ -66,14 +139,32 @@ const run = async () => {
     R2_SECRET_ACCESS_KEY: '',
     R2_BUCKET: '',
   };
-  const devServer = spawn('npm', ['run', 'dev', '--', '--hostname', '127.0.0.1', '--port', '3000'], {
+  const packageManager = resolvePackageManagerCommand();
+  const devServer = spawn(
+    packageManager.command,
+    [...packageManager.args, 'run', 'dev', '--', '--hostname', '127.0.0.1', '--port', '3000'],
+    {
     stdio: 'inherit',
     env: verifyEnv,
+    },
+  );
+
+  const devServerErrorPromise = new Promise((_, reject) => {
+    devServer.once('error', reject);
+  });
+  const devServerExitPromise = new Promise((_, reject) => {
+    devServer.once('exit', (code, signal) => {
+      reject(
+        new Error(
+          `Dev server exited before readiness check (code: ${String(code)}, signal: ${String(signal)}).`,
+        ),
+      );
+    });
   });
 
   let browser;
   try {
-    await waitForServer();
+    await Promise.race([waitForServer(), devServerErrorPromise, devServerExitPromise]);
 
     browser = await chromium.launch({
       headless: true,
@@ -156,6 +247,7 @@ const run = async () => {
 
     // Desktop off-home: mounted + collapsed remains unchanged.
     await page.goto(`${BASE_URL}/store`, { waitUntil: 'networkidle' });
+    await waitForPlayerMounted(page);
     const desktopPlayer = page.locator('.audio-player');
     assert((await desktopPlayer.count()) === 1, 'Desktop non-home route should keep the player mounted.');
     await page.waitForFunction(() => {
@@ -413,6 +505,7 @@ const run = async () => {
 
     // Mobile non-home: compact state should collapse details without unmounting them.
     await page.goto(`${BASE_URL}/store`, { waitUntil: 'networkidle' });
+    await waitForPlayerMounted(page);
     const mobileOffHomePlayer = page.locator('.audio-player');
     assert((await mobileOffHomePlayer.count()) === 1, 'Mobile non-home route should keep player mounted.');
     assert(await mobileOffHomePlayer.isVisible(), 'Mobile non-home route should keep footer player visible.');
@@ -500,7 +593,7 @@ const run = async () => {
     console.log('Web player verification passed.');
   } finally {
     if (browser) await browser.close();
-    devServer.kill('SIGTERM');
+    await stopChildProcess(devServer);
   }
 };
 

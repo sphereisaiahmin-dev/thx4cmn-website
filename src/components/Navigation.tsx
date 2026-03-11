@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
+import { toCheckoutItemsPayload } from '@/lib/checkout';
 import { formatCurrency } from '@/lib/format';
 import { HEADER_LOGO_MODEL_URL, HEADER_LOGO_SCALE, LogoScene } from '@/components/LogoScene';
 import { useCartStore } from '@/store/cart';
@@ -83,6 +84,7 @@ export const Navigation = () => {
   const routeExitDurationMsRef = useRef<number>(DEFAULT_ROUTE_EXIT_DURATION_MS);
   const [isRouteTransitioning, setIsRouteTransitioning] = useState(false);
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const totalQuantity = useMemo(
     () => items.reduce((total, item) => total + item.quantity, 0),
     [items],
@@ -127,12 +129,6 @@ export const Navigation = () => {
       window.removeEventListener('resize', syncRouteExitDuration);
     };
   }, [pathname, syncRouteExitDuration]);
-
-  useEffect(() => {
-    for (const item of navItems) {
-      router.prefetch(item.href);
-    }
-  }, [router]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -224,16 +220,19 @@ export const Navigation = () => {
 
   const handleCheckout = async () => {
     if (items.length === 0 || isCheckoutLoading) return;
+    setCheckoutError(null);
     setIsCheckoutLoading(true);
     try {
       const response = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-          })),
+          items: toCheckoutItemsPayload(
+            items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+            })),
+          ),
         }),
       });
 
@@ -249,13 +248,18 @@ export const Navigation = () => {
         throw new Error(`${message}${requestId}`);
       }
 
-      const { url } = await response.json();
-      if (url) {
-        setMiniCartOpen(false);
-        window.location.href = url;
+      const payload = (await response.json()) as { url?: string; requestId?: string };
+      const checkoutUrl = typeof payload.url === 'string' ? payload.url : '';
+      if (!checkoutUrl) {
+        const requestId = payload.requestId ? ` (requestId: ${payload.requestId})` : '';
+        throw new Error(`Checkout session did not return a URL.${requestId}`);
       }
+
+      setMiniCartOpen(false);
+      window.location.href = checkoutUrl;
     } catch (error) {
       console.error(error);
+      setCheckoutError(error instanceof Error ? error.message : 'Unable to start checkout.');
       setIsCheckoutLoading(false);
     }
   };
@@ -289,6 +293,7 @@ export const Navigation = () => {
                 <Link
                   key={item.href}
                   href={item.href}
+                  prefetch={false}
                   className={`nav-link${isActive ? ' nav-link-active' : ''}`}
                   onClick={(event) => handleNavLinkClick(event, item.href)}
                   onMouseEnter={() => handleNavLinkIntent(item.href)}
@@ -300,8 +305,11 @@ export const Navigation = () => {
             })}
             <Link
               href="/cart"
+              prefetch={false}
               className="nav-link inline-flex items-center gap-2 md:hidden"
               onClick={(event) => handleNavLinkClick(event, '/cart')}
+              onMouseEnter={() => handleNavLinkIntent('/cart')}
+              onFocus={() => handleNavLinkIntent('/cart')}
             >
               <span>CART</span>
               {totalQuantity > 0 ? (
@@ -315,7 +323,10 @@ export const Navigation = () => {
               className="nav-link hidden items-center gap-2 md:inline-flex"
               aria-expanded={isMiniCartOpen}
               aria-controls="mini-cart"
-              onClick={() => setMiniCartOpen(true)}
+              onClick={() => {
+                setCheckoutError(null);
+                setMiniCartOpen(true);
+              }}
             >
               <span>CART</span>
               {totalQuantity > 0 ? (
@@ -382,6 +393,7 @@ export const Navigation = () => {
             <div className="flex flex-col gap-3">
               <Link
                 href="/cart"
+                prefetch={false}
                 className="nav-link inline-flex w-full items-center justify-center px-4 py-3 text-xs uppercase tracking-[0.3em]"
                 onClick={() => setMiniCartOpen(false)}
               >
@@ -395,6 +407,9 @@ export const Navigation = () => {
               >
                 {isCheckoutLoading ? 'Redirecting…' : 'Checkout'}
               </button>
+              {checkoutError ? (
+                <p className="text-xs text-red-600">{checkoutError}</p>
+              ) : null}
             </div>
           </div>
         </aside>
