@@ -343,12 +343,17 @@ export const Navigation = () => {
         />
         <aside
           id="mini-cart"
-          className={`absolute right-0 top-0 flex h-full w-full max-w-sm flex-col gap-6 border-l border-black/10 bg-white p-6 transition-transform duration-300 ${
-            isMiniCartOpen ? 'translate-x-0' : 'translate-x-full'
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mini-cart-title"
+          className={`absolute right-6 top-6 flex w-[calc(100%-3rem)] max-h-[calc(100vh-3rem)] max-w-sm flex-col gap-6 overflow-hidden rounded-[1.75rem] border border-black/10 bg-black/5 p-6 shadow-[0_16px_40px_rgba(0,0,0,0.12)] backdrop-blur-sm transition-all duration-300 ${
+            isMiniCartOpen ? 'translate-x-0 opacity-100' : 'translate-x-[110%] opacity-0'
           }`}
         >
           <div className="flex items-center justify-between">
-            <p className="text-xs uppercase tracking-[0.3em]">Cart</p>
+            <h2 id="mini-cart-title" className="text-xs uppercase tracking-[0.3em]">
+              Cart
+            </h2>
             <button
               type="button"
               className="text-xs uppercase tracking-[0.3em] text-black/60"
@@ -360,7 +365,7 @@ export const Navigation = () => {
           {items.length === 0 ? (
             <p className="text-sm text-black/60">Your cart is empty.</p>
           ) : (
-            <ul className="flex flex-1 flex-col gap-4 overflow-auto pr-2">
+            <ul className="flex flex-1 flex-col gap-4 overflow-auto pr-1">
               {items.map((item) => (
                 <li key={item.productId} className="flex items-start justify-between gap-4">
                   <div className="space-y-1">
