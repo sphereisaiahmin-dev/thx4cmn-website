@@ -3,43 +3,82 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
 import { getProductById } from '@/data/products';
+import { parseCheckoutItemsPayload } from '@/lib/checkout';
 import { getStripeClient } from '@/lib/stripe';
-
-interface CheckoutItem {
-  productId: string;
-  quantity: number;
-}
 
 export const runtime = 'nodejs';
 
+const APP_ORIGIN_ENV_KEY = 'APP_ORIGIN';
+
+const normalizeOrigin = (candidate: string | null) => {
+  if (!candidate) return null;
+
+  try {
+    return new URL(candidate).origin;
+  } catch {
+    return null;
+  }
+};
+
+const resolveCheckoutOrigin = (requestHeaders: Headers) => {
+  const configuredOrigin = normalizeOrigin(process.env[APP_ORIGIN_ENV_KEY] ?? null);
+  if (process.env.NODE_ENV === 'production') {
+    if (!configuredOrigin) {
+      throw new Error(`${APP_ORIGIN_ENV_KEY} must be configured for production checkout.`);
+    }
+    return configuredOrigin;
+  }
+
+  if (configuredOrigin) {
+    return configuredOrigin;
+  }
+
+  const originHeader = normalizeOrigin(requestHeaders.get('origin'));
+  if (originHeader) {
+    return originHeader;
+  }
+
+  const forwardedProto = requestHeaders.get('x-forwarded-proto');
+  const forwardedHost = requestHeaders.get('x-forwarded-host') ?? requestHeaders.get('host');
+  const forwardedOrigin =
+    forwardedProto && forwardedHost ? normalizeOrigin(`${forwardedProto}://${forwardedHost}`) : null;
+
+  return forwardedOrigin ?? 'http://localhost:3000';
+};
+
 export async function POST(request: Request) {
   const requestId = globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
+
+  let payload: unknown;
   try {
-    const { items } = (await request.json()) as { items: CheckoutItem[] };
-
-    if (!items || items.length === 0) {
-      return NextResponse.json(
-        { error: 'No items provided.', requestId },
-        { status: 400 },
-      );
-    }
-
-    const invalidItem = items.find(
-      (item) => !Number.isFinite(item.quantity) || item.quantity < 1,
+    payload = await request.json();
+  } catch {
+    return NextResponse.json(
+      { error: 'Malformed checkout JSON payload.', requestId },
+      { status: 400 },
     );
+  }
 
-    if (invalidItem) {
-      return NextResponse.json(
-        { error: 'All items must include a quantity of at least 1.', requestId },
-        { status: 400 },
-      );
-    }
+  const parsedItems = parseCheckoutItemsPayload(payload);
+  if (!parsedItems.ok) {
+    return NextResponse.json(
+      { error: parsedItems.error, requestId },
+      { status: 400 },
+    );
+  }
 
+  const items = parsedItems.items;
+  const unknownProduct = items.find((item) => !getProductById(item.productId));
+  if (unknownProduct) {
+    return NextResponse.json(
+      { error: `Unknown product "${unknownProduct.productId}".`, requestId },
+      { status: 400 },
+    );
+  }
+
+  try {
     const lineItems = items.map((item) => {
-      const product = getProductById(item.productId);
-      if (!product) {
-        throw new Error(`Unknown product ${item.productId}`);
-      }
+      const product = getProductById(item.productId)!;
 
       if (product.stripePriceId) {
         return {
@@ -62,21 +101,13 @@ export async function POST(request: Request) {
     });
 
     const requestHeaders = headers();
-    const originHeader = requestHeaders.get('origin');
-    const forwardedProto = requestHeaders.get('x-forwarded-proto');
-    const forwardedHost = requestHeaders.get('x-forwarded-host') ?? requestHeaders.get('host');
-    const origin =
-      originHeader ??
-      (forwardedProto && forwardedHost ? `${forwardedProto}://${forwardedHost}` : null) ??
-      'http://localhost:3000';
+    const origin = resolveCheckoutOrigin(requestHeaders);
     const stripe = getStripeClient();
     const logContext = {
       requestId,
       itemCount: items.length,
       origin,
-      hasOriginHeader: Boolean(originHeader),
-      forwardedProto,
-      forwardedHost,
+      usingConfiguredOrigin: Boolean(process.env[APP_ORIGIN_ENV_KEY]),
     };
 
     const session = await stripe.checkout.sessions.create({

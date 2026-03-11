@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
 import { getProductById } from '@/data/products';
+import { parseCheckoutItemsPayload } from '@/lib/checkout';
 import { getStripeClient } from '@/lib/stripe';
 import { createServerClient } from '@/lib/supabase/server';
 
@@ -35,7 +36,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ received: true });
     }
 
-    const items = JSON.parse(metadata) as Array<{ productId: string; quantity: number }>;
+    let metadataItemsPayload: unknown;
+    try {
+      metadataItemsPayload = JSON.parse(metadata) as unknown;
+    } catch {
+      console.error('Checkout metadata cart is invalid JSON.', {
+        sessionId: session.id,
+      });
+      return NextResponse.json({ received: true });
+    }
+
+    const parsedMetadataItems = parseCheckoutItemsPayload({ items: metadataItemsPayload });
+    if (!parsedMetadataItems.ok) {
+      console.error('Checkout metadata cart payload is invalid.', {
+        sessionId: session.id,
+        error: parsedMetadataItems.error,
+      });
+      return NextResponse.json({ received: true });
+    }
+
+    const items = parsedMetadataItems.items;
 
     const supabase = createServerClient();
     const { data: order, error: orderError } = await supabase

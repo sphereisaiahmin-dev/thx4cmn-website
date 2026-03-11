@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+import { normalizeCheckoutQuantity, toCheckoutItemsPayload } from '@/lib/checkout';
 import { formatCurrency } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
 
@@ -13,6 +14,7 @@ export default function CartPage() {
   const removeItem = useCartStore((state) => state.removeItem);
   const clear = useCartStore((state) => state.clear);
   const [isLoading, setIsLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [pendingCheckoutUrl, setPendingCheckoutUrl] = useState<string | null>(null);
   const total = useMemo(
     () => items.reduce((sum, item) => sum + item.priceCents * item.quantity, 0),
@@ -30,6 +32,7 @@ export default function CartPage() {
   useEffect(() => {
     if (items.length > 0) return;
     setPendingCheckoutUrl(null);
+    setCheckoutError(null);
     setIsLoading(false);
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
@@ -38,6 +41,7 @@ export default function CartPage() {
 
   const handleCheckout = async () => {
     if (isLoading || items.length === 0) return;
+    setCheckoutError(null);
     if (pendingCheckoutUrl) {
       setIsLoading(true);
       window.location.href = pendingCheckoutUrl;
@@ -49,10 +53,12 @@ export default function CartPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-          })),
+          items: toCheckoutItemsPayload(
+            items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+            })),
+          ),
         }),
       });
 
@@ -68,20 +74,25 @@ export default function CartPage() {
         throw new Error(`${message}${requestId}`);
       }
 
-      const { url } = await response.json();
-      if (url) {
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(CHECKOUT_STORAGE_KEY, url);
-        }
-        setPendingCheckoutUrl(url);
-        window.location.href = url;
+      const payload = (await response.json()) as { url?: string; requestId?: string };
+      const checkoutUrl = typeof payload.url === 'string' ? payload.url : '';
+      if (!checkoutUrl) {
+        const requestId = payload.requestId ? ` (requestId: ${payload.requestId})` : '';
+        throw new Error(`Checkout session did not return a URL.${requestId}`);
       }
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(CHECKOUT_STORAGE_KEY, checkoutUrl);
+      }
+      setPendingCheckoutUrl(checkoutUrl);
+      window.location.href = checkoutUrl;
     } catch (error) {
       console.error(error);
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
       }
       setPendingCheckoutUrl(null);
+      setCheckoutError(error instanceof Error ? error.message : 'Unable to start checkout.');
       setIsLoading(false);
     }
   };
@@ -111,13 +122,13 @@ export default function CartPage() {
                   <input
                     type="number"
                     min={1}
+                    step={1}
                     value={item.quantity}
                     onChange={(event) => {
-                      const nextQuantity = Number(event.target.value);
-                      updateQuantity(
-                        item.productId,
-                        Number.isFinite(nextQuantity) && nextQuantity > 0 ? nextQuantity : 1,
+                      const nextQuantity = normalizeCheckoutQuantity(
+                        Number.parseInt(event.target.value, 10),
                       );
+                      updateQuantity(item.productId, nextQuantity);
                     }}
                     className="w-20 rounded-md bg-black/10 px-3 py-2 text-sm"
                   />
@@ -154,6 +165,9 @@ export default function CartPage() {
                 Clear cart
               </button>
             </div>
+            {checkoutError ? (
+              <p className="text-xs text-red-600">{checkoutError}</p>
+            ) : null}
           </div>
         </div>
       )}

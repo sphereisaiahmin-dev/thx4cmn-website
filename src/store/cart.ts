@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 import type { Product } from '@/data/products';
+import { normalizeCheckoutQuantity } from '@/lib/checkout';
 
 export interface CartItem {
   productId: string;
@@ -28,18 +29,24 @@ export const useCartStore = create<CartState>()(
       items: [],
       addItem: (item) =>
         set((state) => {
+          const normalizedQuantity = normalizeCheckoutQuantity(item.quantity);
           const existing = state.items.find((cartItem) => cartItem.productId === item.productId);
           if (existing) {
             return {
               items: state.items.map((cartItem) =>
                 cartItem.productId === item.productId
-                  ? { ...cartItem, quantity: cartItem.quantity + item.quantity }
+                  ? {
+                      ...cartItem,
+                      quantity: normalizeCheckoutQuantity(cartItem.quantity + normalizedQuantity),
+                    }
                   : cartItem,
               ),
             };
           }
 
-          return { items: [...state.items, item] };
+          return {
+            items: [...state.items, { ...item, quantity: normalizedQuantity }],
+          };
         }),
       removeItem: (productId) =>
         set((state) => ({
@@ -47,9 +54,7 @@ export const useCartStore = create<CartState>()(
         })),
       updateQuantity: (productId, quantity) =>
         set((state) => {
-          const sanitizedQuantity = Number.isFinite(quantity)
-            ? Math.max(1, Math.floor(quantity))
-            : 1;
+          const sanitizedQuantity = normalizeCheckoutQuantity(quantity);
 
           return {
             items: state.items.map((item) =>
@@ -63,6 +68,29 @@ export const useCartStore = create<CartState>()(
     }),
     {
       name: 'thx4cmn-cart',
+      merge: (persistedState, currentState) => {
+        const persistedItems = Array.isArray((persistedState as Partial<CartState>)?.items)
+          ? (persistedState as Partial<CartState>).items ?? []
+          : [];
+
+        return {
+          ...currentState,
+          ...(persistedState as Partial<CartState>),
+          items: persistedItems
+            .filter(
+              (item): item is CartItem =>
+                typeof item?.productId === 'string' &&
+                typeof item.name === 'string' &&
+                typeof item.priceCents === 'number' &&
+                typeof item.currency === 'string' &&
+                typeof item.type === 'string',
+            )
+            .map((item) => ({
+              ...item,
+              quantity: normalizeCheckoutQuantity(item.quantity),
+            })),
+        };
+      },
     },
   ),
 );
