@@ -15,18 +15,24 @@ export const HEADER_LOGO_SCALE = LOGO_SCALE * 2;
 
 const TAU = Math.PI * 2;
 const INTRO_X_FLIP_DURATION_MS = 2600;
-const INTRO_PAUSE_AFTER_X_MS = 500;
+const INTRO_PAUSE_AFTER_X_MS = 0;
 const INTRO_JUMP_DURATION_MS = 1200;
 const INTRO_X_SPIN = 4 * Math.PI;
 const JUMP_HEIGHT = 0.55;
-const INACTIVITY_RESET_MS = 10000;
-const PERIODIC_REPLAY_MS = 60000;
+const INACTIVITY_RESET_MS = 2000;
+const PERIODIC_REPLAY_MS = 30000;
+const IDLE_HOVER_ROTATION_DEG = 8;
+const IDLE_HOVER_ROTATION_RAD = MathUtils.degToRad(IDLE_HOVER_ROTATION_DEG);
+const IDLE_HOVER_ROTATION_HZ = 0.2;
+const IDLE_HOVER_BOB_AMPLITUDE = 0.08;
+const IDLE_HOVER_BOB_HZ = 0.24;
+const IDLE_HOVER_BOB_PHASE_OFFSET = 0;
 
 const DRAG_ROTATION_SENSITIVITY = 0.005;
 const DRAG_VELOCITY_BLEND = 0.42;
-const RELEASE_VELOCITY_BOOST = 1.28;
+const RELEASE_VELOCITY_BOOST = 1.4;
 const MAX_ANGULAR_SPEED = 12;
-const ANGULAR_DAMPING = 2.1;
+const ANGULAR_DAMPING = 1.4;
 
 const MIN_SCALE_FACTOR = 1;
 const MAX_SCALE_FACTOR = 1.15;
@@ -41,6 +47,7 @@ const WIGGLE_DECAY = 2.7;
 const WIGGLE_AMPLITUDE = 0.28;
 const WIGGLE_MIN_DURATION_MS = 900;
 const PERIODIC_RESET_MIN_DURATION_MS = 650;
+const BASE_POSE_BLEND_LAMBDA = 12;
 
 type AnimationPhase =
   | 'introXFlip'
@@ -50,10 +57,26 @@ type AnimationPhase =
   | 'wiggleReset'
   | 'periodicReplayReset';
 
+const PHASE_HOVER_WEIGHT: Record<AnimationPhase, number> = {
+  introXFlip: 1,
+  introPauseAfterX: 1,
+  introJump: 1,
+  idleSpin: 1,
+  wiggleReset: 0.32,
+  periodicReplayReset: 0.18,
+};
+
 type Rotation = {
   x: number;
   y: number;
   z: number;
+};
+
+type Pose = {
+  rotationX: number;
+  rotationY: number;
+  rotationZ: number;
+  positionY: number;
 };
 
 type PointerState = {
@@ -199,6 +222,13 @@ const LogoRig = ({ modelUrl, scale, fitMobileAspect, onDragStateChange }: LogoRi
   });
   const groupWorldPositionRef = useRef(new Vector3());
   const groupViewPositionRef = useRef(new Vector3());
+  const renderedBasePoseRef = useRef<Pose>({
+    rotationX: 0,
+    rotationY: 0,
+    rotationZ: 0,
+    positionY: 0,
+  });
+  const hoverEpochMsRef = useRef(0);
 
   const handleBoundsWidthChange = useCallback((width: number) => {
     if (!Number.isFinite(width) || width <= 0) return;
@@ -421,29 +451,37 @@ const LogoRig = ({ modelUrl, scale, fitMobileAspect, onDragStateChange }: LogoRi
 
     phaseElapsedMsRef.current += delta * 1000;
 
-    let baseRotationX = 0;
-    let baseRotationY = 0;
-    let baseRotationZ = 0;
-    let basePositionY = 0;
+    const phase = phaseRef.current;
+    const phasePose: Pose = {
+      rotationX: 0,
+      rotationY: 0,
+      rotationZ: 0,
+      positionY: 0,
+    };
 
-    switch (phaseRef.current) {
+    switch (phase) {
       case 'introXFlip': {
         const progress = MathUtils.clamp(
           phaseElapsedMsRef.current / INTRO_X_FLIP_DURATION_MS,
           0,
           1,
         );
-        baseRotationX = INTRO_X_SPIN * easeOutCubic(progress);
+        phasePose.rotationX = INTRO_X_SPIN * easeOutCubic(progress);
 
         if (progress >= 1) {
-          phaseRef.current = 'introPauseAfterX';
-          phaseElapsedMsRef.current = 0;
-          baseRotationX = 0;
+          if (INTRO_PAUSE_AFTER_X_MS > 0) {
+            phaseRef.current = 'introPauseAfterX';
+            phaseElapsedMsRef.current = 0;
+          } else {
+            phaseRef.current = 'introJump';
+            phaseElapsedMsRef.current = 0;
+          }
         }
         break;
       }
 
       case 'introPauseAfterX': {
+        phasePose.rotationX = INTRO_X_SPIN;
         if (phaseElapsedMsRef.current >= INTRO_PAUSE_AFTER_X_MS) {
           phaseRef.current = 'introJump';
           phaseElapsedMsRef.current = 0;
@@ -457,19 +495,21 @@ const LogoRig = ({ modelUrl, scale, fitMobileAspect, onDragStateChange }: LogoRi
           0,
           1,
         );
-        basePositionY = Math.sin(progress * Math.PI) * JUMP_HEIGHT;
+        phasePose.rotationX = INTRO_X_SPIN;
+        phasePose.positionY = Math.sin(progress * Math.PI) * JUMP_HEIGHT;
 
         if (progress >= 1) {
+          const normalizedRotationX = wrapAngle(INTRO_X_SPIN);
+          renderedBasePoseRef.current.rotationX = normalizedRotationX;
+          phasePose.rotationX = normalizedRotationX;
           phaseRef.current = 'idleSpin';
           phaseElapsedMsRef.current = 0;
           lastInteractionAtRef.current = now;
-          basePositionY = 0;
         }
         break;
       }
 
       case 'idleSpin': {
-        baseRotationY = 0;
         break;
       }
 
@@ -481,9 +521,9 @@ const LogoRig = ({ modelUrl, scale, fitMobileAspect, onDragStateChange }: LogoRi
           Math.exp(-WIGGLE_DECAY * timeSeconds) *
           WIGGLE_AMPLITUDE;
 
-        baseRotationX = wiggle * 0.72;
-        baseRotationZ = wiggle * 0.36;
-        basePositionY = wiggle * 0.08;
+        phasePose.rotationX = wiggle * 0.72;
+        phasePose.rotationZ = wiggle * 0.36;
+        phasePose.positionY = wiggle * 0.08;
 
         physicsRotationRef.current.x = MathUtils.lerp(physicsRotationRef.current.x, 0, blend);
         physicsRotationRef.current.y = MathUtils.lerp(physicsRotationRef.current.y, 0, blend);
@@ -527,9 +567,6 @@ const LogoRig = ({ modelUrl, scale, fitMobileAspect, onDragStateChange }: LogoRi
 
           transitionToIdle();
           lastInteractionAtRef.current = now;
-          baseRotationX = 0;
-          baseRotationZ = 0;
-          basePositionY = 0;
         }
         break;
       }
@@ -576,14 +613,54 @@ const LogoRig = ({ modelUrl, scale, fitMobileAspect, onDragStateChange }: LogoRi
           scaleFactorRef.current = 1;
           beginIntroSequence(now);
           lastInteractionAtRef.current = now;
-          baseRotationX = 0;
-          baseRotationY = 0;
-          baseRotationZ = 0;
-          basePositionY = 0;
         }
         break;
       }
     }
+
+    if (hoverEpochMsRef.current === 0) {
+      hoverEpochMsRef.current = now;
+    }
+
+    const hoverTimeSeconds = (now - hoverEpochMsRef.current) / 1000;
+    const hoverRotationOscillation = hoverTimeSeconds * IDLE_HOVER_ROTATION_HZ * TAU;
+    const hoverBobOscillation =
+      hoverTimeSeconds * IDLE_HOVER_BOB_HZ * TAU + IDLE_HOVER_BOB_PHASE_OFFSET;
+    const hoverPose: Pose = {
+      rotationX: Math.sin(hoverRotationOscillation) * IDLE_HOVER_ROTATION_RAD,
+      rotationY: Math.cos(hoverRotationOscillation) * IDLE_HOVER_ROTATION_RAD,
+      rotationZ: 0,
+      positionY: Math.sin(hoverBobOscillation) * IDLE_HOVER_BOB_AMPLITUDE,
+    };
+    const hoverWeight = PHASE_HOVER_WEIGHT[phaseRef.current];
+    const targetPose: Pose = {
+      rotationX: phasePose.rotationX + hoverPose.rotationX * hoverWeight,
+      rotationY: phasePose.rotationY + hoverPose.rotationY * hoverWeight,
+      rotationZ: phasePose.rotationZ + hoverPose.rotationZ * hoverWeight,
+      positionY: phasePose.positionY + hoverPose.positionY * hoverWeight,
+    };
+    const basePoseBlend = 1 - Math.exp(-BASE_POSE_BLEND_LAMBDA * delta);
+    const renderedBasePose = renderedBasePoseRef.current;
+    renderedBasePose.rotationX = MathUtils.lerp(
+      renderedBasePose.rotationX,
+      targetPose.rotationX,
+      basePoseBlend,
+    );
+    renderedBasePose.rotationY = MathUtils.lerp(
+      renderedBasePose.rotationY,
+      targetPose.rotationY,
+      basePoseBlend,
+    );
+    renderedBasePose.rotationZ = MathUtils.lerp(
+      renderedBasePose.rotationZ,
+      targetPose.rotationZ,
+      basePoseBlend,
+    );
+    renderedBasePose.positionY = MathUtils.lerp(
+      renderedBasePose.positionY,
+      targetPose.positionY,
+      basePoseBlend,
+    );
 
     if (phaseRef.current !== 'wiggleReset' && phaseRef.current !== 'periodicReplayReset') {
       physicsRotationRef.current.x = wrapAngle(
@@ -607,10 +684,10 @@ const LogoRig = ({ modelUrl, scale, fitMobileAspect, onDragStateChange }: LogoRi
       if (Math.abs(angularVelocityRef.current.z) < 0.0005) angularVelocityRef.current.z = 0;
     }
 
-    group.rotation.x = wrapAngle(baseRotationX + physicsRotationRef.current.x);
-    group.rotation.y = wrapAngle(baseRotationY + physicsRotationRef.current.y);
-    group.rotation.z = wrapAngle(baseRotationZ + physicsRotationRef.current.z);
-    group.position.y = basePositionY;
+    group.rotation.x = wrapAngle(renderedBasePose.rotationX + physicsRotationRef.current.x);
+    group.rotation.y = wrapAngle(renderedBasePose.rotationY + physicsRotationRef.current.y);
+    group.rotation.z = wrapAngle(renderedBasePose.rotationZ + physicsRotationRef.current.z);
+    group.position.y = renderedBasePose.positionY;
     const responsiveScaleFactor = computeWidthAnchoredScaleFactor({
       fitMobileAspect,
       canvasWidthPx: size.width,
@@ -675,7 +752,7 @@ export const LogoScene = ({
       camera={{ position: [0, 0, 8.5], fov: 40 }}
     >
       <ambientLight intensity={0.8} />
-      <directionalLight position={[-3, 0, 4]} intensity={1.2} />
+      <directionalLight position={[0, 1.8, 4.8]} intensity={1.35} />
       <Suspense fallback={<Html center className="text-xs text-black/50">Loading logo…</Html>}>
         <LogoRig
           modelUrl={modelUrl}
