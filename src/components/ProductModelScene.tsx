@@ -17,16 +17,20 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { ThreeCanvas } from './ThreeCanvas';
 
 type FitMode = 'default' | 'detail-fill';
+type ScenePerformanceMode = 'auto' | 'default' | 'constrained';
 
 interface ProductModelSceneProps {
   modelUrl: string;
   className?: string;
   fitMode?: FitMode;
+  isActive?: boolean;
+  performanceMode?: ScenePerformanceMode;
 }
 
 interface ProductModelRigProps {
   modelUrl: string;
   autoRotate: boolean;
+  isActive: boolean;
   onToggle: () => void;
   groupRef: RefObject<Group>;
 }
@@ -156,10 +160,10 @@ const DetailCameraFitter = ({ enabled, modelUrl, targetRef, controlsRef }: Detai
   return null;
 };
 
-const ProductModelRig = ({ modelUrl, autoRotate, onToggle, groupRef }: ProductModelRigProps) => {
+const ProductModelRig = ({ modelUrl, autoRotate, isActive, onToggle, groupRef }: ProductModelRigProps) => {
   useFrame((_, delta) => {
     const modelGroup = groupRef.current;
-    if (!modelGroup || !autoRotate) return;
+    if (!modelGroup || !autoRotate || !isActive) return;
     modelGroup.rotation.y += delta * 0.6;
     modelGroup.rotation.y = MathUtils.euclideanModulo(modelGroup.rotation.y, Math.PI * 2);
   });
@@ -183,13 +187,20 @@ export const ProductModelScene = ({
   modelUrl,
   className,
   fitMode = 'default',
+  isActive = true,
+  performanceMode = 'auto',
 }: ProductModelSceneProps) => {
   const [autoRotate, setAutoRotate] = useState(true);
   const groupRef = useRef<Group>(null);
   const controlsRef = useRef<OrbitControlsImpl>(null);
 
   return (
-    <ThreeCanvas className={className ?? 'h-48 w-full'} camera={{ position: [0, 0, 3.2], fov: 45 }}>
+    <ThreeCanvas
+      className={className ?? 'h-48 w-full'}
+      camera={{ position: [0, 0, 3.2], fov: 45 }}
+      isActive={isActive}
+      performanceMode={performanceMode}
+    >
       <ambientLight intensity={0.7} />
       <directionalLight position={[3, 3, 4]} intensity={1.1} />
       <directionalLight position={[-3, -2, 2]} intensity={0.6} />
@@ -200,6 +211,7 @@ export const ProductModelScene = ({
           groupRef={groupRef}
           modelUrl={modelUrl}
           autoRotate={autoRotate}
+          isActive={isActive}
           onToggle={() => setAutoRotate((value) => !value)}
         />
         <DetailCameraFitter
@@ -209,10 +221,13 @@ export const ProductModelScene = ({
           controlsRef={controlsRef}
         />
       </Suspense>
-      <OrbitControls ref={controlsRef} enablePan={false} enableZoom={false} enableDamping />
+      <OrbitControls
+        ref={controlsRef}
+        enablePan={false}
+        enableZoom={false}
+        enableDamping
+        enabled={isActive}
+      />
     </ThreeCanvas>
   );
 };
-
-useGLTF.preload('/api/3d/samplepack.glb');
-useGLTF.preload('/api/3d/thxc.glb');

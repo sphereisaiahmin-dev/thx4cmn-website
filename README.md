@@ -40,6 +40,9 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 Security note:
 If credentials were ever committed with real values, rotate them immediately in Stripe, Supabase, and R2 before deploying.
 
+Security note:
+If credentials were ever committed with real values, rotate them immediately in Stripe, Supabase, and R2 before deploying.
+
 ## Stripe webhook setup
 
 1. Install Stripe CLI.

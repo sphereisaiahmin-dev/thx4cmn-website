@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
+import { normalizeCheckoutQuantity, toCheckoutItemsPayload } from '@/lib/checkout';
 import { formatCurrency } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
 
@@ -13,11 +14,13 @@ export default function CartPage() {
   const removeItem = useCartStore((state) => state.removeItem);
   const clear = useCartStore((state) => state.clear);
   const [isLoading, setIsLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [pendingCheckoutUrl, setPendingCheckoutUrl] = useState<string | null>(null);
   const total = useMemo(
     () => items.reduce((sum, item) => sum + item.priceCents * item.quantity, 0),
     [items],
   );
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const storedUrl = window.localStorage.getItem(CHECKOUT_STORAGE_KEY);
@@ -30,6 +33,7 @@ export default function CartPage() {
   useEffect(() => {
     if (items.length > 0) return;
     setPendingCheckoutUrl(null);
+    setCheckoutError(null);
     setIsLoading(false);
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
@@ -38,21 +42,25 @@ export default function CartPage() {
 
   const handleCheckout = async () => {
     if (isLoading || items.length === 0) return;
+    setCheckoutError(null);
     if (pendingCheckoutUrl) {
       setIsLoading(true);
       window.location.href = pendingCheckoutUrl;
       return;
     }
+
     setIsLoading(true);
     try {
       const response = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-          })),
+          items: toCheckoutItemsPayload(
+            items.map((item) => ({
+              productId: item.productId,
+              quantity: item.quantity,
+            })),
+          ),
         }),
       });
 
@@ -68,95 +76,102 @@ export default function CartPage() {
         throw new Error(`${message}${requestId}`);
       }
 
-      const { url } = await response.json();
-      if (url) {
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(CHECKOUT_STORAGE_KEY, url);
-        }
-        setPendingCheckoutUrl(url);
-        window.location.href = url;
+      const payload = (await response.json()) as { url?: string; requestId?: string };
+      const checkoutUrl = typeof payload.url === 'string' ? payload.url : '';
+      if (!checkoutUrl) {
+        const requestId = payload.requestId ? ` (requestId: ${payload.requestId})` : '';
+        throw new Error(`Checkout session did not return a URL.${requestId}`);
       }
+
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(CHECKOUT_STORAGE_KEY, checkoutUrl);
+      }
+      setPendingCheckoutUrl(checkoutUrl);
+      window.location.href = checkoutUrl;
     } catch (error) {
       console.error(error);
       if (typeof window !== 'undefined') {
         window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
       }
       setPendingCheckoutUrl(null);
+      setCheckoutError(error instanceof Error ? error.message : 'Unable to start checkout.');
       setIsLoading(false);
     }
   };
 
   return (
     <section className="space-y-10">
-      <div className="space-y-3">
-        <p className="text-xs uppercase tracking-[0.4em] text-black/60">Cart</p>
-        <h1 className="text-3xl uppercase tracking-[0.3em]">Your selections</h1>
+      <div className="showcase-transition-title text-center">
+        <h1 className="text-3xl uppercase tracking-[0.3em]">Cart</h1>
       </div>
 
-      {items.length === 0 ? (
-        <p className="text-sm text-black/60">Your cart is empty.</p>
-      ) : (
-        <div className="space-y-6">
-          <div className="space-y-4">
-            {items.map((item) => (
-              <div
-                key={item.productId}
-                className="flex flex-col gap-4 border border-black/10 bg-black/5 p-4 md:flex-row md:items-center md:justify-between"
-              >
-                <div>
-                  <p className="text-sm uppercase tracking-[0.2em]">{item.name}</p>
-                  <p className="text-xs text-black/60">{formatCurrency(item.priceCents)}</p>
+      <div className="showcase-transition-cards max-h-[60vh] w-full overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6 lg:mx-auto lg:max-w-5xl">
+        {items.length === 0 ? (
+          <p className="text-sm text-black/60">Your cart is empty.</p>
+        ) : (
+          <div className="space-y-6">
+            <div className="space-y-4">
+              {items.map((item) => (
+                <div
+                  key={item.productId}
+                  className="flex flex-col gap-4 border border-black/10 bg-black/5 p-4 md:flex-row md:items-center md:justify-between"
+                >
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.2em]">{item.name}</p>
+                    <p className="text-xs text-black/60">{formatCurrency(item.priceCents)}</p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={item.quantity}
+                      onChange={(event) => {
+                        const nextQuantity = normalizeCheckoutQuantity(
+                          Number.parseInt(event.target.value, 10),
+                        );
+                        updateQuantity(item.productId, nextQuantity);
+                      }}
+                      className="w-20 rounded-md bg-black/10 px-3 py-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      className="text-xs uppercase tracking-[0.3em] text-black/60"
+                      onClick={() => removeItem(item.productId)}
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-4">
-                  <input
-                    type="number"
-                    min={1}
-                    value={item.quantity}
-                    onChange={(event) => {
-                      const nextQuantity = Number(event.target.value);
-                      updateQuantity(
-                        item.productId,
-                        Number.isFinite(nextQuantity) && nextQuantity > 0 ? nextQuantity : 1,
-                      );
-                    }}
-                    className="w-20 rounded-md bg-black/10 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    className="text-xs uppercase tracking-[0.3em] text-black/60"
-                    onClick={() => removeItem(item.productId)}
-                  >
-                    Remove
-                  </button>
-                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-4 border border-black/10 bg-black/5 p-6">
+              <div className="flex items-center justify-between text-sm uppercase tracking-[0.2em]">
+                <span>Total</span>
+                <span>{formatCurrency(total)}</span>
               </div>
-            ))}
-          </div>
-          <div className="flex flex-col gap-4 border border-black/10 bg-black/5 p-6">
-            <div className="flex items-center justify-between text-sm uppercase tracking-[0.2em]">
-              <span>Total</span>
-              <span>{formatCurrency(total)}</span>
-            </div>
-            <div className="flex flex-wrap gap-4">
-              <button
-                type="button"
-                onClick={handleCheckout}
-                disabled={isLoading}
-                className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isLoading ? 'Redirecting…' : pendingCheckoutUrl ? 'Resume checkout' : 'Checkout'}
-              </button>
-              <button
-                type="button"
-                onClick={clear}
-                className="text-xs uppercase tracking-[0.3em] text-black/60"
-              >
-                Clear cart
-              </button>
+              <div className="flex flex-wrap gap-4">
+                <button
+                  type="button"
+                  onClick={handleCheckout}
+                  disabled={isLoading}
+                  className="device-connect-hover-cycle rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isLoading ? 'Redirecting...' : pendingCheckoutUrl ? 'Resume checkout' : 'Checkout'}
+                </button>
+                <button
+                  type="button"
+                  onClick={clear}
+                  className="text-xs uppercase tracking-[0.3em] text-black/60"
+                >
+                  Clear cart
+                </button>
+              </div>
+              {checkoutError ? <p className="text-xs text-red-600">{checkoutError}</p> : null}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }

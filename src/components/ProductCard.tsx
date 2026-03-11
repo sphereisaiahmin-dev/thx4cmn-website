@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 
 import { ProductModelScene } from '@/components/ProductModelScene';
@@ -15,6 +16,37 @@ interface ProductCardProps {
 export const ProductCard = ({ product }: ProductCardProps) => {
   const addItem = useCartStore((state) => state.addItem);
   const modelUrl = modelUrlsByProductId[product.id];
+  const modelContainerRef = useRef<HTMLDivElement | null>(null);
+  const [isModelInView, setIsModelInView] = useState(false);
+  const [hasActivatedModel, setHasActivatedModel] = useState(false);
+
+  useEffect(() => {
+    if (!modelUrl) return;
+    const target = modelContainerRef.current;
+    if (!target) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsModelInView(true);
+      setHasActivatedModel(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const isIntersecting = entries.some((entry) => entry.isIntersecting);
+        setIsModelInView(isIntersecting);
+        if (isIntersecting) {
+          setHasActivatedModel(true);
+        }
+      },
+      {
+        rootMargin: '180px 0px',
+        threshold: 0.2,
+      },
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [modelUrl]);
 
   const handleAdd = () => {
     addItem({
@@ -34,11 +66,22 @@ export const ProductCard = ({ product }: ProductCardProps) => {
           <h3 className="text-base uppercase tracking-[0.25em] md:text-lg">{product.name}</h3>
         </div>
         {modelUrl ? (
-          <div className="flex w-full items-center justify-center rounded-2xl border border-black/10 bg-white">
-            <ProductModelScene
-              modelUrl={modelUrl}
-              className="aspect-square h-auto min-h-[280px] w-full max-w-[440px] md:min-h-[340px] md:max-w-[500px]"
-            />
+          <div
+            ref={modelContainerRef}
+            className="flex w-full items-center justify-center rounded-2xl border border-black/10 bg-white"
+          >
+            {hasActivatedModel ? (
+              <ProductModelScene
+                modelUrl={modelUrl}
+                className="aspect-square h-auto min-h-[280px] w-full max-w-[440px] md:min-h-[340px] md:max-w-[500px]"
+                isActive={isModelInView}
+                performanceMode="constrained"
+              />
+            ) : (
+              <div className="flex aspect-square h-auto min-h-[280px] w-full max-w-[440px] items-center justify-center text-xs uppercase tracking-[0.2em] text-black/50 md:min-h-[340px] md:max-w-[500px]">
+                3D preview loads on view
+              </div>
+            )}
           </div>
         ) : null}
       </div>

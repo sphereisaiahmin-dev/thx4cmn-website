@@ -17,6 +17,10 @@ import {
   ModifierKeyId,
   NotePresetMode,
 } from '@/lib/deviceSerialClient';
+import {
+  shouldUseLegacyRecoveryForError,
+  validateFirmwarePackageText,
+} from '@/lib/firmwareUpdateSafety';
 
 type SessionLogEntry = {
   message: string;
@@ -73,12 +77,6 @@ const splitBySize = (value: string, size: number) => {
   }
   return chunks;
 };
-
-const isFirmwareBeginTimeoutMessage = (message: string) =>
-  message.includes('Timed out waiting for response to firmware_begin');
-
-const isLegacy091CommitCrashMessage = (message: string) =>
-  message.includes('Unhandled protocol exception');
 
 const flashFirmwareViaLegacyRepl = async (
   pkg: DeviceFirmwarePackage,
@@ -450,25 +448,6 @@ const getAnimatedPresetSection = (mode: NotePresetMode): AnimatedPresetSection |
 
 const getPresetSpeedLabel = (section: AnimatedPresetSection) => `${PRESET_MODE_LABELS[section]} speed`;
 
-const isFirmwarePackage = (candidate: unknown): candidate is DeviceFirmwarePackage => {
-  if (typeof candidate !== 'object' || candidate === null) {
-    return false;
-  }
-
-  const packageCandidate = candidate as DeviceFirmwarePackage;
-  return (
-    typeof packageCandidate.version === 'string' &&
-    Array.isArray(packageCandidate.files) &&
-    packageCandidate.files.length > 0 &&
-    packageCandidate.files.every(
-      (entry) =>
-        typeof entry.path === 'string' &&
-        typeof entry.contentBase64 === 'string' &&
-        typeof entry.sha256 === 'string',
-    )
-  );
-};
-
 export default function DevicePage() {
   const [status, setStatus] = useState<DeviceConnectionState>('idle');
   const [log, setLog] = useState<SessionLogEntry[]>([]);
@@ -751,6 +730,16 @@ export default function DevicePage() {
         `Starting direct firmware update to ${effectiveState.targetVersion ?? effectiveState.latestVersion}.`,
       );
 
+      const expectedPackageHash = effectiveState.sha256?.trim().toLowerCase() ?? '';
+      if (!expectedPackageHash) {
+        throw new Error('Firmware manifest is missing the expected package hash.');
+      }
+
+      const expectedTargetVersion = effectiveState.targetVersion ?? effectiveState.latestVersion;
+      if (!expectedTargetVersion) {
+        throw new Error('Firmware update target version is unavailable.');
+      }
+
       const packageFetchCandidates: Array<{ label: string; url: string }> = [];
       if (effectiveState.packageKey) {
         packageFetchCandidates.push({
@@ -780,13 +769,14 @@ export default function DevicePage() {
             continue;
           }
 
-          const rawPayload = (await response.json()) as unknown;
-          if (!isFirmwarePackage(rawPayload)) {
-            packageFetchErrors.push(`${candidate.label}:invalid_payload`);
-            continue;
-          }
-
-          packagePayload = rawPayload;
+          const packageText = await response.text();
+          const validatedPackage = await validateFirmwarePackageText(
+            packageText,
+            expectedPackageHash,
+            expectedTargetVersion,
+          );
+          packagePayload = validatedPackage.packagePayload as DeviceFirmwarePackage;
+          appendLog(`Validated firmware package hash ${validatedPackage.sha256.slice(0, 12)}...`);
           break;
         } catch (error) {
           const message = error instanceof Error ? error.message : 'unknown_fetch_error';
@@ -801,8 +791,6 @@ export default function DevicePage() {
       }
 
       const isLegacy090 = effectiveState.currentVersion === '0.9.0';
-      const isLegacy091 = effectiveState.currentVersion === '0.9.1';
-      const isLegacy093 = effectiveState.currentVersion === '0.9.3';
 
       const flashWithPackage = async (pkg: DeviceFirmwarePackage) => {
         await client.flashFirmwarePackage(pkg, {
@@ -821,10 +809,10 @@ export default function DevicePage() {
         await flashWithPackage(packagePayload);
       } catch (error) {
         const message = error instanceof Error ? error.message : '';
-        const shouldUseLegacyRecovery =
-          (isLegacy090 && isFirmwareBeginTimeoutMessage(message)) ||
-          (isLegacy091 && (isLegacy091CommitCrashMessage(message) || Boolean(message))) ||
-          (isLegacy093 && (isLegacy091CommitCrashMessage(message) || Boolean(message)));
+        const shouldUseLegacyRecovery = shouldUseLegacyRecoveryForError(
+          effectiveState.currentVersion,
+          message,
+        );
         if (!shouldUseLegacyRecovery) {
           throw error;
         }
@@ -832,7 +820,7 @@ export default function DevicePage() {
         appendLog(
           isLegacy090
             ? 'Detected 0.9.0 firmware_begin crash. Switching to legacy serial recovery...'
-            : isLegacy091
+            : effectiveState.currentVersion === '0.9.1'
               ? 'Detected 0.9.1 firmware_commit crash. Switching to legacy serial recovery...'
               : 'Detected 0.9.3 firmware_commit crash. Switching to legacy serial recovery...',
         );
