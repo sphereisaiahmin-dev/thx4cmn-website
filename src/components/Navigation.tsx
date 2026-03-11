@@ -408,7 +408,7 @@ export const Navigation = () => {
                 type="button"
                 onClick={handleCheckout}
                 disabled={items.length === 0 || isCheckoutLoading}
-                className="nav-link inline-flex w-full items-center justify-center px-4 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-60"
+                className="nav-link inline-flex w-full items-center justify-center px-4 py-3 text-xs uppercase tracking-[0.3em] transition disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isCheckoutLoading ? 'Redirecting…' : 'Checkout'}
               </button>
@@ -422,3 +422,4 @@ export const Navigation = () => {
     </>
   );
 };
+
