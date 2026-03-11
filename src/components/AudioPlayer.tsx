@@ -185,6 +185,7 @@ export const AudioPlayer = () => {
     handleLoopEndToggle,
   } = actions;
   const [isMobile, setIsMobile] = useState(false);
+  const [hasViewportMode, setHasViewportMode] = useState(false);
   const [isDspOpen, setIsDspOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isDesktopWeatherCollapsed, setIsDesktopWeatherCollapsed] = useState(false);
@@ -319,6 +320,7 @@ export const AudioPlayer = () => {
     const mediaQuery = window.matchMedia('(max-width: 768px)');
     const syncMobileState = (matches: boolean) => {
       setIsMobile(matches);
+      setHasViewportMode(true);
     };
 
     syncMobileState(mediaQuery.matches);
@@ -620,7 +622,7 @@ export const AudioPlayer = () => {
         } ${isCollapsed ? 'audio-player--collapsed' : ''} ${isMiniCartOpen ? 'audio-player--hidden' : ''} ${
           isMobile ? 'audio-player--mobile' : 'audio-player--desktop'
         } ${isMobileCompact ? 'audio-player--mobile-compact' : 'audio-player--mobile-full'}`}
-        style={!isMobile ? ({ top: `${desktopAudioTop}px` } as CSSProperties) : undefined}
+        style={hasViewportMode && !isMobile ? ({ top: `${desktopAudioTop}px` } as CSSProperties) : undefined}
       >
         <div className="audio-player__header">
           <div className="audio-player__title">
