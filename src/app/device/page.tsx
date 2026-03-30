@@ -4,8 +4,10 @@ import { HexColorPicker } from 'react-colorful';
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  CHORD_OPTIONS,
   CHORD_TYPES,
   DEFAULT_DEVICE_STATE,
+  DEVICE_SERIAL_REQUEST_PORT_OPTIONS,
   DeviceFirmwarePackage,
   MODIFIER_KEY_IDS,
   NOTE_PRESET_MODES,
@@ -17,6 +19,7 @@ import {
   ModifierKeyId,
   NotePresetMode,
 } from '@/lib/deviceSerialClient';
+import type { SerialPortRequestOptions } from '@/lib/deviceSerialClient';
 import {
   shouldUseLegacyRecoveryForError,
   validateFirmwarePackageText,
@@ -62,7 +65,7 @@ type BrowserSerialPortLike = {
 
 type BrowserSerialLike = {
   getPorts?: () => Promise<BrowserSerialPortLike[]>;
-  requestPort: () => Promise<BrowserSerialPortLike>;
+  requestPort: (options?: SerialPortRequestOptions) => Promise<BrowserSerialPortLike>;
 };
 
 const sleepMs = (ms: number) =>
@@ -76,6 +79,25 @@ const splitBySize = (value: string, size: number) => {
     chunks.push(value.slice(index, index + size));
   }
   return chunks;
+};
+
+const requestBrowserSerialPort = async (serial: BrowserSerialLike) => {
+  if (typeof serial.getPorts === 'function') {
+    const existingPorts = await serial.getPorts();
+    if (existingPorts.length > 0) {
+      return existingPorts[0];
+    }
+  }
+
+  try {
+    return await serial.requestPort(DEVICE_SERIAL_REQUEST_PORT_OPTIONS);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return serial.requestPort();
+    }
+
+    throw error;
+  }
 };
 
 const flashFirmwareViaLegacyRepl = async (
@@ -97,7 +119,7 @@ const flashFirmwareViaLegacyRepl = async (
 
   if (!port) {
     appendLog('Select hx01 in the browser prompt to run legacy recovery update.');
-    port = await serial.requestPort();
+    port = await requestBrowserSerialPort(serial);
   }
 
   await port.open({ baudRate: 115200 });
@@ -269,11 +291,16 @@ const KEYPAD_LAYOUT: number[][] = buildKeypadLayout();
 const BLACK_NOTE_KEY_INDICES = new Set([1, 3, 6, 8, 10]);
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 const COLOR_PICKER_WIDTH_PX = 220;
-const PRESET_MODE_LABELS: Record<NotePresetMode, string> = {
-  piano: 'Piano',
-  gradient: 'Rain',
-  rain: 'Gradient',
+// Product naming intentionally inverts the two animated labels relative to the
+// protocol wire modes. Keep display metadata separate from persisted mode values.
+const PRESET_MODE_DISPLAY_BY_WIRE_MODE: Record<NotePresetMode, { selectorLabel: string }> = {
+  piano: { selectorLabel: 'Piano' },
+  gradient: { selectorLabel: 'Rain' },
+  rain: { selectorLabel: 'Gradient' },
 };
+
+const getPresetSelectorLabel = (wireMode: NotePresetMode) =>
+  PRESET_MODE_DISPLAY_BY_WIRE_MODE[wireMode].selectorLabel;
 
 const formatLogTimestamp = (timestamp: number) =>
   new Date(timestamp).toLocaleTimeString(undefined, {
@@ -436,9 +463,9 @@ function ColorPaletteField({ label, value, onChange }: ColorPaletteFieldProps) {
   );
 }
 
-type AnimatedPresetSection = 'gradient' | 'rain';
+type AnimatedPresetWireMode = 'gradient' | 'rain';
 
-const getAnimatedPresetSection = (mode: NotePresetMode): AnimatedPresetSection | null => {
+const getAnimatedPresetWireMode = (mode: NotePresetMode): AnimatedPresetWireMode | null => {
   if (mode === 'gradient' || mode === 'rain') {
     return mode;
   }
@@ -446,7 +473,8 @@ const getAnimatedPresetSection = (mode: NotePresetMode): AnimatedPresetSection |
   return null;
 };
 
-const getPresetSpeedLabel = (section: AnimatedPresetSection) => `${PRESET_MODE_LABELS[section]} speed`;
+const getAnimatedPresetSpeedLabel = (wireMode: AnimatedPresetWireMode) =>
+  `${getPresetSelectorLabel(wireMode)} speed`;
 
 export default function DevicePage() {
   const [status, setStatus] = useState<DeviceConnectionState>('idle');
@@ -464,6 +492,7 @@ export default function DevicePage() {
   const [isUpdatePanelOpen, setIsUpdatePanelOpen] = useState(false);
 
   const clientRef = useRef<DeviceSerialClient | null>(null);
+  const connectInFlightRef = useRef(false);
   const statusRef = useRef<DeviceConnectionState>('idle');
   const keepaliveTimerRef = useRef<number | null>(null);
   const keepaliveFailuresRef = useRef(0);
@@ -552,8 +581,7 @@ export default function DevicePage() {
         }
 
         return payload;
-      } catch (error) {
-        console.error(error);
+      } catch {
         setFirmwareUpdateState(null);
         if (!options.silent) {
           appendLog('Unable to check firmware updates right now.');
@@ -592,7 +620,7 @@ export default function DevicePage() {
   }, [disconnectClient, logConnectionLost, stopKeepalive]);
 
   const handleConnect = useCallback(async () => {
-    if (status === 'connecting' || status === 'handshaking') {
+    if (connectInFlightRef.current || status === 'connecting' || status === 'handshaking') {
       return;
     }
 
@@ -602,26 +630,28 @@ export default function DevicePage() {
       return;
     }
 
+    connectInFlightRef.current = true;
     setIsUpdatePanelOpen(false);
     stopKeepalive();
     hasLoggedConnectionLostRef.current = false;
 
-    if (clientRef.current) {
-      await disconnectClient();
-    }
-
-    const client = new DeviceSerialClient({
-      onDisconnect: () => {
-        setStatus('error');
-        logConnectionLost();
-      },
-    });
-
-    clientRef.current = client;
-    setStatus('connecting');
-
     try {
+      if (clientRef.current) {
+        await disconnectClient();
+      }
+
+      const client = new DeviceSerialClient({
+        onDisconnect: () => {
+          setStatus('error');
+          logConnectionLost();
+        },
+      });
+
+      clientRef.current = client;
+      appendLog('Connecting to hx01...');
+      setStatus('connecting');
       await client.connect();
+      appendLog('Serial port opened. Waiting for hx01 handshake...');
       setStatus('handshaking');
 
       const handshakeResponse = await client.handshake();
@@ -635,11 +665,9 @@ export default function DevicePage() {
 
       setStatus('ready');
       appendLog(`Connected to hx01 (${firmwareVersion}).`);
-
-      await refreshFirmwareUpdateState(firmwareVersion, { silent: true });
       startKeepalive();
+      void refreshFirmwareUpdateState(firmwareVersion, { silent: true });
     } catch (error) {
-      console.error(error);
       const message = error instanceof Error ? error.message : 'Unknown error';
       appendLog(`Connection failed: ${message}`);
       setStatus('error');
@@ -647,9 +675,12 @@ export default function DevicePage() {
       setConnectedFeatures([]);
       setFirmwareUpdateState(null);
       await disconnectClient();
+    } finally {
+      connectInFlightRef.current = false;
     }
   }, [
     appendLog,
+    connectInFlightRef,
     disconnectClient,
     hydrateState,
     logConnectionLost,
@@ -748,12 +779,14 @@ export default function DevicePage() {
         });
       }
       if (effectiveState.downloadUrl) {
+        if (/^https?:\/\//i.test(effectiveState.downloadUrl)) {
+          packageFetchCandidates.push({
+            label: 'signed_url_proxy',
+            url: `/api/device/firmware/package?url=${encodeURIComponent(effectiveState.downloadUrl)}`,
+          });
+        }
         packageFetchCandidates.push({
-          label: 'signed_url_proxy',
-          url: `/api/device/firmware/package?url=${encodeURIComponent(effectiveState.downloadUrl)}`,
-        });
-        packageFetchCandidates.push({
-          label: 'signed_url_direct',
+          label: /^https?:\/\//i.test(effectiveState.downloadUrl) ? 'signed_url_direct' : 'local_route',
           url: effectiveState.downloadUrl,
         });
       }
@@ -963,9 +996,9 @@ export default function DevicePage() {
   const selectedModifierChord = selectedModifierKey
     ? draftState.modifierChords[selectedModifierKey]
     : null;
-  const animatedPresetSection = getAnimatedPresetSection(draftState.notePreset.mode);
-  const animatedPresetSpeed = animatedPresetSection
-    ? draftState.notePreset[animatedPresetSection].speed
+  const animatedPresetWireMode = getAnimatedPresetWireMode(draftState.notePreset.mode);
+  const animatedPresetSpeed = animatedPresetWireMode
+    ? draftState.notePreset[animatedPresetWireMode].speed
     : null;
   const animatedPresetSpeedProgress =
     animatedPresetSpeed === null ? 0.5 : normalizePresetSpeedProgress(animatedPresetSpeed);
@@ -1039,7 +1072,7 @@ export default function DevicePage() {
               >
                 {NOTE_PRESET_MODES.map((mode) => (
                   <option key={mode} value={mode}>
-                    {PRESET_MODE_LABELS[mode]}
+                    {getPresetSelectorLabel(mode)}
                   </option>
                 ))}
               </select>
@@ -1057,9 +1090,9 @@ export default function DevicePage() {
                     onChange={(event) => handleModifierChordChange(selectedModifierKey, event.target.value)}
                     className="w-full rounded-lg border border-black/25 bg-white px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
                   >
-                    {CHORD_TYPES.map((chord) => (
-                      <option key={chord} value={chord}>
-                        {chord}
+                    {CHORD_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
                       </option>
                     ))}
                   </select>
@@ -1074,13 +1107,13 @@ export default function DevicePage() {
               )}
             </div>
 
-            {animatedPresetSection && animatedPresetSpeed !== null && (
+            {animatedPresetWireMode && animatedPresetSpeed !== null && (
               <div
                 className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70"
                 style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
               >
                 <span className="flex items-center justify-between gap-3">
-                  <span>{getPresetSpeedLabel(animatedPresetSection)}</span>
+                  <span>{getAnimatedPresetSpeedLabel(animatedPresetWireMode)}</span>
                   <span className="text-[11px]">{animatedPresetSpeed.toFixed(1)}x</span>
                 </span>
                 <input
@@ -1089,7 +1122,7 @@ export default function DevicePage() {
                   max={NOTE_PRESET_SPEED_MAX}
                   step={0.1}
                   value={animatedPresetSpeed}
-                  onChange={(event) => handlePresetSpeedChange(animatedPresetSection, event.target.value)}
+                  onChange={(event) => handlePresetSpeedChange(animatedPresetWireMode, event.target.value)}
                   className="audio-player__rpm-slider block w-full"
                   style={{ '--rpm-progress': animatedPresetSpeedProgress } as CSSProperties}
                 />

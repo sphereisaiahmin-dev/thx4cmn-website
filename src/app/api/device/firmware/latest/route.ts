@@ -1,29 +1,14 @@
 import { NextResponse } from 'next/server';
 
+import { loadDeviceFirmwareManifest } from '../../../../../lib/deviceFirmwareManifest';
 import {
-  findLatestRelease,
-  loadDeviceFirmwareManifest,
-  parseSemver,
-  resolveReleaseRank,
-} from '@/lib/deviceFirmwareManifest';
-import { getSignedDownloadUrl } from '@/lib/r2';
+  buildLatestFirmwareResponse,
+  buildUnavailableLatestFirmwareResponse,
+} from '../../../../../lib/deviceFirmwareLookup';
+import { computeReleaseRank } from '../../../../../lib/deviceFirmwareManifest';
+import { getSignedDownloadUrl } from '../../../../../lib/r2';
 
 export const runtime = 'nodejs';
-
-type LatestFirmwareResponse = {
-  updateAvailable: boolean;
-  strategy: 'none' | 'direct_flash';
-  currentVersion: string;
-  currentReleaseRank: number;
-  latestVersion: string;
-  latestReleaseRank: number;
-  targetVersion?: string;
-  targetReleaseRank?: number;
-  packageKey?: string;
-  downloadUrl?: string;
-  sha256?: string;
-  notes?: string;
-};
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -35,66 +20,29 @@ export async function GET(request: Request) {
   }
 
   try {
-    const manifest = await loadDeviceFirmwareManifest();
-    if (manifest.device !== device) {
-      return NextResponse.json({ error: `Unknown device "${device}".` }, { status: 404 });
-    }
-
-    const latestRelease = findLatestRelease(manifest);
-    const currentSemver = parseSemver(currentVersion);
-    if (!currentSemver) {
-      return NextResponse.json({ error: 'Unsupported currentVersion format.' }, { status: 400 });
-    }
-
-    const currentReleaseRank = resolveReleaseRank(manifest, currentVersion);
+    const currentReleaseRank = computeReleaseRank(currentVersion);
     if (currentReleaseRank === null) {
       return NextResponse.json({ error: 'Unsupported currentVersion format.' }, { status: 400 });
     }
 
-    if (currentSemver.major !== 0) {
-      const response: LatestFirmwareResponse = {
-        updateAvailable: false,
-        strategy: 'none',
-        currentVersion,
-        currentReleaseRank,
-        latestVersion: latestRelease.version,
-        latestReleaseRank: latestRelease.releaseRank,
-        notes: `Firmware ${currentVersion} is on an unsupported update line.`,
-      };
-      return NextResponse.json(response);
+    const manifest = await loadDeviceFirmwareManifest().catch(() => null);
+    if (!manifest) {
+      return NextResponse.json(
+        buildUnavailableLatestFirmwareResponse(currentVersion, currentReleaseRank),
+      );
     }
 
-    if (currentVersion === latestRelease.version || currentReleaseRank >= latestRelease.releaseRank) {
-      const response: LatestFirmwareResponse = {
-        updateAvailable: false,
-        strategy: 'none',
-        currentVersion,
-        currentReleaseRank,
-        latestVersion: latestRelease.version,
-        latestReleaseRank: latestRelease.releaseRank,
-      };
-      return NextResponse.json(response);
-    }
-
-    const downloadUrl = await getSignedDownloadUrl(latestRelease.packageKey, 600);
-    const response: LatestFirmwareResponse = {
-      updateAvailable: true,
-      strategy: latestRelease.strategy,
+    const response = await buildLatestFirmwareResponse({
       currentVersion,
-      currentReleaseRank,
-      latestVersion: latestRelease.version,
-      latestReleaseRank: latestRelease.releaseRank,
-      targetVersion: latestRelease.version,
-      targetReleaseRank: latestRelease.releaseRank,
-      packageKey: latestRelease.packageKey,
-      downloadUrl,
-      sha256: latestRelease.sha256,
-      notes: latestRelease.notes,
-    };
-
+      device,
+      manifest,
+      signDownloadUrl: getSignedDownloadUrl,
+    });
     return NextResponse.json(response);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to resolve latest firmware.';
-    return NextResponse.json({ error: message }, { status: 500 });
+    const status =
+      message.startsWith('Unknown device "') ? 404 : message === 'Unsupported currentVersion format.' ? 400 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

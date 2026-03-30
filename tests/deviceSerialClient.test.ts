@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  DEVICE_SERIAL_REQUEST_PORT_OPTIONS,
   DEVICE_PROTOCOL_VERSION,
   DeviceSerialClient,
   type DeviceEnvelope,
   type DeviceState,
   type SerialLike,
   type SerialPortLike,
+  type SerialPortRequestOptions,
 } from '../src/lib/deviceSerialClient.ts';
 
 const encoder = new TextEncoder();
@@ -118,12 +120,23 @@ class MockSerialPort implements SerialPortLike {
 
 class MockSerial implements SerialLike {
   private readonly port: MockSerialPort;
+  private readonly authorizedPorts: MockSerialPort[];
 
-  constructor(port: MockSerialPort) {
+  requestPortCalls = 0;
+  lastRequestPortOptions: SerialPortRequestOptions | undefined;
+
+  constructor(port: MockSerialPort, options: { authorizedPorts?: MockSerialPort[] } = {}) {
     this.port = port;
+    this.authorizedPorts = options.authorizedPorts ?? [];
   }
 
-  async requestPort() {
+  async getPorts() {
+    return this.authorizedPorts;
+  }
+
+  async requestPort(options?: SerialPortRequestOptions) {
+    this.requestPortCalls += 1;
+    this.lastRequestPortOptions = options;
     return this.port;
   }
 }
@@ -165,6 +178,48 @@ test('handshake success', async () => {
   assert.equal(helloAck.payload.device, 'hx01');
   assert.deepEqual(helloAck.payload.state, baseState);
   assert.equal(port.receivedHostFrames.length, 1);
+
+  await client.disconnect();
+});
+
+test('connect reuses a previously authorized serial port before opening the chooser', async () => {
+  const port = new MockSerialPort(() => {
+    // No-op.
+  });
+
+  const serial = new MockSerial(port, {
+    authorizedPorts: [port],
+  });
+
+  const client = new DeviceSerialClient({
+    serial,
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+  });
+
+  await client.connect();
+
+  assert.equal(serial.requestPortCalls, 0);
+
+  await client.disconnect();
+});
+
+test('connect requests a filtered chooser port when no prior permission exists', async () => {
+  const port = new MockSerialPort(() => {
+    // No-op.
+  });
+
+  const serial = new MockSerial(port);
+  const client = new DeviceSerialClient({
+    serial,
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+  });
+
+  await client.connect();
+
+  assert.equal(serial.requestPortCalls, 1);
+  assert.deepEqual(serial.lastRequestPortOptions, DEVICE_SERIAL_REQUEST_PORT_OPTIONS);
 
   await client.disconnect();
 });
@@ -434,6 +489,74 @@ test('apply_config success', async () => {
 
   assert.deepEqual(result.state, nextState);
   assert.equal(result.appliedConfigId, 'cfg-1');
+
+  await client.disconnect();
+});
+
+test('apply_config accepts extended chord values', async () => {
+  const nextState: DeviceState = {
+    notePreset: {
+      ...baseState.notePreset,
+      mode: 'rain',
+      rain: {
+        colorA: '#22ffaa',
+        colorB: '#3344ff',
+        speed: 1.7,
+      },
+    },
+    modifierChords: {
+      '12': 'dim7',
+      '13': '13',
+      '14': 'add9',
+      '15': '7sus4',
+    },
+  };
+
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (frame.type === 'apply_config') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          requestType: 'apply_config',
+          status: 'ok',
+          state: nextState,
+          appliedConfigId: (frame.payload as { configId: string }).configId,
+        },
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  const result = await client.applyConfig(nextState, {
+    configId: 'cfg-extended',
+    idempotencyKey: 'idem-extended',
+  });
+
+  assert.deepEqual(result.state.modifierChords, nextState.modifierChords);
+  assert.equal(result.appliedConfigId, 'cfg-extended');
 
   await client.disconnect();
 });

@@ -84,12 +84,33 @@ Allowed chord values:
 
 - `maj`
 - `min`
+- `7`
 - `maj7`
 - `min7`
+- `6`
+- `m6`
+- `dim`
+- `dim7`
+- `m7b5`
+- `aug`
+- `aug7`
+- `sus2`
+- `sus4`
+- `9`
+- `add9`
 - `maj9`
+- `madd9`
 - `min9`
+- `11`
+- `13`
+- `7sus4`
 - `maj79`
 - `min79`
+
+Compatibility notes:
+
+- `add9` and `maj9` currently share the same add-9 voicing for backward compatibility.
+- `madd9` and `min9` currently share the same minor add-9 voicing for backward compatibility.
 
 ## Message Types
 
