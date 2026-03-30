@@ -7,6 +7,7 @@ import {
   CHORD_OPTIONS,
   CHORD_TYPES,
   DEFAULT_DEVICE_STATE,
+  DEVICE_SERIAL_REQUEST_PORT_OPTIONS,
   DeviceFirmwarePackage,
   MODIFIER_KEY_IDS,
   NOTE_PRESET_MODES,
@@ -18,6 +19,7 @@ import {
   ModifierKeyId,
   NotePresetMode,
 } from '@/lib/deviceSerialClient';
+import type { SerialPortRequestOptions } from '@/lib/deviceSerialClient';
 import {
   shouldUseLegacyRecoveryForError,
   validateFirmwarePackageText,
@@ -63,7 +65,7 @@ type BrowserSerialPortLike = {
 
 type BrowserSerialLike = {
   getPorts?: () => Promise<BrowserSerialPortLike[]>;
-  requestPort: () => Promise<BrowserSerialPortLike>;
+  requestPort: (options?: SerialPortRequestOptions) => Promise<BrowserSerialPortLike>;
 };
 
 const sleepMs = (ms: number) =>
@@ -77,6 +79,25 @@ const splitBySize = (value: string, size: number) => {
     chunks.push(value.slice(index, index + size));
   }
   return chunks;
+};
+
+const requestBrowserSerialPort = async (serial: BrowserSerialLike) => {
+  if (typeof serial.getPorts === 'function') {
+    const existingPorts = await serial.getPorts();
+    if (existingPorts.length > 0) {
+      return existingPorts[0];
+    }
+  }
+
+  try {
+    return await serial.requestPort(DEVICE_SERIAL_REQUEST_PORT_OPTIONS);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return serial.requestPort();
+    }
+
+    throw error;
+  }
 };
 
 const flashFirmwareViaLegacyRepl = async (
@@ -98,7 +119,7 @@ const flashFirmwareViaLegacyRepl = async (
 
   if (!port) {
     appendLog('Select hx01 in the browser prompt to run legacy recovery update.');
-    port = await serial.requestPort();
+    port = await requestBrowserSerialPort(serial);
   }
 
   await port.open({ baudRate: 115200 });
@@ -471,6 +492,7 @@ export default function DevicePage() {
   const [isUpdatePanelOpen, setIsUpdatePanelOpen] = useState(false);
 
   const clientRef = useRef<DeviceSerialClient | null>(null);
+  const connectInFlightRef = useRef(false);
   const statusRef = useRef<DeviceConnectionState>('idle');
   const keepaliveTimerRef = useRef<number | null>(null);
   const keepaliveFailuresRef = useRef(0);
@@ -559,8 +581,7 @@ export default function DevicePage() {
         }
 
         return payload;
-      } catch (error) {
-        console.error(error);
+      } catch {
         setFirmwareUpdateState(null);
         if (!options.silent) {
           appendLog('Unable to check firmware updates right now.');
@@ -599,7 +620,7 @@ export default function DevicePage() {
   }, [disconnectClient, logConnectionLost, stopKeepalive]);
 
   const handleConnect = useCallback(async () => {
-    if (status === 'connecting' || status === 'handshaking') {
+    if (connectInFlightRef.current || status === 'connecting' || status === 'handshaking') {
       return;
     }
 
@@ -609,26 +630,28 @@ export default function DevicePage() {
       return;
     }
 
+    connectInFlightRef.current = true;
     setIsUpdatePanelOpen(false);
     stopKeepalive();
     hasLoggedConnectionLostRef.current = false;
 
-    if (clientRef.current) {
-      await disconnectClient();
-    }
-
-    const client = new DeviceSerialClient({
-      onDisconnect: () => {
-        setStatus('error');
-        logConnectionLost();
-      },
-    });
-
-    clientRef.current = client;
-    setStatus('connecting');
-
     try {
+      if (clientRef.current) {
+        await disconnectClient();
+      }
+
+      const client = new DeviceSerialClient({
+        onDisconnect: () => {
+          setStatus('error');
+          logConnectionLost();
+        },
+      });
+
+      clientRef.current = client;
+      appendLog('Connecting to hx01...');
+      setStatus('connecting');
       await client.connect();
+      appendLog('Serial port opened. Waiting for hx01 handshake...');
       setStatus('handshaking');
 
       const handshakeResponse = await client.handshake();
@@ -642,11 +665,9 @@ export default function DevicePage() {
 
       setStatus('ready');
       appendLog(`Connected to hx01 (${firmwareVersion}).`);
-
-      await refreshFirmwareUpdateState(firmwareVersion, { silent: true });
       startKeepalive();
+      void refreshFirmwareUpdateState(firmwareVersion, { silent: true });
     } catch (error) {
-      console.error(error);
       const message = error instanceof Error ? error.message : 'Unknown error';
       appendLog(`Connection failed: ${message}`);
       setStatus('error');
@@ -654,9 +675,12 @@ export default function DevicePage() {
       setConnectedFeatures([]);
       setFirmwareUpdateState(null);
       await disconnectClient();
+    } finally {
+      connectInFlightRef.current = false;
     }
   }, [
     appendLog,
+    connectInFlightRef,
     disconnectClient,
     hydrateState,
     logConnectionLost,

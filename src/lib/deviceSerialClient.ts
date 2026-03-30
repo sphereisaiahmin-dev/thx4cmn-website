@@ -295,8 +295,23 @@ export type SerialDisconnectEventLike = {
   port?: SerialPortLike;
 };
 
+export type SerialPortRequestFilter = {
+  usbVendorId?: number;
+  usbProductId?: number;
+  bluetoothServiceClassId?: string;
+};
+
+export type SerialPortRequestOptions = {
+  filters?: SerialPortRequestFilter[];
+};
+
+export const DEVICE_SERIAL_REQUEST_PORT_OPTIONS = {
+  filters: [{ usbVendorId: 0x2e8a }],
+} as const satisfies SerialPortRequestOptions;
+
 export type SerialLike = {
-  requestPort: () => Promise<SerialPortLike>;
+  getPorts?: () => Promise<SerialPortLike[]>;
+  requestPort: (options?: SerialPortRequestOptions) => Promise<SerialPortLike>;
   addEventListener?: (
     type: 'disconnect',
     listener: (event: SerialDisconnectEventLike | Event) => void,
@@ -769,9 +784,8 @@ export class DeviceSerialClient {
       return;
     }
 
-    this.emit({ level: 'info', message: 'Requesting serial port.' });
-
-    this.port = await this.serial.requestPort();
+    this.port = await this.resolvePort();
+    this.emit({ level: 'info', message: 'Opening serial port.' });
     await this.port.open({ baudRate: this.baudRate });
 
     if (!this.port.readable || !this.port.writable) {
@@ -1219,6 +1233,33 @@ export class DeviceSerialClient {
     }
 
     return response.payload;
+  }
+
+  private async resolvePort() {
+    if (!this.serial) {
+      throw new DeviceClientError('serial_unsupported', 'Web Serial is not supported.');
+    }
+
+    if (typeof this.serial.getPorts === 'function') {
+      const existingPorts = await this.serial.getPorts();
+      if (existingPorts.length > 0) {
+        this.emit({ level: 'info', message: 'Reusing previously authorized serial port.' });
+        return existingPorts[0];
+      }
+    }
+
+    this.emit({ level: 'info', message: 'Requesting serial port chooser.' });
+
+    try {
+      return await this.serial.requestPort(DEVICE_SERIAL_REQUEST_PORT_OPTIONS);
+    } catch (error) {
+      if (error instanceof TypeError) {
+        this.emit({ level: 'info', message: 'Retrying serial chooser without filters.' });
+        return this.serial.requestPort();
+      }
+
+      throw error;
+    }
   }
 
   private registerSerialDisconnectListener() {

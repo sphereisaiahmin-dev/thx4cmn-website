@@ -18,6 +18,7 @@
     "test:device-serial": "node --test --experimental-strip-types tests/deviceSerialClient.test.ts",
     "test:device-firmware": "python -m unittest thxcmididevicecode.test_protocol_v1",
     "test:device-update-path": "node --experimental-specifier-resolution=node --test --experimental-strip-types tests/deviceFirmwareLocalPath.test.ts",
+    "test:device-browser": "node --test --experimental-strip-types tests/deviceConnectBrowser.test.ts",
     "test:device-protocol": "npm run test:device-serial && npm run test:device-firmware"
   },
   "dependencies": {

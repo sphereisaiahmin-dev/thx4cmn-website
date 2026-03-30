@@ -11,6 +11,10 @@ import {
   loadLocalFirmwarePackageMetadata,
   readLocalFirmwarePackageText,
 } from '../src/lib/deviceFirmwareLocalPackage.ts';
+import {
+  buildLatestFirmwareResponse,
+  buildUnavailableLatestFirmwareResponse,
+} from '../src/lib/deviceFirmwareLookup.ts';
 
 const localPackagePayload = {
   version: '0.9.5',
@@ -79,4 +83,55 @@ test('local firmware package reader returns the configured package text', async 
     assert.ok(source);
     assert.equal(source.packageText, packageText);
   });
+});
+
+test('latest firmware lookup can build an unavailable fallback response', async () => {
+  const response = buildUnavailableLatestFirmwareResponse('0.9.4', 50904);
+
+  assert.equal(response.updateAvailable, false);
+  assert.equal(response.strategy, 'none');
+  assert.equal(response.currentVersion, '0.9.4');
+  assert.equal(response.latestVersion, '0.9.4');
+  assert.match(response.notes ?? '', /unavailable/i);
+});
+
+test('latest firmware lookup accepts canonical hx01 even when manifest metadata differs', async () => {
+  const response = await buildLatestFirmwareResponse({
+    currentVersion: '0.9.4',
+    device: 'hx01',
+    manifest: {
+      device: 'legacy-hx-device',
+      generatedAt: new Date().toISOString(),
+      latestVersion: '0.9.5',
+      latestReleaseRank: 50905,
+      releases: [
+        {
+          version: '0.9.5',
+          releaseRank: 50905,
+          downloadUrl: 'https://example.r2.cloudflarestorage.com/updates/hx01-firmware-0.9.5-direct.json',
+          sha256: 'c'.repeat(64),
+          strategy: 'direct_flash' as const,
+        },
+      ],
+    },
+  });
+
+  assert.equal(response.updateAvailable, true);
+  assert.equal(response.targetVersion, '0.9.5');
+  assert.equal(response.latestVersion, '0.9.5');
+});
+
+test('local firmware package reader returns null when no local artifact is configured', async () => {
+  const originalEnv = process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV];
+  delete process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV];
+
+  try {
+    assert.equal(readLocalFirmwarePackageText(), null);
+  } finally {
+    if (originalEnv === undefined) {
+      delete process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV];
+    } else {
+      process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV] = originalEnv;
+    }
+  }
 });

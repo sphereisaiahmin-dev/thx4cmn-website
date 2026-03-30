@@ -50,23 +50,34 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Invalid firmware package url.' }, { status: 400 });
   }
 
+  if (local) {
+    try {
+      const source = readLocalFirmwarePackageText();
+      if (!source) {
+        return NextResponse.json({ error: 'No local firmware package is configured.' }, { status: 404 });
+      }
+
+      return new NextResponse(source.packageText, {
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to read firmware package.';
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+  }
+
   try {
-    const text = local
-      ? (() => {
-          const source = readLocalFirmwarePackageText();
-          if (!source) {
-            throw new Error('No local firmware package is configured.');
+    const text = key
+      ? await getR2ObjectText(key)
+      : await fetch(url as string, { cache: 'no-store' }).then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`Signed package fetch failed (${response.status}).`);
           }
-          return source.packageText;
-        })()
-      : key
-        ? await getR2ObjectText(key)
-        : await fetch(url as string, { cache: 'no-store' }).then(async (response) => {
-            if (!response.ok) {
-              throw new Error(`Signed package fetch failed (${response.status}).`);
-            }
-            return response.text();
-          });
+          return response.text();
+        });
 
     return new NextResponse(text, {
       headers: {
@@ -76,6 +87,6 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to read firmware package.';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

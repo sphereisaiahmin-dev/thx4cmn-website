@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  DEVICE_SERIAL_REQUEST_PORT_OPTIONS,
   DEVICE_PROTOCOL_VERSION,
   DeviceSerialClient,
   type DeviceEnvelope,
   type DeviceState,
   type SerialLike,
   type SerialPortLike,
+  type SerialPortRequestOptions,
 } from '../src/lib/deviceSerialClient.ts';
 
 const encoder = new TextEncoder();
@@ -118,12 +120,23 @@ class MockSerialPort implements SerialPortLike {
 
 class MockSerial implements SerialLike {
   private readonly port: MockSerialPort;
+  private readonly authorizedPorts: MockSerialPort[];
 
-  constructor(port: MockSerialPort) {
+  requestPortCalls = 0;
+  lastRequestPortOptions: SerialPortRequestOptions | undefined;
+
+  constructor(port: MockSerialPort, options: { authorizedPorts?: MockSerialPort[] } = {}) {
     this.port = port;
+    this.authorizedPorts = options.authorizedPorts ?? [];
   }
 
-  async requestPort() {
+  async getPorts() {
+    return this.authorizedPorts;
+  }
+
+  async requestPort(options?: SerialPortRequestOptions) {
+    this.requestPortCalls += 1;
+    this.lastRequestPortOptions = options;
     return this.port;
   }
 }
@@ -165,6 +178,48 @@ test('handshake success', async () => {
   assert.equal(helloAck.payload.device, 'hx01');
   assert.deepEqual(helloAck.payload.state, baseState);
   assert.equal(port.receivedHostFrames.length, 1);
+
+  await client.disconnect();
+});
+
+test('connect reuses a previously authorized serial port before opening the chooser', async () => {
+  const port = new MockSerialPort(() => {
+    // No-op.
+  });
+
+  const serial = new MockSerial(port, {
+    authorizedPorts: [port],
+  });
+
+  const client = new DeviceSerialClient({
+    serial,
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+  });
+
+  await client.connect();
+
+  assert.equal(serial.requestPortCalls, 0);
+
+  await client.disconnect();
+});
+
+test('connect requests a filtered chooser port when no prior permission exists', async () => {
+  const port = new MockSerialPort(() => {
+    // No-op.
+  });
+
+  const serial = new MockSerial(port);
+  const client = new DeviceSerialClient({
+    serial,
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+  });
+
+  await client.connect();
+
+  assert.equal(serial.requestPortCalls, 1);
+  assert.deepEqual(serial.lastRequestPortOptions, DEVICE_SERIAL_REQUEST_PORT_OPTIONS);
 
   await client.disconnect();
 });
