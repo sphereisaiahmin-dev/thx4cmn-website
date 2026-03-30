@@ -1,11 +1,26 @@
-import { getR2ObjectText } from '@/lib/r2';
+import { getR2ObjectText } from './r2';
+import {
+  DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV,
+  DEVICE_FIRMWARE_LOCAL_PACKAGE_ROUTE,
+  computeReleaseRank,
+  loadLocalFirmwarePackageMetadata,
+  parseSemver,
+} from './deviceFirmwareLocalPackage';
+
+export {
+  DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV,
+  DEVICE_FIRMWARE_LOCAL_PACKAGE_ROUTE,
+  computeReleaseRank,
+  parseSemver,
+};
 
 export type FirmwareUpdateStrategy = 'direct_flash';
 
 export interface FirmwareReleaseManifestEntry {
   version: string;
   releaseRank: number;
-  packageKey: string;
+  packageKey?: string;
+  downloadUrl?: string;
   sha256: string;
   strategy: FirmwareUpdateStrategy;
   notes?: string;
@@ -21,40 +36,6 @@ export interface DeviceFirmwareManifest {
 
 export const FIRMWARE_MANIFEST_KEY = 'updates/firmware-manifest.json';
 
-type SemverTuple = {
-  major: number;
-  minor: number;
-  patch: number;
-};
-
-export const parseSemver = (candidate: string): SemverTuple | null => {
-  const normalized = candidate.trim().replace(/^v/i, '');
-  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)$/);
-  if (!match) {
-    return null;
-  }
-
-  return {
-    major: Number.parseInt(match[1], 10),
-    minor: Number.parseInt(match[2], 10),
-    patch: Number.parseInt(match[3], 10),
-  };
-};
-
-export const computeReleaseRank = (version: string): number | null => {
-  const parsed = parseSemver(version);
-  if (!parsed) {
-    return null;
-  }
-
-  // Preserve update ordering so 0.x firmware can supersede legacy 2.x line.
-  if (parsed.major === 0) {
-    return 50000 + parsed.minor * 100 + parsed.patch;
-  }
-
-  return parsed.major * 10000 + parsed.minor * 100 + parsed.patch;
-};
-
 const isObject = (candidate: unknown): candidate is Record<string, unknown> =>
   typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate);
 
@@ -63,11 +44,14 @@ const isManifestRelease = (candidate: unknown): candidate is FirmwareReleaseMani
     return false;
   }
 
+  const hasPackageKey = typeof candidate.packageKey === 'string' && candidate.packageKey.length > 0;
+  const hasDownloadUrl = typeof candidate.downloadUrl === 'string' && candidate.downloadUrl.length > 0;
+
   return (
     typeof candidate.version === 'string' &&
     typeof candidate.releaseRank === 'number' &&
     Number.isFinite(candidate.releaseRank) &&
-    typeof candidate.packageKey === 'string' &&
+    (hasPackageKey || hasDownloadUrl) &&
     typeof candidate.sha256 === 'string' &&
     candidate.strategy === 'direct_flash' &&
     (candidate.notes === undefined || typeof candidate.notes === 'string')
@@ -99,7 +83,36 @@ export const normalizeFirmwareManifest = (candidate: unknown): DeviceFirmwareMan
   };
 };
 
+export const loadLocalDeviceFirmwareManifest = () => {
+  const metadata = loadLocalFirmwarePackageMetadata();
+  if (!metadata) {
+    return null;
+  }
+
+  return normalizeFirmwareManifest({
+    device: 'hx01',
+    generatedAt: new Date().toISOString(),
+    latestVersion: metadata.version,
+    latestReleaseRank: metadata.releaseRank,
+    releases: [
+      {
+        version: metadata.version,
+        releaseRank: metadata.releaseRank,
+        downloadUrl: metadata.downloadUrl,
+        sha256: metadata.sha256,
+        strategy: 'direct_flash',
+        notes: metadata.notes,
+      },
+    ],
+  });
+};
+
 export const loadDeviceFirmwareManifest = async () => {
+  const localManifest = loadLocalDeviceFirmwareManifest();
+  if (localManifest) {
+    return localManifest;
+  }
+
   const manifestText = await getR2ObjectText(FIRMWARE_MANIFEST_KEY);
   const parsed = JSON.parse(manifestText) as unknown;
   return normalizeFirmwareManifest(parsed);

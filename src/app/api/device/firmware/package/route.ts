@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
-import { getR2ObjectText } from '@/lib/r2';
+import { readLocalFirmwarePackageText } from '../../../../../lib/deviceFirmwareLocalPackage';
+import { getR2ObjectText } from '../../../../../lib/r2';
 
 export const runtime = 'nodejs';
 
@@ -35,9 +36,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get('key');
   const url = searchParams.get('url');
+  const local = searchParams.get('local') === '1';
 
-  if (!key && !url) {
-    return NextResponse.json({ error: 'Missing key or url.' }, { status: 400 });
+  if (!key && !url && !local) {
+    return NextResponse.json({ error: 'Missing key, url, or local package request.' }, { status: 400 });
   }
 
   if (key && !isValidPackageKey(key)) {
@@ -49,14 +51,22 @@ export async function GET(request: Request) {
   }
 
   try {
-    const text = key
-      ? await getR2ObjectText(key)
-      : await fetch(url as string, { cache: 'no-store' }).then(async (response) => {
-          if (!response.ok) {
-            throw new Error(`Signed package fetch failed (${response.status}).`);
+    const text = local
+      ? (() => {
+          const source = readLocalFirmwarePackageText();
+          if (!source) {
+            throw new Error('No local firmware package is configured.');
           }
-          return response.text();
-        });
+          return source.packageText;
+        })()
+      : key
+        ? await getR2ObjectText(key)
+        : await fetch(url as string, { cache: 'no-store' }).then(async (response) => {
+            if (!response.ok) {
+              throw new Error(`Signed package fetch failed (${response.status}).`);
+            }
+            return response.text();
+          });
 
     return new NextResponse(text, {
       headers: {

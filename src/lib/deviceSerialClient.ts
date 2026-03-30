@@ -1,8 +1,65 @@
 export const DEVICE_PROTOCOL_VERSION = 1;
 export const DEVICE_PROTOCOL_MAX_FRAME_SIZE = 1024;
 
-export const CHORD_TYPES = ['maj', 'min', 'maj7', 'min7', 'maj9', 'min9', 'maj79', 'min79'] as const;
+export const CHORD_TYPES = [
+  'maj',
+  'min',
+  '7',
+  'maj7',
+  'min7',
+  '6',
+  'm6',
+  'dim',
+  'dim7',
+  'm7b5',
+  'aug',
+  'aug7',
+  'sus2',
+  'sus4',
+  '9',
+  'add9',
+  'maj9',
+  'madd9',
+  'min9',
+  '11',
+  '13',
+  '7sus4',
+  'maj79',
+  'min79',
+] as const;
 export type ChordType = (typeof CHORD_TYPES)[number];
+
+export const CHORD_LABELS: Record<ChordType, string> = {
+  maj: 'Major (maj)',
+  min: 'Minor (min)',
+  '7': 'Dominant 7 (7)',
+  maj7: 'Major 7 (maj7)',
+  min7: 'Minor 7 (min7)',
+  '6': 'Major 6 (6)',
+  m6: 'Minor 6 (m6)',
+  dim: 'Diminished (dim)',
+  dim7: 'Diminished 7 (dim7)',
+  m7b5: 'Half-diminished (m7b5)',
+  aug: 'Augmented (aug)',
+  aug7: 'Augmented 7 (aug7)',
+  sus2: 'Suspended 2 (sus2)',
+  sus4: 'Suspended 4 (sus4)',
+  '9': 'Dominant 9 (9)',
+  add9: 'Add 9 (add9)',
+  maj9: 'Legacy maj9 (add9 voicing)',
+  madd9: 'Minor add 9 (madd9)',
+  min9: 'Legacy min9 (madd9 voicing)',
+  '11': 'Dominant 11 (11)',
+  '13': 'Dominant 13 (13)',
+  '7sus4': '7 sus4 (7sus4)',
+  maj79: 'Major 7/9 (maj79)',
+  min79: 'Minor 7/9 (min79)',
+};
+
+export const CHORD_OPTIONS = CHORD_TYPES.map((value) => ({
+  value,
+  label: CHORD_LABELS[value],
+}));
 
 export const MODIFIER_KEY_IDS = ['12', '13', '14', '15'] as const;
 export type ModifierKeyId = (typeof MODIFIER_KEY_IDS)[number];

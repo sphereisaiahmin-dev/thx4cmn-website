@@ -438,6 +438,74 @@ test('apply_config success', async () => {
   await client.disconnect();
 });
 
+test('apply_config accepts extended chord values', async () => {
+  const nextState: DeviceState = {
+    notePreset: {
+      ...baseState.notePreset,
+      mode: 'rain',
+      rain: {
+        colorA: '#22ffaa',
+        colorB: '#3344ff',
+        speed: 1.7,
+      },
+    },
+    modifierChords: {
+      '12': 'dim7',
+      '13': '13',
+      '14': 'add9',
+      '15': '7sus4',
+    },
+  };
+
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (frame.type === 'apply_config') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          requestType: 'apply_config',
+          status: 'ok',
+          state: nextState,
+          appliedConfigId: (frame.payload as { configId: string }).configId,
+        },
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  const result = await client.applyConfig(nextState, {
+    configId: 'cfg-extended',
+    idempotencyKey: 'idem-extended',
+  });
+
+  assert.deepEqual(result.state.modifierChords, nextState.modifierChords);
+  assert.equal(result.appliedConfigId, 'cfg-extended');
+
+  await client.disconnect();
+});
+
 test('apply_config rejects invalid color format before send', async () => {
   const port = new MockSerialPort((frame, currentPort) => {
     if (frame.type === 'hello') {

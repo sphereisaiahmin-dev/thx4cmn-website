@@ -5,8 +5,8 @@ import {
   loadDeviceFirmwareManifest,
   parseSemver,
   resolveReleaseRank,
-} from '@/lib/deviceFirmwareManifest';
-import { getSignedDownloadUrl } from '@/lib/r2';
+} from '../../../../../lib/deviceFirmwareManifest';
+import { getSignedDownloadUrl } from '../../../../../lib/r2';
 
 export const runtime = 'nodejs';
 
@@ -76,7 +76,11 @@ export async function GET(request: Request) {
       return NextResponse.json(response);
     }
 
-    const downloadUrl = await getSignedDownloadUrl(latestRelease.packageKey, 600);
+    const downloadUrl = latestRelease.downloadUrl
+      ? latestRelease.downloadUrl
+      : latestRelease.packageKey
+        ? await getSignedDownloadUrl(latestRelease.packageKey, 600)
+        : undefined;
     const response: LatestFirmwareResponse = {
       updateAvailable: true,
       strategy: latestRelease.strategy,
