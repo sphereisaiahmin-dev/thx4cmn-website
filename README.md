@@ -116,3 +116,39 @@ Run both:
 ```bash
 npm run test:device-protocol
 ```
+
+## Device bootstrap provisioning
+
+Use the bootstrap flow for blank Pico / Pico 2 boards that are only showing the UF2 bootloader drive:
+
+```bash
+npm run build:firmware-bootstrap
+npm run deploy:firmware-bootstrap -- --drive E:
+```
+
+If the target is an RP2350 bootloader drive, pass the exact board so the script can install the
+correct official CircuitPython runtime before provisioning hx01:
+
+```bash
+npm run deploy:firmware-bootstrap -- --drive E: --board pico2
+npm run deploy:firmware-bootstrap -- --drive E: --board pico2_w
+```
+
+If a previously provisioned board immediately boots back into old CircuitPython code and never
+remounts `CIRCUITPY`, the Windows deploy flow can erase the stale filesystem over the CDC console
+and retry the mount automatically:
+
+```bash
+npm run deploy:firmware-bootstrap -- --drive E: --board pico2 --console-port COM7
+```
+
+This stages the full `thxcmididevicecode/` CircuitPython filesystem payload, including `lib/**/*`,
+and copies only the managed hx01 files onto a mounted `CIRCUITPY` drive. The existing
+`build:firmware-package` and website "Update Me" flow remain update-only for already-provisioned
+devices.
+
+Run bootstrap tooling tests:
+
+```bash
+npm run test:firmware-bootstrap
+```
