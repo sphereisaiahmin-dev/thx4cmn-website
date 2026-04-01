@@ -24,15 +24,16 @@ from protocol_v1 import (
     normalize_device_state_candidate,
     default_device_state,
 )
+from midi_note_utils import clamp_note_range, filter_note_numbers
 
 keybow = Keybow2040(Hardware())
 keys = keybow.keys
 
 BRIGHTNESS_SCALE = 0.9
-FIRMWARE_VERSION = "0.9.4"
+FIRMWARE_VERSION = "0.9.6"
 DEVICE_NAME = "hx01"
 DEVICE_STATE_FILE = "/device_state.json"
-FIRMWARE_ALLOWED_PATHS = ("/boot.py", "/code.py", "/protocol_v1.py")
+FIRMWARE_ALLOWED_PATHS = ("/boot.py", "/code.py", "/midi_note_utils.py", "/protocol_v1.py")
 
 NOTE_KEY_INDICES = tuple(range(12))
 BLACK_NOTE_INDICES = (1, 3, 6, 8, 10)
@@ -69,20 +70,36 @@ VELOCITY_COLORS = (
 BASE_NOTES = tuple(range(60, 72))
 MIN_OCTAVE_OFFSET = -36
 MAX_OCTAVE_OFFSET = 36
-MAX_CHORD_INTERVAL = 14
+MAX_CHORD_INTERVAL = 21
 EMERGENCY_NOTE_MIN = min(BASE_NOTES) + BASE_NOTE_OFFSET + MIN_OCTAVE_OFFSET
 EMERGENCY_NOTE_MAX = (
     max(BASE_NOTES) + BASE_NOTE_OFFSET + MAX_OCTAVE_OFFSET + MAX_CHORD_INTERVAL
 )
-EMERGENCY_NOTE_RANGE = range(EMERGENCY_NOTE_MIN, EMERGENCY_NOTE_MAX + 1)
+EMERGENCY_NOTE_RANGE = clamp_note_range(EMERGENCY_NOTE_MIN, EMERGENCY_NOTE_MAX)
 
 CHORD_INTERVALS_BY_NAME = {
     "maj": (0, 4, 7),
     "min": (0, 3, 7),
+    "7": (0, 4, 7, 10),
     "maj7": (0, 4, 7, 11),
     "min7": (0, 3, 7, 10),
+    "6": (0, 4, 7, 9),
+    "m6": (0, 3, 7, 9),
+    "dim": (0, 3, 6),
+    "dim7": (0, 3, 6, 9),
+    "m7b5": (0, 3, 6, 10),
+    "aug": (0, 4, 8),
+    "aug7": (0, 4, 8, 10),
+    "sus2": (0, 2, 7),
+    "sus4": (0, 5, 7),
+    "9": (0, 4, 7, 10, 14),
+    "add9": (0, 4, 7, 14),
     "maj9": (0, 4, 7, 14),
+    "madd9": (0, 3, 7, 14),
     "min9": (0, 3, 7, 14),
+    "11": (0, 4, 7, 10, 17),
+    "13": (0, 4, 7, 10, 21),
+    "7sus4": (0, 5, 7, 10),
     "maj79": (0, 4, 7, 11, 14),
     "min79": (0, 3, 7, 10, 14),
 }
@@ -914,7 +931,12 @@ def handle_note_press(key_index, base_note):
         return
 
     note_offset = current_note_offset()
-    note_numbers = [base_note + note_offset + interval for interval in intervals]
+    note_numbers = filter_note_numbers(
+        [base_note + note_offset + interval for interval in intervals]
+    )
+    if len(note_numbers) == 0:
+        return
+
     velocity = VELOCITY_LEVELS[velocity_index]
 
     if len(note_numbers) == 1:

@@ -8,7 +8,32 @@ ERROR_MALFORMED_FRAME = "malformed_frame"
 ERROR_UNSUPPORTED_VERSION = "unsupported_version"
 ERROR_UNSUPPORTED_TYPE = "unsupported_type"
 
-ALLOWED_CHORD_TYPES = ("maj", "min", "maj7", "min7", "maj9", "min9", "maj79", "min79")
+ALLOWED_CHORD_TYPES = (
+    "maj",
+    "min",
+    "7",
+    "maj7",
+    "min7",
+    "6",
+    "m6",
+    "dim",
+    "dim7",
+    "m7b5",
+    "aug",
+    "aug7",
+    "sus2",
+    "sus4",
+    "9",
+    "add9",
+    "maj9",
+    "madd9",
+    "min9",
+    "11",
+    "13",
+    "7sus4",
+    "maj79",
+    "min79",
+)
 REQUIRED_MODIFIER_KEYS = ("12", "13", "14", "15")
 ALLOWED_NOTE_PRESET_MODES = ("piano", "gradient", "rain")
 HEX_DIGITS = "0123456789abcdefABCDEF"

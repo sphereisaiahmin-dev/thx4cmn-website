@@ -49,7 +49,7 @@ class ProtocolV1Tests(unittest.TestCase):
                 "note_presets_v1",
                 "firmware_update_v1",
             ],
-            "firmwareVersion": "0.9.4",
+            "firmwareVersion": "0.9.6",
         }
         self.handshake_calls = 0
         self.firmware_events = []
@@ -296,6 +296,49 @@ class ProtocolV1Tests(unittest.TestCase):
         self.assertEqual(response["type"], "ack")
         self.assertEqual(response["payload"]["state"]["notePreset"]["mode"], "rain")
         self.assertEqual(response["payload"]["state"]["notePreset"]["rain"]["speed"], 0.3)
+
+    def test_apply_config_accepts_extended_chord_types(self):
+        next_state = {
+            "notePreset": {
+                "mode": "piano",
+                "piano": {
+                    "whiteKeyColor": "#969696",
+                    "blackKeyColor": "#46466e",
+                },
+                "gradient": {
+                    "colorA": "#ff4b5a",
+                    "colorB": "#559bff",
+                    "speed": 1.0,
+                },
+                "rain": {
+                    "colorA": "#56d18d",
+                    "colorB": "#559bff",
+                    "speed": 1.0,
+                },
+            },
+            "modifierChords": {
+                "12": "dim7",
+                "13": "13",
+                "14": "madd9",
+                "15": "7sus4",
+            },
+        }
+
+        request = {
+            "v": 1,
+            "type": "apply_config",
+            "id": "config-extended-chords",
+            "ts": self.ts,
+            "payload": {
+                "configId": "cfg-extended-chords",
+                "idempotencyKey": "idem-extended-chords",
+                "config": next_state,
+            },
+        }
+
+        response = self._decode_single(self._send(request))
+        self.assertEqual(response["type"], "ack")
+        self.assertEqual(response["payload"]["state"]["modifierChords"], next_state["modifierChords"])
 
     def test_apply_config_invalid_color_returns_nack(self):
         invalid_state = {

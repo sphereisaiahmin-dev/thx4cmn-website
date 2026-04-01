@@ -10,10 +10,15 @@
     "format": "prettier --write .",
     "verify:webplayer": "node scripts/verify-webplayer.mjs",
     "test:web-utils": "node --test --experimental-strip-types tests/checkout.test.ts tests/firmwareUpdateSafety.test.ts",
+    "test:firmware-bootstrap": "node --test --experimental-strip-types tests/firmwareBootstrap.test.ts",
     "build:firmware-package": "node scripts/build-firmware-package.mjs",
+    "build:firmware-bootstrap": "node scripts/build-firmware-bootstrap.mjs",
+    "deploy:firmware-bootstrap": "node scripts/deploy-firmware-bootstrap.mjs",
     "publish:firmware-update": "node scripts/publish-firmware-update.mjs",
     "test:device-serial": "node --test --experimental-strip-types tests/deviceSerialClient.test.ts",
-    "test:device-firmware": "python3 -m unittest thxcmididevicecode.test_protocol_v1",
+    "test:device-firmware": "python -m unittest discover -s thxcmididevicecode -p \"test_*.py\"",
+    "test:device-update-path": "node --experimental-specifier-resolution=node --test --experimental-strip-types tests/deviceFirmwareLocalPath.test.ts",
+    "test:device-browser": "node --test --experimental-strip-types tests/deviceConnectBrowser.test.ts",
     "test:device-protocol": "npm run test:device-serial && npm run test:device-firmware"
   },
   "dependencies": {
