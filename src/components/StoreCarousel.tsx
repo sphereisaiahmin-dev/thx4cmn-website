@@ -64,7 +64,17 @@ interface SlotModelProps {
 const SlotModel = ({ modelUrl, slotKey, opacityRef, onNavigate, isMobile }: SlotModelProps) => {
   const { gl } = useThree();
   const { scene } = useGLTF(modelUrl);
-  const cloned = useMemo(() => scene.clone(true), [scene]);
+  const cloned = useMemo(() => {
+    const c = scene.clone(true);
+    c.traverse((obj) => {
+      const mesh = obj as Mesh;
+      if (!mesh.isMesh) return;
+      mesh.material = Array.isArray(mesh.material)
+        ? mesh.material.map((m) => (m as { clone(): typeof m }).clone())
+        : (mesh.material as { clone(): typeof mesh.material }).clone();
+    });
+    return c;
+  }, [scene]);
   const baseScale = scaleByModelUrl[modelUrl] ?? 1;
   const targetRadius = SLOT_RADIUS[slotKey];
   const outerRef = useRef<Group>(null);
@@ -111,12 +121,12 @@ const SlotModel = ({ modelUrl, slotKey, opacityRef, onNavigate, isMobile }: Slot
     };
 
     canvas.addEventListener('pointermove', onMove);
-    canvas.addEventListener('pointerup', onUp);
-    canvas.addEventListener('pointercancel', onUp);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
     return () => {
       canvas.removeEventListener('pointermove', onMove);
-      canvas.removeEventListener('pointerup', onUp);
-      canvas.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
   }, [isSide, gl]);
 
@@ -481,7 +491,7 @@ export const StoreCarousel = ({ products }: StoreCarouselProps) => {
             onClick={() => navigate(-1)}
             disabled={isAnimating}
             aria-label="Show previous product"
-            className="absolute left-4 top-1/2 z-10 -translate-y-1/2 inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/12 bg-white/50 text-base backdrop-blur-sm transition duration-200 hover:border-black/28 hover:bg-white/72 disabled:cursor-not-allowed disabled:opacity-35 md:left-6 md:h-14 md:w-14 md:text-lg"
+            className="absolute left-4 top-1/2 z-10 -translate-y-1/2 inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/12 bg-white/50 text-base backdrop-blur-sm transition duration-200 hover:border-black/28 hover:bg-white/72 disabled:cursor-not-allowed disabled:opacity-35 md:left-6 md:h-14 md:w-14 md:text-lg md:top-auto md:translate-y-0 md:bottom-52"
           >
             <span aria-hidden="true">&larr;</span>
           </button>
@@ -490,7 +500,7 @@ export const StoreCarousel = ({ products }: StoreCarouselProps) => {
             onClick={() => navigate(1)}
             disabled={isAnimating}
             aria-label="Show next product"
-            className="absolute right-4 top-1/2 z-10 -translate-y-1/2 inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/12 bg-white/50 text-base backdrop-blur-sm transition duration-200 hover:border-black/28 hover:bg-white/72 disabled:cursor-not-allowed disabled:opacity-35 md:right-6 md:h-14 md:w-14 md:text-lg"
+            className="absolute right-4 top-1/2 z-10 -translate-y-1/2 inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/12 bg-white/50 text-base backdrop-blur-sm transition duration-200 hover:border-black/28 hover:bg-white/72 disabled:cursor-not-allowed disabled:opacity-35 md:right-6 md:h-14 md:w-14 md:text-lg md:top-auto md:translate-y-0 md:bottom-52"
           >
             <span aria-hidden="true">&rarr;</span>
           </button>
@@ -505,7 +515,7 @@ export const StoreCarousel = ({ products }: StoreCarouselProps) => {
         className="pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 text-center md:bottom-10"
         style={{ opacity: 1 }}
       >
-        <div className="inline-flex flex-col items-center gap-3 rounded-2xl bg-white/70 px-7 py-4 shadow-sm backdrop-blur-md md:gap-4 md:px-9 md:py-5">
+        <div className="inline-flex flex-col items-center gap-3 px-7 py-4 md:gap-4 md:px-9 md:py-5">
           <div>
             <p className="text-[0.55rem] uppercase tracking-[0.44em] text-black/40">
               {currProduct.type === 'digital' ? 'Digital download' : 'Hardware'}
@@ -523,7 +533,7 @@ export const StoreCarousel = ({ products }: StoreCarouselProps) => {
             <button
               type="button"
               onClick={handleAdd}
-              className="add-to-cart-button rounded-full border border-current px-4 py-1.5 text-[0.62rem] uppercase tracking-[0.34em] transition duration-200 hover:bg-white/65 md:px-5"
+              className="add-to-cart-button rounded-full px-4 py-1.5 text-[0.62rem] uppercase tracking-[0.34em] transition duration-200 hover:bg-white/65 md:px-5"
             >
               Add to cart
             </button>
