@@ -88,7 +88,7 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
               <button
                 type="button"
                 onClick={handleAdd}
-                className="add-to-cart-button inline-flex items-center justify-center rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition duration-200 hover:bg-black/10"
+                className="add-to-cart-button inline-flex items-center justify-center rounded-full px-6 py-3 text-xs uppercase tracking-[0.3em] transition duration-200 hover:bg-black/10"
               >
                 Add to cart
               </button>
