@@ -42,7 +42,7 @@ interface DetailCameraFitterProps {
   controlsRef: RefObject<OrbitControlsImpl>;
 }
 
-const scaleByModelUrl: Record<string, number> = {
+export const scaleByModelUrl: Record<string, number> = {
   '/api/3d/samplepack.glb': 20,
   '/api/3d/thxc.glb': 0.0227,
 };
