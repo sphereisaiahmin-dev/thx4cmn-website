@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
@@ -19,7 +20,7 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   const addItem = useCartStore((state) => state.addItem);
   const [quantity, setQuantity] = useState(1);
   const modelUrl = modelUrlsByProductId[product.id];
-  const typeLabel = product.type === 'digital' ? '(digital)' : '(hardware)';
+  const typeLabel = product.type === 'digital' ? 'Digital download' : 'Hardware';
 
   const handleAdd = () => {
     addItem({
@@ -34,66 +35,98 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-stretch lg:gap-8">
-      <div className="lg:col-span-6">
-        <div className="h-full rounded-3xl border border-black/10 bg-black/5 p-3 md:p-4">
-          {modelUrl ? (
-            <div className="flex aspect-[4/5] w-full items-center justify-center rounded-2xl border border-black/10 bg-white p-3 md:p-4 lg:h-[560px] lg:aspect-auto">
-              <ProductModelScene modelUrl={modelUrl} className="h-full w-full" fitMode="detail-fill" />
-            </div>
-          ) : (
-            <div className="flex aspect-[4/5] w-full items-center justify-center rounded-2xl border border-black/10 bg-white p-3 text-sm text-black/50 md:p-4 lg:h-[560px] lg:aspect-auto">
-              3D preview unavailable.
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="min-w-0 space-y-5 lg:col-span-6 lg:space-y-6">
-        <div className="min-w-0 rounded-2xl border border-black/10 bg-black/5 p-5 md:p-6">
-          <p className="text-xs uppercase tracking-[0.4em] text-black/60">{typeLabel}</p>
-          <h1 className="mt-2 break-words text-3xl uppercase tracking-[0.3em] md:text-4xl">
-            {product.name}
-          </h1>
-          <p className="mt-3 break-words text-sm text-black/70">{product.description}</p>
-        </div>
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-5 md:p-6">
-          <div className="space-y-5">
-            <div>
-              <p className="text-sm text-black/60">Price</p>
-              <p className="text-2xl">{formatCurrency(product.priceCents, product.currency)}</p>
-            </div>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div className="space-y-2">
-                <label
-                  htmlFor="quantity"
-                  className="text-xs uppercase tracking-[0.3em] text-black/60"
-                >
-                  Qty
-                </label>
-                <input
-                  id="quantity"
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={quantity}
-                  onChange={(event) => {
-                    const nextValue = normalizeCheckoutQuantity(
-                      Number.parseInt(event.target.value, 10),
-                    );
-                    setQuantity(nextValue);
-                  }}
-                  className="w-24 rounded-full border border-black/30 px-3 py-2 text-sm"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleAdd}
-                className="add-to-cart-button inline-flex items-center justify-center rounded-full px-6 py-3 text-xs uppercase tracking-[0.3em] transition duration-200 hover:bg-black/10"
-              >
-                Add to cart
-              </button>
-            </div>
+    <div
+      className="relative w-full"
+      style={{ height: 'calc(100vh - var(--site-header-height) - var(--mobile-player-offset))' }}
+    >
+      {/* ── 3D canvas — fills the entire region ── */}
+      {modelUrl ? (
+        <ProductModelScene
+          modelUrl={modelUrl}
+          className="absolute inset-0 h-full w-full"
+          fitMode="detail-fill"
+        />
+      ) : (
+        <p className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center text-xs text-black/40">
+          3D preview unavailable.
+        </p>
+      )}
+
+      {/* ── Edge vignette — blends canvas into page background ── */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(ellipse 90% 85% at 50% 42%, transparent 48%, rgba(255,255,255,0.92) 100%)',
+        }}
+      />
+
+      {/* ── Back link — floating top-left ── */}
+      <Link
+        href="/store"
+        className="absolute left-5 top-5 z-10 text-[0.62rem] uppercase tracking-[0.34em] text-black/52 transition duration-200 hover:text-black"
+      >
+        ← Back
+      </Link>
+
+      {/* ── Description overlay — bottom-center, fades over the 3D scene ── */}
+      <div className="pointer-events-none absolute bottom-8 left-1/2 z-10 -translate-x-1/2 text-center md:bottom-10">
+        <div className="inline-flex flex-col items-center gap-3 px-7 py-4 md:gap-4 md:px-9 md:py-5">
+
+          {/* Type + Name */}
+          <div>
+            <p className="text-[0.55rem] uppercase tracking-[0.44em] text-black/40">
+              {typeLabel}
+            </p>
+            <h1 className="mt-0.5 text-base uppercase tracking-[0.22em] md:text-lg">
+              {product.name}
+            </h1>
           </div>
+
+          {/* Description */}
+          <p className="line-clamp-3 max-w-xs text-[0.65rem] leading-relaxed text-black/55 md:max-w-sm">
+            {product.description}
+          </p>
+
+          {/* Price */}
+          <p className="text-[0.7rem] uppercase tracking-[0.34em] text-black/60">
+            {formatCurrency(product.priceCents, product.currency)}
+          </p>
+
+          {/* Qty + Add to cart */}
+          <div className="pointer-events-auto flex items-center gap-4 md:gap-5">
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="quantity"
+                className="text-[0.55rem] uppercase tracking-[0.34em] text-black/40"
+              >
+                Qty
+              </label>
+              <input
+                id="quantity"
+                type="number"
+                min={1}
+                step={1}
+                value={quantity}
+                onChange={(event) => {
+                  const nextValue = normalizeCheckoutQuantity(
+                    Number.parseInt(event.target.value, 10),
+                  );
+                  setQuantity(nextValue);
+                }}
+                className="w-14 rounded-full border border-black/30 bg-white/60 px-2.5 py-1 text-xs backdrop-blur-sm"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleAdd}
+              className="add-to-cart-button rounded-full px-4 py-1.5 text-[0.62rem] uppercase tracking-[0.34em] transition duration-200 hover:bg-white/65 md:px-5"
+            >
+              Add to cart
+            </button>
+          </div>
+
         </div>
       </div>
     </div>
