@@ -30,6 +30,7 @@ export async function GET(request: Request) {
     const url = await getSignedDownloadUrl(key, 90);
     return NextResponse.json({ url });
   } catch (error) {
+    console.error('[MusicSignedUrl] Failed to sign track URL.', { key, error });
     const message = error instanceof Error ? error.message : 'Unable to sign URL.';
     return NextResponse.json({ error: message }, { status: 500 });
   }

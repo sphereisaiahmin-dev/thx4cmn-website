@@ -113,7 +113,16 @@ export const useWebPlayer = () => {
   const fetchSignedUrl = useCallback(async (key: string) => {
     const response = await fetch(`/api/music/signed-url?key=${encodeURIComponent(key)}`);
     if (!response.ok) {
-      const error = new Error(`Failed to get signed URL (${response.status}).`);
+      let message = `Failed to get signed URL (${response.status}).`;
+      try {
+        const data = (await response.json()) as { error?: string };
+        if (data.error) {
+          message = data.error;
+        }
+      } catch {
+        // Ignore JSON parsing failures and keep the HTTP status message.
+      }
+      const error = new Error(message);
       console.error('[WebPlayer] Signed URL request failed.', error);
       throw error;
     }
@@ -200,7 +209,16 @@ export const useWebPlayer = () => {
     try {
       const response = await fetch('/api/music/list');
       if (!response.ok) {
-        throw new Error(`Failed to load tracks (${response.status}).`);
+        let message = `Failed to load tracks (${response.status}).`;
+        try {
+          const data = (await response.json()) as { error?: string };
+          if (data.error) {
+            message = data.error;
+          }
+        } catch {
+          // Ignore JSON parsing failures and keep the HTTP status message.
+        }
+        throw new Error(message);
       }
       const data = await response.json();
       const nextTracks = Array.isArray(data.tracks) ? shuffleTracks(data.tracks) : [];

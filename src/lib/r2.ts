@@ -32,12 +32,24 @@ const parseEnvFile = (filePath: string) => {
   return env;
 };
 
-const fallbackEnv = {
-  ...parseEnvFile(resolve(process.cwd(), '.env.local')),
-  ...parseEnvFile(resolve(process.cwd(), '.env.example')),
-};
+const shouldUseFileFallback = process.env.NODE_ENV !== 'production';
 
-const readR2ConfigValue = (key: string) => process.env[key] ?? fallbackEnv[key] ?? '';
+const fallbackEnv = shouldUseFileFallback
+  ? {
+      ...parseEnvFile(resolve(process.cwd(), '.env.example')),
+      ...parseEnvFile(resolve(process.cwd(), '.env.local')),
+    }
+  : {};
+
+const readR2ConfigValue = (key: string) => {
+  const runtimeValue = process.env[key]?.trim();
+  if (runtimeValue) {
+    return runtimeValue;
+  }
+
+  const fallbackValue = fallbackEnv[key]?.trim();
+  return fallbackValue ?? '';
+};
 
 const getR2Client = () => {
   const endpoint = readR2ConfigValue('R2_ENDPOINT');
