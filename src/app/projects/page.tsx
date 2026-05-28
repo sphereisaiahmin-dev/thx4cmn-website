@@ -11,6 +11,7 @@ type Project = {
   title: string;
   tags: ProjectTag[];
   details?: string[];
+  externalUrl?: string;
 };
 
 const projects: Project[] = [
@@ -18,9 +19,10 @@ const projects: Project[] = [
     title: 'CAUGHT UP IN THE GAME DISC 2- CASEY VEGGIES',
     tags: ['music'],
     details: [
-      'Track 7 “Pink Slip” ft. Ab-Soul / AP x FOCUS',
-      'Track 10 “Weight Up” ft. Ay Ay SnaggLay / Therealwikked',
+      'Track 7 "Pink Slip" ft. Ab-Soul / AP x FOCUS',
+      'Track 10 "Weight Up" ft. Ay Ay SnaggLay / Therealwikked',
     ],
+    externalUrl: 'https://open.spotify.com/album/1ELfggHpYAqOnNLttTFBqU?si=-tmTVVahStC7e1DEEX4_Xg',
   },
   {
     title: 'UNIVERSE SONIC SINEMA EPISODE 1: IN THE BEGGINING - G.O.O.D MUSIC - MALIK YUSEF',
@@ -29,6 +31,7 @@ const projects: Project[] = [
       'Grammy Nominated for Best Spoken Word Poetry Album',
       'Produced/Engineered Tracks 3,11,12, &19',
     ],
+    externalUrl: 'https://open.spotify.com/album/5enNJYQw7qQfoBkmVz8EtN',
   },
   {
     title: 'LIFE IS BEAUTIFUL',
@@ -39,11 +42,13 @@ const projects: Project[] = [
     title: 'SAY I WASNT - CASH KIDD ft. E-40',
     tags: ['music'],
     details: ['produced by BUUBACKWARDS'],
+    externalUrl: 'https://open.spotify.com/track/5g0Cqd11pPxaf2JtYE5NlU?si=ad4e09ae758748be',
   },
   {
     title: 'FORGIVE ME FOR BEING TURNT - PRINCE TAE',
     tags: ['music'],
     details: ['Produced/Engineered tracks 1,3,5,7,9,&11'],
+    externalUrl: 'https://open.spotify.com/album/3aTwhLpXC6fDgWqYa6Gekp?si=2aa1b07be3a84b97',
   },
   {
     title: 'MUSE SESSIONS -',
@@ -54,6 +59,7 @@ const projects: Project[] = [
     title: 'NOT THE WEATHER - KING CHIP / WIZ KHALIFA',
     tags: ['music'],
     details: ['produced by PILLOWHEAD'],
+    externalUrl: 'https://open.spotify.com/track/6agxyrQpLDXt3FCnlIo5gy?si=c384df10b320409a',
   },
   {
     title: 'OMAR APOLLO - GOD SAID NO WORLD TOUR',
@@ -85,7 +91,19 @@ export default function ProjectsPage() {
               className="border-b border-black/10 pb-3 last:border-b-0 last:pb-0"
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <span>{project.title}</span>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>{project.title}</span>
+                  {project.externalUrl ? (
+                    <a
+                      href={project.externalUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[0.6rem] uppercase tracking-[0.3em] text-black/45 underline decoration-black/25 underline-offset-4 transition hover:text-black/70"
+                    >
+                      listen
+                    </a>
+                  ) : null}
+                </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {project.tags.map((tag) => (
                     <span
