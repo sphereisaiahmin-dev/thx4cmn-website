@@ -6,6 +6,7 @@ export interface Product {
   name: string;
   description: string;
   type: ProductType;
+  isReleased: boolean;
   priceCents: number;
   currency: string;
   stripePriceId?: string;
@@ -20,6 +21,7 @@ export const products: Product[] = [
     description:
       'Downloadable sample pack with curated drum, texture, and instrument sounds from the lab.',
     type: 'digital',
+    isReleased: true,
     priceCents: 2500,
     currency: 'USD',
     stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_SAMPLE_PACK,
@@ -32,12 +34,15 @@ export const products: Product[] = [
     description:
       'portable midi chord generator with interactive feedback and customizable configurations',
     type: 'physical',
+    isReleased: false,
     priceCents: 14900,
     currency: 'USD',
     stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_MIDI_DEVICE,
   },
 ];
 
+export const getReleasedProducts = () => products.filter((product) => product.isReleased);
 export const getProductById = (id: string) => products.find((product) => product.id === id);
-export const getProductBySlug = (slug: string) =>
-  products.find((product) => product.slug === slug);
+export const getProductBySlug = (slug: string) => products.find((product) => product.slug === slug);
+export const getReleasedProductBySlug = (slug: string) =>
+  products.find((product) => product.slug === slug && product.isReleased);
