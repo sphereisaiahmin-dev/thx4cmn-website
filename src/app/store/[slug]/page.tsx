@@ -1,14 +1,14 @@
 import Link from 'next/link';
 
 import { ProductDetail } from '@/components/ProductDetail';
-import { getProductBySlug } from '@/data/products';
+import { getReleasedProductBySlug } from '@/data/products';
 
 interface ProductPageProps {
   params: { slug: string };
 }
 
 export default function ProductPage({ params }: ProductPageProps) {
-  const product = getProductBySlug(params.slug);
+  const product = getReleasedProductBySlug(params.slug);
 
   if (!product) {
     return (
