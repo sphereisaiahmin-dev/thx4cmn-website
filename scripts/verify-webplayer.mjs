@@ -88,6 +88,13 @@ const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
 
+const jsonResponse = (body, headers = {}) => ({
+  status: 200,
+  contentType: 'application/json',
+  headers,
+  body: JSON.stringify(body),
+});
+
 const waitForPlayerMounted = async (page, timeout = 10000) => {
   await page.waitForFunction(
     () => document.querySelectorAll('.audio-player').length === 1,
@@ -589,6 +596,110 @@ const run = async () => {
     const listResponse = await page.request.get(`${BASE_URL}/api/music/list`);
     const listPayload = await listResponse.json();
     assert(Array.isArray(listPayload.tracks), 'Track list payload is invalid.');
+    assert(
+      (listResponse.headers()['cache-control'] ?? '').includes('no-store'),
+      'Track list route should disable caching.',
+    );
+
+    const signedUrlResponse = await page.request.get(
+      `${BASE_URL}/api/music/signed-url?key=${encodeURIComponent('local-fixture/Dreams Come True.mp3')}`,
+    );
+    assert(
+      (signedUrlResponse.headers()['cache-control'] ?? '').includes('no-store'),
+      'Signed URL route should disable caching.',
+    );
+
+    // Reload should pick up a changed playlist payload.
+    const freshnessPage = await browser.newPage();
+    let freshnessPhase = 'initial';
+    await freshnessPage.route('**/api/music/list', async (route) => {
+      const tracks =
+        freshnessPhase === 'initial'
+          ? [{ key: 'music/Track A.mp3', title: 'Track A' }]
+          : [
+              { key: 'music/Track B.mp3', title: 'Track B' },
+              { key: 'music/Track C.mp3', title: 'Track C' },
+            ];
+      await route.fulfill(jsonResponse({ tracks }, { 'Cache-Control': 'no-store' }));
+    });
+    await freshnessPage.route('**/api/music/signed-url?*', async (route) => {
+      await route.fulfill(
+        jsonResponse(
+          {
+            url: `${BASE_URL}/api/music/local-fixture?key=${encodeURIComponent(
+              'local-fixture/Dreams Come True.mp3',
+            )}`,
+          },
+          { 'Cache-Control': 'no-store' },
+        ),
+      );
+    });
+
+    await freshnessPage.goto(BASE_URL, { waitUntil: 'networkidle' });
+    await freshnessPage.waitForFunction(() => {
+      const title = document.querySelector('.audio-player__track-title-text')?.textContent?.trim();
+      return title === 'Track A';
+    });
+
+    freshnessPhase = 'reloaded';
+    await freshnessPage.reload({ waitUntil: 'networkidle' });
+    await freshnessPage.waitForFunction(() => {
+      const title = document.querySelector('.audio-player__track-title-text')?.textContent?.trim();
+      return title === 'Track B' || title === 'Track C';
+    });
+    const refreshedTitle = await freshnessPage
+      .locator('.audio-player__track-title-text')
+      .first()
+      .textContent();
+    assert(
+      refreshedTitle === 'Track B' || refreshedTitle === 'Track C',
+      'Page reload should pick up the latest playlist response.',
+    );
+    await freshnessPage.close();
+
+    // A deleted track should refresh the playlist instead of leaving the player stuck.
+    const recoveryPage = await browser.newPage();
+    let recoveryPhase = 'stale';
+    let recoveryListRequestCount = 0;
+    await recoveryPage.route('**/api/music/list', async (route) => {
+      recoveryListRequestCount += 1;
+      const tracks =
+        recoveryPhase === 'stale'
+          ? [{ key: 'music/Deleted Track.mp3', title: 'Deleted Track' }]
+          : [{ key: 'music/Replacement Track.mp3', title: 'Replacement Track' }];
+      await route.fulfill(jsonResponse({ tracks }, { 'Cache-Control': 'no-store' }));
+    });
+    await recoveryPage.route('**/api/music/signed-url?*', async (route) => {
+      const key = new URL(route.request().url()).searchParams.get('key');
+      const url =
+        key === 'music/Deleted Track.mp3'
+          ? `${BASE_URL}/__deleted-track__.mp3`
+          : `${BASE_URL}/api/music/local-fixture?key=${encodeURIComponent(
+              'local-fixture/Dreams Come True.mp3',
+            )}`;
+      await route.fulfill(jsonResponse({ url }, { 'Cache-Control': 'no-store' }));
+    });
+    await recoveryPage.route(`${BASE_URL}/__deleted-track__.mp3`, async (route) => {
+      recoveryPhase = 'recovered';
+      await route.fulfill({
+        status: 404,
+        contentType: 'audio/mpeg',
+        body: '',
+      });
+    });
+
+    await recoveryPage.goto(BASE_URL, { waitUntil: 'networkidle' });
+    await recoveryPage.waitForFunction(() => {
+      const title = document.querySelector('.audio-player__track-title-text')?.textContent?.trim();
+      return title === 'Replacement Track';
+    });
+    const recoveryStatus =
+      (await recoveryPage.locator('.audio-player__status').count()) > 0
+        ? await recoveryPage.locator('.audio-player__status').first().textContent()
+        : null;
+    assert(recoveryListRequestCount >= 2, 'Missing track recovery should refresh the playlist.');
+    assert(recoveryStatus !== 'Unable to fetch audio source (404).', 'Missing track recovery left the player in a stale error state.');
+    await recoveryPage.close();
 
     console.log('Web player verification passed.');
   } finally {

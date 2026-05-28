@@ -83,6 +83,17 @@ const isExpiredError = (error: unknown) => {
   return message.includes('403') || message.includes('forbidden') || message.includes('expired');
 };
 
+const isMissingTrackError = (error: unknown) => {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('404') ||
+    message.includes('not found') ||
+    message.includes('no such key') ||
+    message.includes('does not exist')
+  );
+};
+
 const shuffleTracks = (tracks: Track[]) => {
   const shuffled = [...tracks];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
@@ -105,6 +116,7 @@ export const useWebPlayer = () => {
   const loadRequestIdRef = useRef(0);
   const reverseStateRef = useRef(initialState.isReversed);
   const signedUrlCacheRef = useRef(new Map<string, { url: string; expiresAt: number }>());
+  const recoveryAttemptedKeysRef = useRef(new Set<string>());
 
   useEffect(() => {
     reverseStateRef.current = state.isReversed;
@@ -124,6 +136,42 @@ export const useWebPlayer = () => {
       throw error;
     }
     return data.url as string;
+  }, []);
+
+  const loadTracks = useCallback(async (preserveTrackKey?: string) => {
+    dispatch({ type: 'set-status', payload: 'loading-list' });
+    dispatch({ type: 'set-error', payload: null });
+    try {
+      const response = await fetch('/api/music/list', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Failed to load tracks (${response.status}).`);
+      }
+      const data = await response.json();
+      const nextTracks = Array.isArray(data.tracks) ? shuffleTracks(data.tracks) : [];
+      const nextIndex =
+        preserveTrackKey !== undefined
+          ? Math.max(
+              nextTracks.findIndex((track) => track.key === preserveTrackKey),
+              0,
+            )
+          : 0;
+      dispatch({ type: 'set-tracks', payload: nextTracks });
+      if (nextTracks.length > 0) {
+        dispatch({ type: 'set-index', payload: nextIndex });
+      } else {
+        dispatch({ type: 'set-index', payload: 0 });
+      }
+      dispatch({ type: 'set-status', payload: 'ready' });
+      return nextTracks;
+    } catch (error) {
+      console.error('[WebPlayer] Track list fetch failed.', error);
+      dispatch({ type: 'set-status', payload: 'error' });
+      dispatch({
+        type: 'set-error',
+        payload: error instanceof Error ? error.message : 'Unable to load tracks.',
+      });
+      return null;
+    }
   }, []);
 
   const loadTrack = useCallback(
@@ -161,6 +209,7 @@ export const useWebPlayer = () => {
       try {
         await loadWithRetry(false);
         if (!isLatestRequest()) return;
+        recoveryAttemptedKeysRef.current.delete(track.key);
         await engineRef.current?.setReversed(reverseStateRef.current);
         if (!isLatestRequest()) return;
         dispatch({ type: 'set-status', payload: 'ready' });
@@ -180,6 +229,26 @@ export const useWebPlayer = () => {
         }
       } catch (error) {
         if (!isLatestRequest()) return;
+
+        if (isMissingTrackError(error) && !recoveryAttemptedKeysRef.current.has(track.key)) {
+          console.warn('[WebPlayer] Track is no longer available. Refreshing playlist.', error);
+          recoveryAttemptedKeysRef.current.add(track.key);
+          signedUrlCacheRef.current.delete(track.key);
+          const refreshedTracks = await loadTracks(track.key);
+          if (refreshedTracks && refreshedTracks.length > 0) {
+            return;
+          }
+          dispatch({
+            type: 'set-status',
+            payload: 'error',
+          });
+          dispatch({
+            type: 'set-error',
+            payload: 'This track is no longer available.',
+          });
+          return;
+        }
+
         console.error('[WebPlayer] Track load failed.', error);
         dispatch({
           type: 'set-status',
@@ -191,33 +260,8 @@ export const useWebPlayer = () => {
         });
       }
     },
-    [fetchSignedUrl],
+    [fetchSignedUrl, loadTracks],
   );
-
-  const loadTracks = useCallback(async () => {
-    dispatch({ type: 'set-status', payload: 'loading-list' });
-    dispatch({ type: 'set-error', payload: null });
-    try {
-      const response = await fetch('/api/music/list');
-      if (!response.ok) {
-        throw new Error(`Failed to load tracks (${response.status}).`);
-      }
-      const data = await response.json();
-      const nextTracks = Array.isArray(data.tracks) ? shuffleTracks(data.tracks) : [];
-      dispatch({ type: 'set-tracks', payload: nextTracks });
-      if (nextTracks.length > 0) {
-        dispatch({ type: 'set-index', payload: 0 });
-      }
-      dispatch({ type: 'set-status', payload: 'ready' });
-    } catch (error) {
-      console.error('[WebPlayer] Track list fetch failed.', error);
-      dispatch({ type: 'set-status', payload: 'error' });
-      dispatch({
-        type: 'set-error',
-        payload: error instanceof Error ? error.message : 'Unable to load tracks.',
-      });
-    }
-  }, []);
 
   useEffect(() => {
     const engine = new WebPlayerEngine();
