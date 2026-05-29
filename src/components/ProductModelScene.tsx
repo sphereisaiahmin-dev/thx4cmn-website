@@ -17,7 +17,7 @@ import {
   scaleByModelUrl,
 } from './productModelPresentation';
 
-type FitMode = 'default' | 'detail-fill';
+type FitMode = 'default' | 'detail-fill' | 'detail-immersive';
 type ScenePerformanceMode = 'auto' | 'default' | 'constrained';
 
 interface ProductModelSceneProps {
@@ -26,6 +26,7 @@ interface ProductModelSceneProps {
   fitMode?: FitMode;
   isActive?: boolean;
   performanceMode?: ScenePerformanceMode;
+  presentationScaleMultiplier?: number;
 }
 
 interface ProductModelRigProps {
@@ -35,10 +36,11 @@ interface ProductModelRigProps {
   onToggle: () => void;
   orbitRef: RefObject<Group | null>;
   spinRef: RefObject<Group | null>;
+  presentationScaleMultiplier?: number;
 }
 
 interface DetailCameraFitterProps {
-  enabled: boolean;
+  fitMode: FitMode;
   modelUrl: string;
   targetRef: RefObject<Group | null>;
   controlsRef: RefObject<OrbitControlsImpl | null>;
@@ -47,20 +49,40 @@ interface DetailCameraFitterProps {
 const DETAIL_REFERENCE_ASPECT = 4 / 5;
 const DETAIL_TARGET_FILL = 1;
 const DETAIL_FIT_MARGIN = 1.06;
+const DETAIL_IMMERSIVE_TARGET_FILL = 1.16;
+const DETAIL_IMMERSIVE_MARGIN = 0.92;
 
-const ProductModel = ({ modelUrl }: { modelUrl: string }) => {
+const ProductModel = ({
+  modelUrl,
+  presentationScaleMultiplier = 1,
+}: {
+  modelUrl: string;
+  presentationScaleMultiplier?: number;
+}) => {
   const { scene } = useGLTF(modelUrl);
-  const preparedScene = useMemo(() => clonePreparedProductScene(scene, modelUrl), [modelUrl, scene]);
-  const scale = scaleByModelUrl[modelUrl] ?? 1;
+  const preparedScene = useMemo(
+    () => clonePreparedProductScene(scene, modelUrl),
+    [modelUrl, scene],
+  );
+  const scale = (scaleByModelUrl[modelUrl] ?? 1) * presentationScaleMultiplier;
   return <primitive object={preparedScene} scale={scale} />;
 };
 
-const DetailCameraFitter = ({ enabled, modelUrl, targetRef, controlsRef }: DetailCameraFitterProps) => {
+const DetailCameraFitter = ({
+  fitMode,
+  modelUrl,
+  targetRef,
+  controlsRef,
+}: DetailCameraFitterProps) => {
   const { camera, size } = useThree();
-  const needsFitRef = useRef(enabled);
+  const isEnabled = fitMode !== 'default';
+  const needsFitRef = useRef(isEnabled);
+  const fillTarget =
+    fitMode === 'detail-immersive' ? DETAIL_IMMERSIVE_TARGET_FILL : DETAIL_TARGET_FILL;
+  const fitMargin = fitMode === 'detail-immersive' ? DETAIL_IMMERSIVE_MARGIN : DETAIL_FIT_MARGIN;
 
   const fitCamera = useCallback(() => {
-    if (!enabled || !(camera instanceof PerspectiveCamera)) return false;
+    if (!isEnabled || !(camera instanceof PerspectiveCamera)) return false;
     const controls = controlsRef.current;
     if (!controls) return false;
 
@@ -80,8 +102,7 @@ const DetailCameraFitter = ({ enabled, modelUrl, targetRef, controlsRef }: Detai
     const verticalFov = MathUtils.degToRad(camera.fov);
     const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * referenceAspect);
     const limitingFov = Math.min(verticalFov, horizontalFov);
-    const distance =
-      (sphere.radius / Math.sin(limitingFov / 2)) * (DETAIL_FIT_MARGIN / DETAIL_TARGET_FILL);
+    const distance = (sphere.radius / Math.sin(limitingFov / 2)) * (fitMargin / fillTarget);
 
     camera.position.set(sphere.center.x, sphere.center.y, sphere.center.z + distance);
     camera.near = Math.max(0.01, distance - sphere.radius * 2.2);
@@ -93,11 +114,11 @@ const DetailCameraFitter = ({ enabled, modelUrl, targetRef, controlsRef }: Detai
     controls.update();
 
     return true;
-  }, [camera, controlsRef, enabled, size.height, size.width, targetRef]);
+  }, [camera, controlsRef, fillTarget, fitMargin, isEnabled, size.height, size.width, targetRef]);
 
   useEffect(() => {
-    needsFitRef.current = enabled;
-  }, [enabled, modelUrl, size.height, size.width]);
+    needsFitRef.current = isEnabled;
+  }, [fitMode, isEnabled, modelUrl, size.height, size.width]);
 
   useFrame(() => {
     if (!needsFitRef.current) return;
@@ -116,6 +137,7 @@ const ProductModelRig = ({
   onToggle,
   orbitRef,
   spinRef,
+  presentationScaleMultiplier = 1,
 }: ProductModelRigProps) => {
   useFrame((state, delta) => {
     const orbitTarget = orbitRef.current;
@@ -143,7 +165,10 @@ const ProductModelRig = ({
     >
       <group ref={spinRef}>
         <Center>
-          <ProductModel modelUrl={modelUrl} />
+          <ProductModel
+            modelUrl={modelUrl}
+            presentationScaleMultiplier={presentationScaleMultiplier}
+          />
         </Center>
       </group>
     </group>
@@ -156,6 +181,7 @@ export const ProductModelScene = ({
   fitMode = 'default',
   isActive = true,
   performanceMode = 'auto',
+  presentationScaleMultiplier = 1,
 }: ProductModelSceneProps) => {
   const [autoRotate, setAutoRotate] = useState(true);
   const orbitRef = useRef<Group>(null);
@@ -174,8 +200,20 @@ export const ProductModelScene = ({
       {lightRig === 'universe' ? (
         <>
           <ambientLight intensity={0.28} color="#dce8ff" />
-          <pointLight position={[2.4, 1.4, 2.8]} intensity={7.7} distance={8} decay={2} color="#5da1ff" />
-          <pointLight position={[-2.8, -1.1, 2.4]} intensity={12} distance={8} decay={2} color="#9c4dff" />
+          <pointLight
+            position={[2.4, 1.4, 2.8]}
+            intensity={7.7}
+            distance={8}
+            decay={2}
+            color="#5da1ff"
+          />
+          <pointLight
+            position={[-2.8, -1.1, 2.4]}
+            intensity={12}
+            distance={8}
+            decay={2}
+            color="#9c4dff"
+          />
           <directionalLight position={[0, 0.5, 4]} intensity={0.209} color="#f5f9ff" />
         </>
       ) : (
@@ -185,7 +223,13 @@ export const ProductModelScene = ({
           <directionalLight position={[-3, -2, 2]} intensity={0.6} />
         </>
       )}
-      <Suspense fallback={<Html center className="text-xs text-black/50">Loading model...</Html>}>
+      <Suspense
+        fallback={
+          <Html center className="text-xs text-black/50">
+            Loading model...
+          </Html>
+        }
+      >
         <ProductModelRig
           orbitRef={orbitRef}
           spinRef={spinRef}
@@ -193,9 +237,10 @@ export const ProductModelScene = ({
           autoRotate={autoRotate}
           isActive={isActive}
           onToggle={() => setAutoRotate((value) => !value)}
+          presentationScaleMultiplier={presentationScaleMultiplier}
         />
         <DetailCameraFitter
-          enabled={fitMode === 'detail-fill'}
+          fitMode={fitMode}
           modelUrl={modelUrl}
           targetRef={orbitRef}
           controlsRef={controlsRef}
