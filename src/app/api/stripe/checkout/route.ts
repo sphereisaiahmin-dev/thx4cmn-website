@@ -4,6 +4,7 @@ import Stripe from 'stripe';
 
 import { getProductById } from '@/data/products';
 import { parseCheckoutItemsPayload } from '@/lib/checkout';
+import { buildStripeCheckoutLineItem } from '@/lib/checkoutPricing';
 import { getStripeClient } from '@/lib/stripe';
 
 export const runtime = 'nodejs';
@@ -77,30 +78,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const lineItems = items.map((item) => {
-      const product = getProductById(item.productId)!;
+    const lineItems = items.map((item) =>
+      buildStripeCheckoutLineItem(getProductById(item.productId)!, item.quantity),
+    );
 
-      if (product.stripePriceId) {
-        return {
-          price: product.stripePriceId,
-          quantity: item.quantity,
-        } as const;
-      }
-
-      return {
-        price_data: {
-          currency: product.currency,
-          product_data: {
-            name: product.name,
-            description: product.description,
-          },
-          unit_amount: product.priceCents,
-        },
-        quantity: item.quantity,
-      } as const;
-    });
-
-    const requestHeaders = headers();
+    const requestHeaders = await headers();
     const origin = resolveCheckoutOrigin(requestHeaders);
     const stripe = getStripeClient();
     const logContext = {
