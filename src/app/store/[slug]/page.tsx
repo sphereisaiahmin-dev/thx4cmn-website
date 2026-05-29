@@ -4,11 +4,12 @@ import { ProductDetail } from '@/components/ProductDetail';
 import { getReleasedProductBySlug } from '@/data/products';
 
 interface ProductPageProps {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
-export default function ProductPage({ params }: ProductPageProps) {
-  const product = getReleasedProductBySlug(params.slug);
+export default async function ProductPage({ params }: ProductPageProps) {
+  const { slug } = await params;
+  const product = getReleasedProductBySlug(slug);
 
   if (!product) {
     return (

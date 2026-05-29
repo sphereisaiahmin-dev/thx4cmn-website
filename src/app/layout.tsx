@@ -1,16 +1,12 @@
 import type { Metadata } from 'next';
-import dynamic from 'next/dynamic';
+import { AudioPlayerShell } from '@/components/AudioPlayerShell';
 import { Footer } from '@/components/Footer';
-import { HomeLogoBackground } from '@/components/HomeLogoBackground';
-import { Navigation } from '@/components/Navigation';
+import { HomeLogoBackgroundShell } from '@/components/HomeLogoBackgroundShell';
+import { NavigationShell } from '@/components/NavigationShell';
 import { RouteBodyClass } from '@/components/RouteBodyClass';
 
 import './globals.css';
 import '@/styles/audio-player.css';
-
-const AudioPlayer = dynamic(() => import('@/components/AudioPlayer').then((mod) => mod.AudioPlayer), {
-  ssr: false,
-});
 
 export const metadata: Metadata = {
   title: 'thx4cmn',
@@ -32,9 +28,9 @@ export default function RootLayout({
           <div className="site-background__layer site-background__layer--blue" />
         </div>
         <div className="app-shell relative z-10 flex min-h-screen w-full flex-col px-6">
-          <HomeLogoBackground />
-          <Navigation />
-          <AudioPlayer />
+          <HomeLogoBackgroundShell />
+          <NavigationShell />
+          <AudioPlayerShell />
           <main className="app-main flex-1 py-16">{children}</main>
           <Footer />
         </div>

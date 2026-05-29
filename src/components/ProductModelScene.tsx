@@ -33,15 +33,15 @@ interface ProductModelRigProps {
   autoRotate: boolean;
   isActive: boolean;
   onToggle: () => void;
-  orbitRef: RefObject<Group>;
-  spinRef: RefObject<Group>;
+  orbitRef: RefObject<Group | null>;
+  spinRef: RefObject<Group | null>;
 }
 
 interface DetailCameraFitterProps {
   enabled: boolean;
   modelUrl: string;
-  targetRef: RefObject<Group>;
-  controlsRef: RefObject<OrbitControlsImpl>;
+  targetRef: RefObject<Group | null>;
+  controlsRef: RefObject<OrbitControlsImpl | null>;
 }
 
 const DETAIL_REFERENCE_ASPECT = 4 / 5;

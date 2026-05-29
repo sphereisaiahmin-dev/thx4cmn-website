@@ -1,14 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 
-import { ProductModelScene } from '@/components/ProductModelScene';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
 import { normalizeCheckoutQuantity } from '@/lib/checkout';
 import { formatCurrency } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
+
+const ProductModelScene = dynamic(
+  () => import('@/components/ProductModelScene').then((mod) => mod.ProductModelScene),
+  {
+    ssr: false,
+  },
+);
 
 interface ProductDetailProps {
   product: Product;

@@ -73,19 +73,27 @@ const isLocalFirmwarePackage = (candidate: unknown): candidate is LocalFirmwareP
   candidate.files.length > 0 &&
   candidate.files.every((file) => isObject(file));
 
+const resolveWorkspaceRoot = (workspaceRoot?: string) =>
+  resolve(workspaceRoot ?? /* turbopackIgnore: true */ process.cwd());
+
+const resolveDistRoot = (workspaceRoot?: string) =>
+  resolve(/* turbopackIgnore: true */ resolveWorkspaceRoot(workspaceRoot), 'dist');
+
+const normalizeDistRelativePath = (configuredPath: string) => configuredPath.replace(/^dist[\\/]+/i, '');
+
 export const resolveLocalFirmwarePackagePath = (
   configuredPath = process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV] ?? '',
-  workspaceRoot = resolve(process.cwd()),
+  workspaceRoot?: string,
 ) => {
   const trimmed = configuredPath.trim();
   if (!trimmed) {
     return null;
   }
 
-  const distRoot = resolve(workspaceRoot, 'dist');
+  const distRoot = resolveDistRoot(workspaceRoot);
   const resolvedPackagePath = isAbsolute(trimmed)
-    ? resolve(trimmed)
-    : resolve(workspaceRoot, trimmed);
+    ? resolve(/* turbopackIgnore: true */ trimmed)
+    : resolve(distRoot, normalizeDistRelativePath(trimmed));
   if (!isPathWithinDirectory(distRoot, resolvedPackagePath)) {
     throw new Error('Local firmware package must live inside the workspace dist directory.');
   }
@@ -95,7 +103,7 @@ export const resolveLocalFirmwarePackagePath = (
     throw new Error('Local firmware package must be an hx01 direct-update JSON artifact.');
   }
 
-  const stat = statSync(resolvedPackagePath);
+  const stat = statSync(/* turbopackIgnore: true */ resolvedPackagePath);
   if (!stat.isFile()) {
     throw new Error(`Local firmware package is not a file: ${resolvedPackagePath}`);
   }
@@ -105,7 +113,7 @@ export const resolveLocalFirmwarePackagePath = (
 
 export const readLocalFirmwarePackageText = (
   configuredPath = process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV] ?? '',
-  workspaceRoot = resolve(process.cwd()),
+  workspaceRoot?: string,
 ): LocalFirmwarePackageSource | null => {
   const packagePath = resolveLocalFirmwarePackagePath(configuredPath, workspaceRoot);
   if (!packagePath) {
@@ -114,13 +122,13 @@ export const readLocalFirmwarePackageText = (
 
   return {
     packagePath,
-    packageText: readFileSync(packagePath, 'utf8'),
+    packageText: readFileSync(/* turbopackIgnore: true */ packagePath, 'utf8'),
   };
 };
 
 export const loadLocalFirmwarePackageMetadata = (
   configuredPath = process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV] ?? '',
-  workspaceRoot = resolve(process.cwd()),
+  workspaceRoot?: string,
 ): LocalFirmwarePackageMetadata | null => {
   const source = readLocalFirmwarePackageText(configuredPath, workspaceRoot);
   if (!source) {

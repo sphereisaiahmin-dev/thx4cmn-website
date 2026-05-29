@@ -1,18 +1,7 @@
 import { getR2ObjectText } from './r2';
-import {
-  DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV,
-  DEVICE_FIRMWARE_LOCAL_PACKAGE_ROUTE,
-  computeReleaseRank,
-  loadLocalFirmwarePackageMetadata,
-  parseSemver,
-} from './deviceFirmwareLocalPackage';
 
-export {
-  DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV,
-  DEVICE_FIRMWARE_LOCAL_PACKAGE_ROUTE,
-  computeReleaseRank,
-  parseSemver,
-};
+export const DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV = 'DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH';
+export const DEVICE_FIRMWARE_LOCAL_PACKAGE_ROUTE = '/api/device/firmware/package?local=1';
 
 export type FirmwareUpdateStrategy = 'direct_flash';
 
@@ -35,6 +24,41 @@ export interface DeviceFirmwareManifest {
 }
 
 export const FIRMWARE_MANIFEST_KEY = 'updates/firmware-manifest.json';
+
+type SemverTuple = {
+  major: number;
+  minor: number;
+  patch: number;
+};
+
+const isLocalFirmwarePackageEnabled = process.env.NODE_ENV !== 'production';
+
+export const parseSemver = (candidate: string): SemverTuple | null => {
+  const normalized = candidate.trim().replace(/^v/i, '');
+  const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    major: Number.parseInt(match[1], 10),
+    minor: Number.parseInt(match[2], 10),
+    patch: Number.parseInt(match[3], 10),
+  };
+};
+
+export const computeReleaseRank = (version: string): number | null => {
+  const parsed = parseSemver(version);
+  if (!parsed) {
+    return null;
+  }
+
+  if (parsed.major === 0) {
+    return 50000 + parsed.minor * 100 + parsed.patch;
+  }
+
+  return parsed.major * 10000 + parsed.minor * 100 + parsed.patch;
+};
 
 const isObject = (candidate: unknown): candidate is Record<string, unknown> =>
   typeof candidate === 'object' && candidate !== null && !Array.isArray(candidate);
@@ -83,7 +107,12 @@ export const normalizeFirmwareManifest = (candidate: unknown): DeviceFirmwareMan
   };
 };
 
-export const loadLocalDeviceFirmwareManifest = () => {
+export const loadLocalDeviceFirmwareManifest = async () => {
+  if (!isLocalFirmwarePackageEnabled) {
+    return null;
+  }
+
+  const { loadLocalFirmwarePackageMetadata } = await import('./deviceFirmwareLocalPackage');
   const metadata = loadLocalFirmwarePackageMetadata();
   if (!metadata) {
     return null;
@@ -108,7 +137,7 @@ export const loadLocalDeviceFirmwareManifest = () => {
 };
 
 export const loadDeviceFirmwareManifest = async () => {
-  const localManifest = loadLocalDeviceFirmwareManifest();
+  const localManifest = await loadLocalDeviceFirmwareManifest();
   if (localManifest) {
     return localManifest;
   }

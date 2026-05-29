@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 
-import { readLocalFirmwarePackageText } from '../../../../../lib/deviceFirmwareLocalPackage';
 import { getR2ObjectText } from '../../../../../lib/r2';
 
 export const runtime = 'nodejs';
+
+const isLocalFirmwarePackageEnabled = process.env.NODE_ENV !== 'production';
 
 const isValidPackageKey = (candidate: string) =>
   candidate.startsWith('updates/') &&
@@ -51,7 +52,12 @@ export async function GET(request: Request) {
   }
 
   if (local) {
+    if (!isLocalFirmwarePackageEnabled) {
+      return NextResponse.json({ error: 'Local firmware packages are only available in development.' }, { status: 404 });
+    }
+
     try {
+      const { readLocalFirmwarePackageText } = await import('../../../../../lib/deviceFirmwareLocalPackage');
       const source = readLocalFirmwarePackageText();
       if (!source) {
         return NextResponse.json({ error: 'No local firmware package is configured.' }, { status: 404 });

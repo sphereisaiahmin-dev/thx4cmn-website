@@ -56,9 +56,10 @@ export const runtime = 'nodejs';
 
 export async function GET(
   _request: Request,
-  context: { params: { file: string[] } },
+  context: { params: Promise<{ file?: string[] }> },
 ): Promise<Response> {
-  const requestedPath = (context.params.file ?? []).join('/');
+  const { file = [] } = await context.params;
+  const requestedPath = file.join('/');
   const allowedFile = allowedFiles.get(requestedPath);
 
   if (!allowedFile) {

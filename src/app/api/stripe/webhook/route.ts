@@ -10,7 +10,7 @@ import { createServerClient } from '@/lib/supabase/server';
 export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
-  const stripeSignature = headers().get('stripe-signature');
+  const stripeSignature = (await headers()).get('stripe-signature');
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!stripeSignature || !webhookSecret) {

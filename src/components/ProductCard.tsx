@@ -1,13 +1,20 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 
-import { ProductModelScene } from '@/components/ProductModelScene';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
 import { formatCurrency } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
+
+const ProductModelScene = dynamic(
+  () => import('@/components/ProductModelScene').then((mod) => mod.ProductModelScene),
+  {
+    ssr: false,
+  },
+);
 
 interface ProductCardProps {
   product: Product;

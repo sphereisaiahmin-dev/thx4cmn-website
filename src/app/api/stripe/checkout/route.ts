@@ -100,7 +100,7 @@ export async function POST(request: Request) {
       } as const;
     });
 
-    const requestHeaders = headers();
+    const requestHeaders = await headers();
     const origin = resolveCheckoutOrigin(requestHeaders);
     const stripe = getStripeClient();
     const logContext = {
