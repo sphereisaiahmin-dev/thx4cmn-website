@@ -17,6 +17,12 @@ import {
 
 export const UNIVERSE_MODEL_URL = '/api/3d/need_some_space/scene.gltf';
 
+export interface BloomSettings {
+  strength: number;
+  radius: number;
+  threshold: number;
+}
+
 export const scaleByModelUrl: Record<string, number> = {
   '/api/3d/samplepack.glb': 20,
   [UNIVERSE_MODEL_URL]: 1.08,
@@ -284,7 +290,7 @@ export const applyProductMotion = ({
   }
 };
 
-export const getBloomSettings = (modelUrl: string) => {
+export const getBloomSettings = (modelUrl: string): BloomSettings | null => {
   void modelUrl;
   return null;
 };

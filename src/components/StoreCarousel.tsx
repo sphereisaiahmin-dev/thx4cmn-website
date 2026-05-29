@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Center, useGLTF } from '@react-three/drei';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import { Box3, type Group, MathUtils, Sphere } from 'three';
 
 import { SceneBloom } from '@/components/SceneBloom';
@@ -12,6 +12,7 @@ import { modelUrlsByProductId } from '@/components/productModelUrls';
 import {
   applyProductMotion,
   applyRenderableOpacity,
+  type BloomSettings,
   clonePreparedProductScene,
   getBloomSettings,
   getModelLightRig,
@@ -142,7 +143,7 @@ const SlotModel = ({ modelUrl, slotKey, opacityRef, onNavigate, isMobile }: Slot
   });
 
   const handlePointerDown = !isSide
-    ? (event: { clientX: number; stopPropagation: () => void }) => {
+    ? (event: ThreeEvent<PointerEvent>) => {
         event.stopPropagation();
         isDragging.current = true;
         dragStartX.current = event.clientX;
@@ -223,7 +224,10 @@ const CarouselScene = ({
 }: CarouselSceneProps) => {
   const sideIdle = isMobile ? 0 : SIDE_IDLE_OPACITY;
   const visibleModelUrls = [leftUrl, centerUrl, rightUrl].filter((url): url is string => Boolean(url));
-  const bloomSettings = visibleModelUrls.map(getBloomSettings).find(Boolean) ?? null;
+  const bloomSettings =
+    visibleModelUrls
+      .map((url) => getBloomSettings(url))
+      .find((settings): settings is BloomSettings => settings !== null) ?? null;
   const lightRig = visibleModelUrls.some((url) => getModelLightRig(url) === 'universe')
     ? 'universe'
     : 'default';
