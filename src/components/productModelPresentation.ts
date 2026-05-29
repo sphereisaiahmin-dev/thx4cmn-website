@@ -16,6 +16,7 @@ import {
 } from 'three';
 
 export const UNIVERSE_MODEL_URL = '/api/3d/need_some_space/scene.gltf';
+export const SAMPLE_PACK_MODEL_URL = '/api/3d/samplepack.glb';
 
 export interface BloomSettings {
   strength: number;
@@ -24,7 +25,7 @@ export interface BloomSettings {
 }
 
 export const scaleByModelUrl: Record<string, number> = {
-  '/api/3d/samplepack.glb': 20,
+  [SAMPLE_PACK_MODEL_URL]: 20,
   [UNIVERSE_MODEL_URL]: 1.08,
   '/api/3d/thxc.glb': 0.0227,
 };
@@ -147,6 +148,7 @@ const applyUniverseGradient = (points: Points) => {
 };
 
 export const isUniverseModel = (modelUrl: string) => modelUrl === UNIVERSE_MODEL_URL;
+export const isSamplePackModel = (modelUrl: string) => modelUrl === SAMPLE_PACK_MODEL_URL;
 
 export const clonePreparedProductScene = (scene: Group, modelUrl: string) => {
   const clonedScene = scene.clone(true);
@@ -214,8 +216,7 @@ export const getRenderableBounds = (root: Group) => {
     }
 
     worldBounds.getSize(size);
-    const volume =
-      Math.max(size.x, 0.0001) * Math.max(size.y, 0.0001) * Math.max(size.z, 0.0001);
+    const volume = Math.max(size.x, 0.0001) * Math.max(size.y, 0.0001) * Math.max(size.z, 0.0001);
     renderableBounds.push({ box: worldBounds, volume });
   });
 

@@ -28,7 +28,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
     <section className="store-page">
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-8">
         <Link href="/store" className="text-xs uppercase tracking-[0.3em] text-black/60">
-          ← Back to store
+          &larr; Back to store
         </Link>
         <ProductDetail product={product} />
       </div>
