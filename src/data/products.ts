@@ -28,6 +28,18 @@ export const products: Product[] = [
     r2Key: 'sample-packs/thx4cmn-vol-1.zip',
   },
   {
+    id: 'universe-vol-1',
+    slug: 'universe-vol-1',
+    name: 'Universe Vol. 1',
+    description:
+      'Downloadable melody pack with spaced-out keys, cosmic textures, and celestial loops built for wide, atmospheric ideas.',
+    type: 'digital',
+    isReleased: true,
+    priceCents: 2500,
+    currency: 'USD',
+    r2Key: null,
+  },
+  {
     id: 'midi-device',
     slug: 'midi-chord-device',
     name: 'hx01',
