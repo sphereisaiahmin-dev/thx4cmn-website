@@ -151,16 +151,16 @@ const SamplePackAccentLight = ({ position }: { position: [number, number, number
   return (
     <>
       <pointLight
-        position={[position[0] - 0.6, position[1] + 1.05, position[2] + 2.4]}
-        intensity={1.1}
-        distance={5.5}
+        position={[position[0] - 0.6, position[1] + 1.05, position[2] + 3.1]}
+        intensity={0.82}
+        distance={6.2}
         decay={2}
         color="#8fc9ff"
       />
       <pointLight
-        position={[position[0] + 0.25, position[1] - 0.3, position[2] + 1.6]}
-        intensity={0.42}
-        distance={3.5}
+        position={[position[0] + 0.25, position[1] - 0.3, position[2] + 2.05]}
+        intensity={0.3}
+        distance={4.1}
         decay={2}
         color="#b3dcff"
       />
