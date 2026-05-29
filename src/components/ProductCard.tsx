@@ -1,13 +1,20 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 
-import { ProductModelScene } from '@/components/ProductModelScene';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
-import { formatCurrency } from '@/lib/format';
+import { formatProductPrice } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
+
+const ProductModelScene = dynamic(
+  () => import('@/components/ProductModelScene').then((mod) => mod.ProductModelScene),
+  {
+    ssr: false,
+  },
+);
 
 interface ProductCardProps {
   product: Product;
@@ -87,7 +94,7 @@ export const ProductCard = ({ product }: ProductCardProps) => {
       </div>
       <div className="flex flex-col items-center gap-2">
         <span className="text-xs text-black/60 md:text-sm">
-          {formatCurrency(product.priceCents)}
+          {formatProductPrice(product.priceCents, product.currency)}
         </span>
         <div className="flex items-center justify-center gap-3 md:gap-4">
           <button
