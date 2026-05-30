@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+type Awaitable<T> = T | Promise<T>;
+
 const allowedFiles = new Map<
   string,
   {
@@ -56,7 +58,7 @@ export const runtime = 'nodejs';
 
 export async function GET(
   _request: Request,
-  context: { params: Promise<{ file?: string[] }> },
+  context: { params: Awaitable<{ file?: string[] }> },
 ): Promise<Response> {
   const { file = [] } = await context.params;
   const requestedPath = file.join('/');
