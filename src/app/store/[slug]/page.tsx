@@ -3,8 +3,10 @@ import Link from 'next/link';
 import { ProductDetail } from '@/components/ProductDetail';
 import { getReleasedProductBySlug } from '@/data/products';
 
+type Awaitable<T> = T | Promise<T>;
+
 interface ProductPageProps {
-  params: Promise<{ slug: string }>;
+  params: Awaitable<{ slug: string }>;
 }
 
 export default async function ProductPage({ params }: ProductPageProps) {
