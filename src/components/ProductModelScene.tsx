@@ -2,7 +2,15 @@
 
 import { Center, Html, OrbitControls, useGLTF } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from 'react';
 import { Box3, type Group, MathUtils, PerspectiveCamera, Sphere } from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 
@@ -34,16 +42,16 @@ interface ProductModelRigProps {
   autoRotate: boolean;
   isActive: boolean;
   onToggle: () => void;
-  orbitRef: RefObject<Group | null>;
-  spinRef: RefObject<Group | null>;
+  orbitRef: MutableRefObject<Group | null>;
+  spinRef: MutableRefObject<Group | null>;
   presentationScaleMultiplier?: number;
 }
 
 interface DetailCameraFitterProps {
   fitMode: FitMode;
   modelUrl: string;
-  targetRef: RefObject<Group | null>;
-  controlsRef: RefObject<OrbitControlsImpl | null>;
+  targetRef: MutableRefObject<Group | null>;
+  controlsRef: MutableRefObject<OrbitControlsImpl | null>;
 }
 
 const DETAIL_REFERENCE_ASPECT = 4 / 5;
@@ -139,6 +147,19 @@ const ProductModelRig = ({
   spinRef,
   presentationScaleMultiplier = 1,
 }: ProductModelRigProps) => {
+  const setOrbitRef = useCallback(
+    (node: Group | null) => {
+      orbitRef.current = node;
+    },
+    [orbitRef],
+  );
+  const setSpinRef = useCallback(
+    (node: Group | null) => {
+      spinRef.current = node;
+    },
+    [spinRef],
+  );
+
   useFrame((state, delta) => {
     const orbitTarget = orbitRef.current;
     const spinTarget = spinRef.current ?? orbitTarget;
@@ -157,13 +178,13 @@ const ProductModelRig = ({
 
   return (
     <group
-      ref={orbitRef}
+      ref={setOrbitRef}
       onClick={(event) => {
         event.stopPropagation();
         onToggle();
       }}
     >
-      <group ref={spinRef}>
+      <group ref={setSpinRef}>
         <Center>
           <ProductModel
             modelUrl={modelUrl}
@@ -187,6 +208,12 @@ export const ProductModelScene = ({
   const orbitRef = useRef<Group>(null);
   const spinRef = useRef<Group>(null);
   const controlsRef = useRef<OrbitControlsImpl>(null);
+  const setControlsRef = useCallback(
+    (controls: OrbitControlsImpl | null) => {
+      controlsRef.current = controls;
+    },
+    [],
+  );
   const bloomSettings = getBloomSettings(modelUrl);
   const lightRig = getModelLightRig(modelUrl);
 
@@ -248,7 +275,7 @@ export const ProductModelScene = ({
       </Suspense>
       {bloomSettings ? <SceneBloom {...bloomSettings} /> : null}
       <OrbitControls
-        ref={controlsRef}
+        ref={setControlsRef}
         enablePan={false}
         enableZoom={false}
         enableDamping
