@@ -29,7 +29,6 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 | `STRIPE_SECRET_KEY` | Stripe secret key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `APP_ORIGIN` | Canonical site origin for production checkout redirects (e.g. `https://thx4cmn.com`) |
-| `NEXT_PUBLIC_STRIPE_PRICE_SAMPLE_PACK` | Stripe price ID for the sample pack |
 | `NEXT_PUBLIC_STRIPE_PRICE_MIDI_DEVICE` | Stripe price ID for the hardware device |
 | `R2_ENDPOINT` | Cloudflare R2 S3 endpoint |
 | `R2_ACCESS_KEY_ID` | R2 access key ID |
@@ -56,7 +55,7 @@ See `supabase/README.md` for schema details and setup steps.
 
 1. Create an R2 bucket and access keys.
 2. Set `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET`.
-3. Upload the sample pack zip to the key referenced in `src/data/products.ts`.
+3. Upload the `Community Vol. 1` zip to the key referenced in `src/data/products.ts`.
 4. For the web audio player, upload `.mp3` files under the `music/` prefix and ensure the bucket
    allows GET/HEAD requests (including Range requests) from your site origin so the signed URLs can
    stream and seek in the browser.

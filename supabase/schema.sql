@@ -40,3 +40,17 @@ create table if not exists entitlements (
   expires_at timestamp with time zone,
   created_at timestamp with time zone default now()
 );
+
+create table if not exists digital_fulfillments (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid references orders(id) on delete cascade,
+  product_id text references products(id),
+  recipient_email text,
+  delivery_method text not null default 'email',
+  provider text not null default 'pending_email_service',
+  status text not null default 'pending' check (status in ('pending', 'sent', 'failed')),
+  sent_at timestamp with time zone,
+  last_error text,
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now()
+);

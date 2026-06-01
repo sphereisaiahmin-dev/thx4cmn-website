@@ -1,4 +1,5 @@
 export type ProductType = 'digital' | 'physical';
+export type ProductDeliveryMethod = 'email';
 
 export interface Product {
   id: string;
@@ -11,21 +12,22 @@ export interface Product {
   currency: string;
   stripePriceId?: string;
   r2Key?: string | null;
+  deliveryMethod?: ProductDeliveryMethod;
 }
 
 export const products: Product[] = [
   {
     id: 'sample-pack',
     slug: 'sample-pack',
-    name: 'THX4CMN Sample Pack Vol. 1',
+    name: 'Community Vol. 1',
     description:
       'Downloadable sample pack with curated drum, texture, and instrument sounds from the lab.',
     type: 'digital',
     isReleased: true,
-    priceCents: 2500,
+    priceCents: 0,
     currency: 'USD',
-    stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_SAMPLE_PACK,
     r2Key: 'sample-packs/thx4cmn-vol-1.zip',
+    deliveryMethod: 'email',
   },
   {
     id: 'universe-vol-1',
@@ -38,6 +40,7 @@ export const products: Product[] = [
     priceCents: 2500,
     currency: 'USD',
     r2Key: null,
+    deliveryMethod: 'email',
   },
   {
     id: 'midi-device',

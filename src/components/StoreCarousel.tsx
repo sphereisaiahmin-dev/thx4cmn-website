@@ -26,12 +26,17 @@ import {
   getBloomSettings,
   getModelLightRig,
   getRenderableBounds,
+  getSurfacePresentation,
   isSamplePackModel,
   isUniverseModel,
   scaleByModelUrl,
 } from '@/components/productModelPresentation';
 import type { Product } from '@/data/products';
-import { formatCurrency } from '@/lib/format';
+import {
+  getDigitalDeliveryNote,
+  getProductFulfillmentLabel,
+  getProductPriceLabel,
+} from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
 type SlotKey = 'left' | 'center' | 'right';
@@ -70,15 +75,15 @@ const CAROUSEL_SLOTS: Record<SlotKey, SlotConfig> = {
 
 const TWO_UP_SLOTS: Record<'left' | 'right', SlotConfig> = {
   left: {
-    pos: [-4.15, 0.08, -0.6],
+    pos: [-4.45, 0.08, -0.6],
     rotY: Math.PI / 22,
-    radius: 2.95,
+    radius: 1.45,
     rotationSpeed: 0.34,
     draggable: true,
     scaleMultiplier: 0.5,
   },
   right: {
-    pos: [4.15, -0.08, -0.6],
+    pos: [4.45, -0.08, -0.6],
     rotY: -Math.PI / 22,
     radius: 2.95,
     rotationSpeed: 0.34,
@@ -181,6 +186,9 @@ const SlotModel = ({ modelUrl, slotConfig, opacityRef, onNavigate, isMobile }: S
   const { scene } = useGLTF(modelUrl);
   const cloned = useMemo(() => clonePreparedProductScene(scene, modelUrl), [modelUrl, scene]);
   const baseScale = (scaleByModelUrl[modelUrl] ?? 1) * (slotConfig.scaleMultiplier ?? 1);
+  const surfacePresentation = getSurfacePresentation(modelUrl, 'store-carousel');
+  const frameOffset = surfacePresentation.frameOffset ?? [0, 0, 0];
+  const normalizedScaleMultiplier = surfacePresentation.normalizedScaleMultiplier ?? 1;
   const outerRef = useRef<Group>(null);
   const innerRef = useRef<Group>(null);
   const [normScale, setNormScale] = useState(1);
@@ -304,10 +312,17 @@ const SlotModel = ({ modelUrl, slotConfig, opacityRef, onNavigate, isMobile }: S
     : undefined;
 
   return (
-    <group position={slotConfig.pos} rotation={[0, slotConfig.rotY, 0]}>
+    <group
+      position={[
+        slotConfig.pos[0] + frameOffset[0],
+        slotConfig.pos[1] + frameOffset[1],
+        slotConfig.pos[2] + frameOffset[2],
+      ]}
+      rotation={[0, slotConfig.rotY, 0]}
+    >
       <group
         ref={outerRef}
-        scale={normScale}
+        scale={normScale * normalizedScaleMultiplier}
         onClick={handleClick}
         onPointerDown={handlePointerDown}
         onPointerOut={handlePointerOut}
@@ -480,7 +495,7 @@ const TwoUpScene = ({ leftUrl, rightUrl, isMobile }: TwoUpSceneProps) => {
     () => ({
       ...TWO_UP_SLOTS.left,
       pos: [-3.1, -0.12, -0.35],
-      radius: 2.05,
+      radius: 1.15,
     }),
     [],
   );
@@ -534,19 +549,26 @@ interface ProductInfoPanelProps {
 }
 
 const ProductInfoPanel = ({ product, onAdd }: ProductInfoPanelProps) => {
+  const deliveryNote = getDigitalDeliveryNote(product);
+
   return (
     <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 text-center md:gap-5">
       <div className="space-y-2">
         <p className="text-[0.58rem] uppercase tracking-[0.42em] text-black/38">
-          {product.type === 'digital' ? 'Digital download' : 'Hardware'}
+          {getProductFulfillmentLabel(product)}
         </p>
         <h2 className="text-sm uppercase tracking-[0.24em] md:text-base lg:text-lg">
           {product.name}
         </h2>
+        {deliveryNote ? (
+          <p className="text-[0.56rem] uppercase tracking-[0.28em] text-black/44">
+            {deliveryNote}
+          </p>
+        ) : null}
       </div>
 
       <p className="text-[0.7rem] uppercase tracking-[0.34em] text-black/58">
-        {formatCurrency(product.priceCents, product.currency)}
+        {getProductPriceLabel(product)}
       </p>
 
       <div className="flex flex-wrap items-center justify-center gap-4 md:gap-5">
@@ -598,7 +620,9 @@ const TwoUpStoreShowcase = ({ products, isMobile, onAddProduct }: TwoUpStoreShow
         <ThreeCanvas
           className="h-full w-full"
           camera={
-            isMobile ? { position: [0, 0.2, 8.4], fov: 38 } : { position: [0, 0.28, 7.05], fov: 34 }
+            isMobile
+              ? { position: [0, 0.2, 8.4], fov: 38 }
+              : { position: [0, 0.28, 7.05], fov: 34 }
           }
           performanceMode="auto"
         >
@@ -837,15 +861,20 @@ export const StoreCarousel = ({ products }: StoreCarouselProps) => {
         <div className="inline-flex flex-col items-center gap-3 px-7 py-4 md:gap-4 md:px-9 md:py-5">
           <div>
             <p className="text-[0.55rem] uppercase tracking-[0.44em] text-black/40">
-              {currProduct.type === 'digital' ? 'Digital download' : 'Hardware'}
+              {getProductFulfillmentLabel(currProduct)}
             </p>
             <h2 className="mt-0.5 text-base uppercase tracking-[0.22em] md:text-lg">
               {currProduct.name}
             </h2>
+            {getDigitalDeliveryNote(currProduct) ? (
+              <p className="mt-2 text-[0.56rem] uppercase tracking-[0.28em] text-black/46">
+                {getDigitalDeliveryNote(currProduct)}
+              </p>
+            ) : null}
           </div>
 
           <p className="text-[0.7rem] uppercase tracking-[0.34em] text-black/60">
-            {formatCurrency(currProduct.priceCents, currProduct.currency)}
+            {getProductPriceLabel(currProduct)}
           </p>
 
           <div className="pointer-events-auto flex items-center gap-4 md:gap-5">

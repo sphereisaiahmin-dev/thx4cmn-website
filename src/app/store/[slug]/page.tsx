@@ -26,7 +26,7 @@ export default async function ProductPage({ params }: ProductPageProps) {
 
   return (
     <section className="store-page">
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-8">
+      <div className="mx-auto flex w-full max-w-[1580px] flex-col gap-8 px-2 md:px-4">
         <Link href="/store" className="text-xs uppercase tracking-[0.3em] text-black/60">
           &larr; Back to store
         </Link>

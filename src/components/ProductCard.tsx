@@ -6,7 +6,11 @@ import Link from 'next/link';
 
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
-import { formatCurrency } from '@/lib/format';
+import {
+  getDigitalDeliveryNote,
+  getProductFulfillmentLabel,
+  getProductPriceLabel,
+} from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
 const ProductModelScene = dynamic(
@@ -26,6 +30,7 @@ export const ProductCard = ({ product }: ProductCardProps) => {
   const modelContainerRef = useRef<HTMLDivElement | null>(null);
   const [isModelInView, setIsModelInView] = useState(false);
   const [hasActivatedModel, setHasActivatedModel] = useState(false);
+  const deliveryNote = getDigitalDeliveryNote(product);
 
   useEffect(() => {
     if (!modelUrl) return;
@@ -70,7 +75,15 @@ export const ProductCard = ({ product }: ProductCardProps) => {
     <div className="mx-auto flex h-full w-full max-w-[520px] flex-col justify-center gap-4 rounded-[1.75rem] border border-black/10 bg-black/5 px-2 py-2 text-center md:min-h-[560px]">
       <div className="flex min-h-0 flex-1 flex-col justify-center gap-4 md:gap-5">
         <div className="space-y-2">
+          <p className="text-[0.55rem] uppercase tracking-[0.34em] text-black/42">
+            {getProductFulfillmentLabel(product)}
+          </p>
           <h3 className="text-base uppercase tracking-[0.25em] md:text-lg">{product.name}</h3>
+          {deliveryNote ? (
+            <p className="text-[0.55rem] uppercase tracking-[0.28em] text-black/46">
+              {deliveryNote}
+            </p>
+          ) : null}
         </div>
         {modelUrl ? (
           <div
@@ -93,9 +106,7 @@ export const ProductCard = ({ product }: ProductCardProps) => {
         ) : null}
       </div>
       <div className="flex flex-col items-center gap-2">
-        <span className="text-xs text-black/60 md:text-sm">
-          {formatCurrency(product.priceCents)}
-        </span>
+        <span className="text-xs text-black/60 md:text-sm">{getProductPriceLabel(product)}</span>
         <div className="flex items-center justify-center gap-3 md:gap-4">
           <button
             type="button"

@@ -6,7 +6,11 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
 import { toCheckoutItemsPayload } from '@/lib/checkout';
-import { formatCurrency } from '@/lib/format';
+import {
+  cartRequiresEmailCapture,
+  getCartItemDeliveryNote,
+  getProductTotalLabel,
+} from '@/lib/productCommerce';
 import { HEADER_LOGO_MODEL_URL, HEADER_LOGO_SCALE, LogoScene } from '@/components/LogoScene';
 import { useCartStore } from '@/store/cart';
 import { useUiStore } from '@/store/ui';
@@ -93,6 +97,8 @@ export const Navigation = () => {
     () => items.reduce((total, item) => total + item.priceCents * item.quantity, 0),
     [items],
   );
+  const cartCurrency = items[0]?.currency ?? 'USD';
+  const requiresEmailCapture = cartRequiresEmailCapture(items);
   const shouldShowHeaderLogo = !isHome || isRouteTransitioning;
 
   const syncRouteExitDuration = useCallback(() => {
@@ -220,6 +226,12 @@ export const Navigation = () => {
 
   const handleCheckout = async () => {
     if (items.length === 0 || isCheckoutLoading) return;
+    if (requiresEmailCapture) {
+      setMiniCartOpen(false);
+      router.push('/cart');
+      return;
+    }
+
     setCheckoutError(null);
     setIsCheckoutLoading(true);
     try {
@@ -282,7 +294,11 @@ export const Navigation = () => {
               }`}
               aria-hidden={!shouldShowHeaderLogo}
             >
-              <LogoScene className="h-10 w-28" modelUrl={HEADER_LOGO_MODEL_URL} modelScale={HEADER_LOGO_SCALE} />
+              <LogoScene
+                className="h-10 w-28"
+                modelUrl={HEADER_LOGO_MODEL_URL}
+                modelScale={HEADER_LOGO_SCALE}
+              />
             </div>
           </div>
           <nav className="flex w-full flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[0.62rem] uppercase tracking-[0.22em] md:w-auto md:gap-6 md:text-xs md:tracking-[0.3em]">
@@ -382,10 +398,13 @@ export const Navigation = () => {
                   <div className="space-y-1">
                     <p className="text-sm">{item.name}</p>
                     <p className="text-xs text-black/60">Qty {item.quantity}</p>
+                    {getCartItemDeliveryNote(item) ? (
+                      <p className="text-[0.6rem] uppercase tracking-[0.2em] text-black/45">
+                        {getCartItemDeliveryNote(item)}
+                      </p>
+                    ) : null}
                   </div>
-                  <p className="text-xs text-black/60">
-                    {formatCurrency(item.priceCents * item.quantity, item.currency)}
-                  </p>
+                  <p className="text-xs text-black/60">{getProductTotalLabel(item)}</p>
                 </li>
               ))}
             </ul>
@@ -393,7 +412,9 @@ export const Navigation = () => {
           <div className="space-y-4 border-t border-black/10 pt-4">
             <div className="flex items-center justify-between text-xs uppercase tracking-[0.3em]">
               <span>Subtotal</span>
-              <span>{formatCurrency(subtotal)}</span>
+              <span>
+                {getProductTotalLabel({ priceCents: subtotal, quantity: 1, currency: cartCurrency })}
+              </span>
             </div>
             <div className="flex flex-col gap-3">
               <Link
@@ -410,7 +431,11 @@ export const Navigation = () => {
                 disabled={items.length === 0 || isCheckoutLoading}
                 className="nav-link inline-flex w-full items-center justify-center px-4 py-3 text-xs uppercase tracking-[0.3em] transition disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isCheckoutLoading ? 'Redirecting…' : 'Checkout'}
+                {isCheckoutLoading
+                  ? 'Redirecting...'
+                  : requiresEmailCapture
+                    ? 'Continue in cart'
+                    : 'Checkout'}
               </button>
               {checkoutError ? (
                 <p className="text-xs text-red-600">{checkoutError}</p>
@@ -422,4 +447,3 @@ export const Navigation = () => {
     </>
   );
 };
-

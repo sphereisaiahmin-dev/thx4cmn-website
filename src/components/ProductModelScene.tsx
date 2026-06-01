@@ -2,7 +2,15 @@
 
 import { Center, Html, OrbitControls, useGLTF } from '@react-three/drei';
 import { useFrame, useThree } from '@react-three/fiber';
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from 'react';
 import { Box3, type Group, MathUtils, PerspectiveCamera, Sphere } from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 
@@ -14,6 +22,7 @@ import {
   getBloomSettings,
   getModelLightRig,
   getRenderableBounds,
+  getSurfacePresentation,
   scaleByModelUrl,
 } from './productModelPresentation';
 
@@ -31,19 +40,20 @@ interface ProductModelSceneProps {
 
 interface ProductModelRigProps {
   modelUrl: string;
+  fitMode: FitMode;
   autoRotate: boolean;
   isActive: boolean;
   onToggle: () => void;
-  orbitRef: RefObject<Group | null>;
-  spinRef: RefObject<Group | null>;
+  orbitRef: MutableRefObject<Group | null>;
+  spinRef: MutableRefObject<Group | null>;
   presentationScaleMultiplier?: number;
 }
 
 interface DetailCameraFitterProps {
   fitMode: FitMode;
   modelUrl: string;
-  targetRef: RefObject<Group | null>;
-  controlsRef: RefObject<OrbitControlsImpl | null>;
+  targetRef: MutableRefObject<Group | null>;
+  controlsRef: MutableRefObject<OrbitControlsImpl | null>;
 }
 
 const DETAIL_REFERENCE_ASPECT = 4 / 5;
@@ -54,9 +64,11 @@ const DETAIL_IMMERSIVE_MARGIN = 0.92;
 
 const ProductModel = ({
   modelUrl,
+  surface,
   presentationScaleMultiplier = 1,
 }: {
   modelUrl: string;
+  surface: 'detail' | 'card';
   presentationScaleMultiplier?: number;
 }) => {
   const { scene } = useGLTF(modelUrl);
@@ -64,8 +76,15 @@ const ProductModel = ({
     () => clonePreparedProductScene(scene, modelUrl),
     [modelUrl, scene],
   );
+  const surfacePresentation = getSurfacePresentation(modelUrl, surface);
   const scale = (scaleByModelUrl[modelUrl] ?? 1) * presentationScaleMultiplier;
-  return <primitive object={preparedScene} scale={scale} />;
+  const frameOffset = surfacePresentation.frameOffset ?? [0, 0, 0];
+
+  return (
+    <group position={frameOffset}>
+      <primitive object={preparedScene} scale={scale} />
+    </group>
+  );
 };
 
 const DetailCameraFitter = ({
@@ -132,6 +151,7 @@ const DetailCameraFitter = ({
 
 const ProductModelRig = ({
   modelUrl,
+  fitMode,
   autoRotate,
   isActive,
   onToggle,
@@ -167,6 +187,7 @@ const ProductModelRig = ({
         <Center>
           <ProductModel
             modelUrl={modelUrl}
+            surface={fitMode === 'default' ? 'card' : 'detail'}
             presentationScaleMultiplier={presentationScaleMultiplier}
           />
         </Center>
@@ -234,6 +255,7 @@ export const ProductModelScene = ({
           orbitRef={orbitRef}
           spinRef={spinRef}
           modelUrl={modelUrl}
+          fitMode={fitMode}
           autoRotate={autoRotate}
           isActive={isActive}
           onToggle={() => setAutoRotate((value) => !value)}

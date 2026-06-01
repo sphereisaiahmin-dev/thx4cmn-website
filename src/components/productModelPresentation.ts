@@ -24,10 +24,38 @@ export interface BloomSettings {
   threshold: number;
 }
 
+export type ProductPresentationSurface = 'store-carousel' | 'detail' | 'card';
+
+interface SurfacePresentation {
+  frameOffset?: [number, number, number];
+  normalizedScaleMultiplier?: number;
+}
+
+interface ProductPresentationConfig {
+  storeCarousel?: SurfacePresentation;
+  detail?: SurfacePresentation;
+  card?: SurfacePresentation;
+}
+
 export const scaleByModelUrl: Record<string, number> = {
   [SAMPLE_PACK_MODEL_URL]: 20,
   [UNIVERSE_MODEL_URL]: 1.08,
   '/api/3d/thxc.glb': 0.0227,
+};
+
+const productPresentationByModelUrl: Record<string, ProductPresentationConfig> = {
+  [SAMPLE_PACK_MODEL_URL]: {
+    storeCarousel: {
+      frameOffset: [-0.2, 0.02, 0],
+      normalizedScaleMultiplier: 1,
+    },
+  },
+  [UNIVERSE_MODEL_URL]: {
+    storeCarousel: {
+      frameOffset: [0.2, -0.02, 0],
+      normalizedScaleMultiplier: 1,
+    },
+  },
 };
 
 const gradientStart = new Color('#2f7cff');
@@ -149,6 +177,26 @@ const applyUniverseGradient = (points: Points) => {
 
 export const isUniverseModel = (modelUrl: string) => modelUrl === UNIVERSE_MODEL_URL;
 export const isSamplePackModel = (modelUrl: string) => modelUrl === SAMPLE_PACK_MODEL_URL;
+
+export const getSurfacePresentation = (
+  modelUrl: string,
+  surface: ProductPresentationSurface,
+): SurfacePresentation => {
+  const config = productPresentationByModelUrl[modelUrl];
+  if (!config) {
+    return {};
+  }
+
+  if (surface === 'store-carousel') {
+    return config.storeCarousel ?? {};
+  }
+
+  if (surface === 'detail') {
+    return config.detail ?? {};
+  }
+
+  return config.card ?? {};
+};
 
 export const clonePreparedProductScene = (scene: Group, modelUrl: string) => {
   const clonedScene = scene.clone(true);

@@ -7,7 +7,11 @@ import { useRouter } from 'next/navigation';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
 import { normalizeCheckoutQuantity } from '@/lib/checkout';
-import { formatCurrency } from '@/lib/format';
+import {
+  getDigitalDeliveryNote,
+  getProductFulfillmentLabel,
+  getProductPriceLabel,
+} from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
 const ProductModelScene = dynamic(
@@ -26,7 +30,8 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   const addItem = useCartStore((state) => state.addItem);
   const [quantity, setQuantity] = useState(1);
   const modelUrl = modelUrlsByProductId[product.id];
-  const typeLabel = product.type === 'digital' ? '(digital)' : '(hardware)';
+  const typeLabel = getProductFulfillmentLabel(product);
+  const deliveryNote = getDigitalDeliveryNote(product);
 
   const handleAdd = () => {
     addItem({
@@ -41,43 +46,44 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-10 lg:min-h-[calc(100vh-var(--site-header-height)-var(--mobile-player-offset)-6rem)] lg:grid-cols-[minmax(0,1.04fr)_minmax(20rem,0.96fr)] lg:items-center lg:gap-12">
+    <div className="grid grid-cols-1 gap-10 lg:min-h-[calc(100vh-var(--site-header-height)-var(--mobile-player-offset)-3.5rem)] lg:grid-cols-[minmax(0,1.08fr)_minmax(24rem,0.92fr)] lg:items-center lg:gap-16">
       <div className="min-h-0">
         {modelUrl ? (
-          <div className="flex aspect-[5/4] w-full items-center justify-center lg:h-[min(68vh,720px)] lg:aspect-auto">
+          <div className="flex aspect-[6/5] w-full items-center justify-center lg:h-[min(82vh,960px)] lg:aspect-auto">
             <ProductModelScene
               modelUrl={modelUrl}
               className="h-full w-full"
               fitMode="detail-immersive"
-              presentationScaleMultiplier={3}
+              presentationScaleMultiplier={3.4}
             />
           </div>
         ) : (
-          <div className="flex aspect-[5/4] w-full items-center justify-center text-sm text-black/50 lg:h-[min(68vh,720px)] lg:aspect-auto">
+          <div className="flex aspect-[6/5] w-full items-center justify-center text-sm text-black/50 lg:h-[min(82vh,960px)] lg:aspect-auto">
             3D preview unavailable.
           </div>
         )}
       </div>
       <div className="min-w-0">
-        <div className="flex h-full min-h-0 flex-col justify-center gap-7 lg:gap-9">
-          <div className="space-y-4">
+        <div className="flex h-full min-h-0 flex-col justify-center gap-8 lg:gap-11">
+          <div className="space-y-5">
             <p className="text-[0.62rem] uppercase tracking-[0.42em] text-black/42">{typeLabel}</p>
-            <h1 className="break-words text-3xl uppercase tracking-[0.28em] md:text-4xl lg:text-[2.8rem]">
+            <h1 className="break-words text-3xl uppercase tracking-[0.24em] md:text-5xl lg:text-[3.35rem]">
               {product.name}
             </h1>
-            <p className="max-w-[34rem] break-words text-sm leading-7 text-black/68 md:text-[0.95rem]">
+            <p className="max-w-[38rem] break-words text-base leading-8 text-black/68 md:text-[1rem]">
               {product.description}
             </p>
+            {deliveryNote ? (
+              <p className="text-[0.62rem] uppercase tracking-[0.32em] text-black/48">
+                {deliveryNote}
+              </p>
+            ) : null}
           </div>
-
-          <div className="h-px w-full bg-black/10" />
 
           <div className="space-y-6">
             <div>
               <p className="text-[0.62rem] uppercase tracking-[0.34em] text-black/42">Price</p>
-              <p className="mt-2 text-2xl md:text-[2rem]">
-                {formatCurrency(product.priceCents, product.currency)}
-              </p>
+              <p className="mt-2 text-2xl md:text-[2rem]">{getProductPriceLabel(product)}</p>
             </div>
 
             <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">

@@ -3,7 +3,13 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
 import { getProductById } from '@/data/products';
-import { parseCheckoutItemsPayload } from '@/lib/checkout';
+import {
+  isValidCheckoutEmail,
+  normalizeCheckoutEmail,
+  parseCheckoutItemsPayload,
+} from '@/lib/checkout';
+import { persistCommerceOrder } from '@/lib/commerceOrders';
+import { createServerClient } from '@/lib/supabase/server';
 import { getStripeClient } from '@/lib/stripe';
 
 export const runtime = 'nodejs';
@@ -68,6 +74,11 @@ export async function POST(request: Request) {
   }
 
   const items = parsedItems.items;
+  const recipientEmail = normalizeCheckoutEmail(
+    typeof payload === 'object' && payload !== null && 'email' in payload
+      ? (payload as { email?: unknown }).email
+      : undefined,
+  );
   const unknownProduct = items.find((item) => !getProductById(item.productId));
   if (unknownProduct) {
     return NextResponse.json(
@@ -77,9 +88,45 @@ export async function POST(request: Request) {
   }
 
   try {
-    const lineItems = items.map((item) => {
-      const product = getProductById(item.productId)!;
+    const products = items.map((item) => ({
+      item,
+      product: getProductById(item.productId)!,
+    }));
+    const paidProducts = products.filter(({ product }) => product.priceCents > 0);
+    const hasPaidItems = paidProducts.length > 0;
+    const requiresEmailForFreeClaim = products.some(
+      ({ product }) => product.type === 'digital' && product.deliveryMethod === 'email',
+    );
+    const requestHeaders = await headers();
+    const origin = resolveCheckoutOrigin(requestHeaders);
 
+    if (!hasPaidItems) {
+      if (requiresEmailForFreeClaim && !isValidCheckoutEmail(recipientEmail)) {
+        return NextResponse.json(
+          { error: 'A valid email is required to claim free digital items.', requestId },
+          { status: 400 },
+        );
+      }
+
+      const supabase = createServerClient();
+      const order = await persistCommerceOrder({
+        supabase,
+        items,
+        stripeSessionId: `free_claim_${requestId}`,
+        status: 'no_payment_required',
+        amountTotalCents: 0,
+        currency: products[0]?.product.currency ?? 'USD',
+        recipientEmail: requiresEmailForFreeClaim ? recipientEmail : null,
+      });
+
+      return NextResponse.json({
+        url: `${origin}/cart?checkout=success&mode=free-claim&order_id=${order.id}`,
+        requestId,
+        persistCheckoutUrl: false,
+      });
+    }
+
+    const lineItems = paidProducts.map(({ item, product }) => {
       if (product.stripePriceId) {
         return {
           price: product.stripePriceId,
@@ -99,9 +146,6 @@ export async function POST(request: Request) {
         quantity: item.quantity,
       } as const;
     });
-
-    const requestHeaders = await headers();
-    const origin = resolveCheckoutOrigin(requestHeaders);
     const stripe = getStripeClient();
     const logContext = {
       requestId,
@@ -113,7 +157,7 @@ export async function POST(request: Request) {
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lineItems,
-      success_url: `${origin}/store?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      success_url: `${origin}/cart?checkout=success&mode=stripe&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/cart?checkout=cancel`,
       metadata: {
         cart: JSON.stringify(items),
@@ -131,7 +175,7 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ url: session.url, requestId });
+    return NextResponse.json({ url: session.url, requestId, persistCheckoutUrl: true });
   } catch (error) {
     const isStripeError = error instanceof Stripe.errors.StripeError;
     console.error('Stripe checkout error.', {

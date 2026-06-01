@@ -5,6 +5,11 @@ export interface CheckoutItem {
   quantity: number;
 }
 
+export interface CheckoutRequestPayload {
+  items: CheckoutItem[];
+  email?: string;
+}
+
 type ParseCheckoutItemsResult =
   | { ok: true; items: CheckoutItem[] }
   | { ok: false; error: string };
@@ -29,6 +34,12 @@ export const normalizeCheckoutQuantity = (candidate: unknown, fallback = MIN_CHE
 
   return Math.max(MIN_CHECKOUT_QUANTITY, Math.floor(numeric));
 };
+
+export const normalizeCheckoutEmail = (candidate: unknown) =>
+  typeof candidate === 'string' ? candidate.trim().toLowerCase() : '';
+
+export const isValidCheckoutEmail = (candidate: unknown) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeCheckoutEmail(candidate));
 
 export const toCheckoutItemsPayload = (
   items: ReadonlyArray<{ productId: string; quantity: number }>,
