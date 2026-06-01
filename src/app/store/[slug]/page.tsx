@@ -1,14 +1,15 @@
 import Link from 'next/link';
 
 import { ProductDetail } from '@/components/ProductDetail';
-import { getProductBySlug } from '@/data/products';
+import { getReleasedProductBySlug } from '@/data/products';
 
 interface ProductPageProps {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
-export default function ProductPage({ params }: ProductPageProps) {
-  const product = getProductBySlug(params.slug);
+export default async function ProductPage({ params }: ProductPageProps) {
+  const { slug } = await params;
+  const product = getReleasedProductBySlug(slug);
 
   if (!product) {
     return (
@@ -25,9 +26,9 @@ export default function ProductPage({ params }: ProductPageProps) {
 
   return (
     <section className="store-page">
-      <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-8">
+      <div className="mx-auto flex w-full max-w-[1580px] flex-col gap-8 px-2 md:px-4">
         <Link href="/store" className="text-xs uppercase tracking-[0.3em] text-black/60">
-          ← Back to store
+          &larr; Back to store
         </Link>
         <ProductDetail product={product} />
       </div>

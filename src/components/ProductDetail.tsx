@@ -1,14 +1,25 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 
-import { ProductModelScene } from '@/components/ProductModelScene';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
 import { normalizeCheckoutQuantity } from '@/lib/checkout';
-import { formatCurrency } from '@/lib/format';
+import {
+  getDigitalDeliveryNote,
+  getProductFulfillmentLabel,
+  getProductPriceLabel,
+} from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
+
+const ProductModelScene = dynamic(
+  () => import('@/components/ProductModelScene').then((mod) => mod.ProductModelScene),
+  {
+    ssr: false,
+  },
+);
 
 interface ProductDetailProps {
   product: Product;
@@ -19,7 +30,8 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   const addItem = useCartStore((state) => state.addItem);
   const [quantity, setQuantity] = useState(1);
   const modelUrl = modelUrlsByProductId[product.id];
-  const typeLabel = product.type === 'digital' ? '(digital)' : '(hardware)';
+  const typeLabel = getProductFulfillmentLabel(product);
+  const deliveryNote = getDigitalDeliveryNote(product);
 
   const handleAdd = () => {
     addItem({
@@ -34,39 +46,53 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:items-stretch lg:gap-8">
-      <div className="lg:col-span-6">
-        <div className="h-full rounded-3xl border border-black/10 bg-black/5 p-3 md:p-4">
-          {modelUrl ? (
-            <div className="flex aspect-[4/5] w-full items-center justify-center rounded-2xl border border-black/10 bg-white p-3 md:p-4 lg:h-[560px] lg:aspect-auto">
-              <ProductModelScene modelUrl={modelUrl} className="h-full w-full" fitMode="detail-fill" />
-            </div>
-          ) : (
-            <div className="flex aspect-[4/5] w-full items-center justify-center rounded-2xl border border-black/10 bg-white p-3 text-sm text-black/50 md:p-4 lg:h-[560px] lg:aspect-auto">
-              3D preview unavailable.
-            </div>
-          )}
-        </div>
+    <div className="grid grid-cols-1 gap-10 lg:min-h-[calc(100vh-var(--site-header-height)-var(--mobile-player-offset)-3.5rem)] lg:grid-cols-[minmax(0,1.08fr)_minmax(24rem,0.92fr)] lg:items-center lg:gap-16">
+      <div className="min-h-0">
+        {modelUrl ? (
+          <div className="flex aspect-[6/5] w-full items-center justify-center lg:h-[min(82vh,960px)] lg:aspect-auto">
+            <ProductModelScene
+              modelUrl={modelUrl}
+              className="h-full w-full"
+              fitMode="detail-immersive"
+              presentationScaleMultiplier={3.4}
+            />
+          </div>
+        ) : (
+          <div className="flex aspect-[6/5] w-full items-center justify-center text-sm text-black/50 lg:h-[min(82vh,960px)] lg:aspect-auto">
+            3D preview unavailable.
+          </div>
+        )}
       </div>
-      <div className="min-w-0 space-y-5 lg:col-span-6 lg:space-y-6">
-        <div className="min-w-0 rounded-2xl border border-black/10 bg-black/5 p-5 md:p-6">
-          <p className="text-xs uppercase tracking-[0.4em] text-black/60">{typeLabel}</p>
-          <h1 className="mt-2 break-words text-3xl uppercase tracking-[0.3em] md:text-4xl">
-            {product.name}
-          </h1>
-          <p className="mt-3 break-words text-sm text-black/70">{product.description}</p>
-        </div>
-        <div className="rounded-2xl border border-black/10 bg-black/5 p-5 md:p-6">
+      <div className="min-w-0">
+        <div className="flex h-full min-h-0 flex-col justify-center gap-8 lg:gap-11">
           <div className="space-y-5">
+            <p className="text-[0.62rem] uppercase tracking-[0.42em] text-black/42">{typeLabel}</p>
+            <h1 className="break-words text-3xl uppercase tracking-[0.24em] md:text-5xl lg:text-[3.35rem]">
+              {product.name}
+            </h1>
+            <p className="max-w-[38rem] break-words text-base leading-8 text-black/68 md:text-[1rem]">
+              {product.description}
+            </p>
+            {deliveryNote ? (
+              <p className="text-[0.62rem] uppercase tracking-[0.32em] text-black/48">
+                {deliveryNote}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="space-y-6">
             <div>
-              <p className="text-sm text-black/60">Price</p>
-              <p className="text-2xl">{formatCurrency(product.priceCents, product.currency)}</p>
+              <p className="text-[0.62rem] uppercase tracking-[0.34em] text-black/42">Price</p>
+              <p className="mt-2 text-2xl md:text-[2rem]">
+                {getProductPriceLabel(product)}
+              </p>
             </div>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
               <div className="space-y-2">
                 <label
                   htmlFor="quantity"
-                  className="text-xs uppercase tracking-[0.3em] text-black/60"
+                  className="text-[0.62rem] uppercase tracking-[0.34em] text-black/42"
                 >
                   Qty
                 </label>
@@ -82,13 +108,13 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
                     );
                     setQuantity(nextValue);
                   }}
-                  className="w-24 rounded-full border border-black/30 px-3 py-2 text-sm"
+                  className="w-24 rounded-full border border-black/18 bg-white/60 px-3 py-2 text-sm outline-none transition focus:border-black/32"
                 />
               </div>
               <button
                 type="button"
                 onClick={handleAdd}
-                className="add-to-cart-button inline-flex items-center justify-center rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition duration-200 hover:bg-black/10"
+                className="add-to-cart-button inline-flex items-center justify-center self-start rounded-full px-6 py-3 text-xs uppercase tracking-[0.3em] transition duration-200 hover:bg-black/10 sm:self-auto"
               >
                 Add to cart
               </button>

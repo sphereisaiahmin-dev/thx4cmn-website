@@ -1,14 +1,27 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
-import { normalizeCheckoutQuantity, toCheckoutItemsPayload } from '@/lib/checkout';
-import { formatCurrency } from '@/lib/format';
+import {
+  isValidCheckoutEmail,
+  normalizeCheckoutEmail,
+  normalizeCheckoutQuantity,
+  toCheckoutItemsPayload,
+} from '@/lib/checkout';
+import {
+  cartRequiresEmailCapture,
+  getCartItemDeliveryNote,
+  getCartItemPriceLabel,
+  getCartPrimaryActionLabel,
+  getProductTotalLabel,
+} from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
 const CHECKOUT_STORAGE_KEY = 'thx4cmn:checkout-url';
 
 export default function CartPage() {
+  const searchParams = useSearchParams();
   const items = useCartStore((state) => state.items);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const removeItem = useCartStore((state) => state.removeItem);
@@ -16,10 +29,23 @@ export default function CartPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [pendingCheckoutUrl, setPendingCheckoutUrl] = useState<string | null>(null);
+  const [contactEmail, setContactEmail] = useState('');
+  const handledSuccessRef = useRef(false);
   const total = useMemo(
     () => items.reduce((sum, item) => sum + item.priceCents * item.quantity, 0),
     [items],
   );
+  const cartCurrency = items[0]?.currency ?? 'USD';
+  const requiresEmailCapture = cartRequiresEmailCapture(items);
+  const checkoutStatus = searchParams.get('checkout');
+  const checkoutMode = searchParams.get('mode');
+  const showSuccess = checkoutStatus === 'success';
+  const showCanceled = checkoutStatus === 'cancel';
+  const successMessage =
+    checkoutMode === 'free-claim'
+      ? 'Claim received. Digital delivery is queued for email fulfillment.'
+      : 'Checkout received. Digital delivery items will be fulfilled by email.';
+  const primaryActionLabel = getCartPrimaryActionLabel(items, pendingCheckoutUrl);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -29,6 +55,18 @@ export default function CartPage() {
       setIsLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!showSuccess || handledSuccessRef.current) return;
+    handledSuccessRef.current = true;
+    clear();
+    setPendingCheckoutUrl(null);
+    setCheckoutError(null);
+    setIsLoading(false);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
+    }
+  }, [clear, showSuccess]);
 
   useEffect(() => {
     if (items.length > 0) return;
@@ -43,7 +81,12 @@ export default function CartPage() {
   const handleCheckout = async () => {
     if (isLoading || items.length === 0) return;
     setCheckoutError(null);
-    if (pendingCheckoutUrl) {
+    if (requiresEmailCapture && !isValidCheckoutEmail(contactEmail)) {
+      setCheckoutError('Enter a valid email to claim free digital items.');
+      return;
+    }
+
+    if (pendingCheckoutUrl && !requiresEmailCapture) {
       setIsLoading(true);
       window.location.href = pendingCheckoutUrl;
       return;
@@ -61,6 +104,7 @@ export default function CartPage() {
               quantity: item.quantity,
             })),
           ),
+          email: requiresEmailCapture ? normalizeCheckoutEmail(contactEmail) : undefined,
         }),
       });
 
@@ -76,17 +120,21 @@ export default function CartPage() {
         throw new Error(`${message}${requestId}`);
       }
 
-      const payload = (await response.json()) as { url?: string; requestId?: string };
+      const payload = (await response.json()) as {
+        url?: string;
+        requestId?: string;
+        persistCheckoutUrl?: boolean;
+      };
       const checkoutUrl = typeof payload.url === 'string' ? payload.url : '';
       if (!checkoutUrl) {
         const requestId = payload.requestId ? ` (requestId: ${payload.requestId})` : '';
         throw new Error(`Checkout session did not return a URL.${requestId}`);
       }
 
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && payload.persistCheckoutUrl) {
         window.localStorage.setItem(CHECKOUT_STORAGE_KEY, checkoutUrl);
       }
-      setPendingCheckoutUrl(checkoutUrl);
+      setPendingCheckoutUrl(payload.persistCheckoutUrl ? checkoutUrl : null);
       window.location.href = checkoutUrl;
     } catch (error) {
       console.error(error);
@@ -105,6 +153,18 @@ export default function CartPage() {
         <h1 className="text-3xl uppercase tracking-[0.3em]">Cart</h1>
       </div>
 
+      {showSuccess ? (
+        <div className="mx-auto w-full max-w-5xl rounded-2xl border border-black/10 bg-white/65 px-6 py-4 text-sm text-black/68 backdrop-blur-sm">
+          {successMessage}
+        </div>
+      ) : null}
+
+      {showCanceled ? (
+        <div className="mx-auto w-full max-w-5xl rounded-2xl border border-black/10 bg-white/65 px-6 py-4 text-sm text-black/68 backdrop-blur-sm">
+          Checkout was canceled. Your cart is still here.
+        </div>
+      ) : null}
+
       <div className="showcase-transition-cards max-h-[60vh] w-full overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6 lg:mx-auto lg:max-w-5xl">
         {items.length === 0 ? (
           <p className="text-sm text-black/60">Your cart is empty.</p>
@@ -118,7 +178,12 @@ export default function CartPage() {
                 >
                   <div>
                     <p className="text-sm uppercase tracking-[0.2em]">{item.name}</p>
-                    <p className="text-xs text-black/60">{formatCurrency(item.priceCents)}</p>
+                    <p className="text-xs text-black/60">{getCartItemPriceLabel(item)}</p>
+                    {getCartItemDeliveryNote(item) ? (
+                      <p className="mt-1 text-[0.62rem] uppercase tracking-[0.22em] text-black/45">
+                        {getCartItemDeliveryNote(item)}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-4">
                     <input
@@ -148,8 +213,32 @@ export default function CartPage() {
             <div className="flex flex-col gap-4 border border-black/10 bg-black/5 p-6">
               <div className="flex items-center justify-between text-sm uppercase tracking-[0.2em]">
                 <span>Total</span>
-                <span>{formatCurrency(total)}</span>
+                <span>
+                  {getProductTotalLabel({ priceCents: total, quantity: 1, currency: cartCurrency })}
+                </span>
               </div>
+              {requiresEmailCapture ? (
+                <div className="space-y-2">
+                  <label
+                    htmlFor="checkout-email"
+                    className="text-[0.62rem] uppercase tracking-[0.3em] text-black/52"
+                  >
+                    Fulfillment email
+                  </label>
+                  <input
+                    id="checkout-email"
+                    type="email"
+                    autoComplete="email"
+                    value={contactEmail}
+                    onChange={(event) => setContactEmail(event.target.value)}
+                    placeholder="name@example.com"
+                    className="w-full rounded-full border border-black/18 bg-white/70 px-4 py-3 text-sm outline-none transition focus:border-black/32"
+                  />
+                  <p className="text-xs text-black/56">
+                    Free digital items are claimed here and fulfilled by email.
+                  </p>
+                </div>
+              ) : null}
               <div className="flex flex-wrap gap-4">
                 <button
                   type="button"
@@ -157,7 +246,7 @@ export default function CartPage() {
                   disabled={isLoading}
                   className="device-connect-hover-cycle rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isLoading ? 'Redirecting...' : pendingCheckoutUrl ? 'Resume checkout' : 'Checkout'}
+                  {isLoading ? 'Redirecting...' : primaryActionLabel}
                 </button>
                 <button
                   type="button"

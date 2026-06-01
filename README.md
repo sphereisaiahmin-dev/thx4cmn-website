@@ -29,7 +29,6 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 | `STRIPE_SECRET_KEY` | Stripe secret key |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
 | `APP_ORIGIN` | Canonical site origin for production checkout redirects (e.g. `https://thx4cmn.com`) |
-| `NEXT_PUBLIC_STRIPE_PRICE_SAMPLE_PACK` | Stripe price ID for the sample pack |
 | `NEXT_PUBLIC_STRIPE_PRICE_MIDI_DEVICE` | Stripe price ID for the hardware device |
 | `R2_ENDPOINT` | Cloudflare R2 S3 endpoint |
 | `R2_ACCESS_KEY_ID` | R2 access key ID |
@@ -56,7 +55,7 @@ See `supabase/README.md` for schema details and setup steps.
 
 1. Create an R2 bucket and access keys.
 2. Set `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET`.
-3. Upload the sample pack zip to the key referenced in `src/data/products.ts`.
+3. Upload the `Community Vol. 1` zip to the key referenced in `src/data/products.ts`.
 4. For the web audio player, upload `.mp3` files under the `music/` prefix and ensure the bucket
    allows GET/HEAD requests (including Range requests) from your site origin so the signed URLs can
    stream and seek in the browser.
@@ -115,4 +114,40 @@ Run both:
 
 ```bash
 npm run test:device-protocol
+```
+
+## Device bootstrap provisioning
+
+Use the bootstrap flow for blank Pico / Pico 2 boards that are only showing the UF2 bootloader drive:
+
+```bash
+npm run build:firmware-bootstrap
+npm run deploy:firmware-bootstrap -- --drive E:
+```
+
+If the target is an RP2350 bootloader drive, pass the exact board so the script can install the
+correct official CircuitPython runtime before provisioning hx01:
+
+```bash
+npm run deploy:firmware-bootstrap -- --drive E: --board pico2
+npm run deploy:firmware-bootstrap -- --drive E: --board pico2_w
+```
+
+If a previously provisioned board immediately boots back into old CircuitPython code and never
+remounts `CIRCUITPY`, the Windows deploy flow can erase the stale filesystem over the CDC console
+and retry the mount automatically:
+
+```bash
+npm run deploy:firmware-bootstrap -- --drive E: --board pico2 --console-port COM7
+```
+
+This stages the full `thxcmididevicecode/` CircuitPython filesystem payload, including `lib/**/*`,
+and copies only the managed hx01 files onto a mounted `CIRCUITPY` drive. The existing
+`build:firmware-package` and website "Update Me" flow remain update-only for already-provisioned
+devices.
+
+Run bootstrap tooling tests:
+
+```bash
+npm run test:firmware-bootstrap
 ```
