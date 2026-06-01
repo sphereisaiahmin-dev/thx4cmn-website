@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 import {
@@ -20,7 +20,7 @@ import { useCartStore } from '@/store/cart';
 
 const CHECKOUT_STORAGE_KEY = 'thx4cmn:checkout-url';
 
-export default function CartPage() {
+function CartPageContent() {
   const searchParams = useSearchParams();
   const items = useCartStore((state) => state.items);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
@@ -262,5 +262,24 @@ export default function CartPage() {
         )}
       </div>
     </section>
+  );
+}
+
+const CartPageFallback = () => (
+  <section className="space-y-10">
+    <div className="showcase-transition-title text-center">
+      <h1 className="text-3xl uppercase tracking-[0.3em]">Cart</h1>
+    </div>
+    <div className="showcase-transition-cards max-h-[60vh] w-full overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6 lg:mx-auto lg:max-w-5xl">
+      <p className="text-sm text-black/60">Loading cart...</p>
+    </div>
+  </section>
+);
+
+export default function CartPage() {
+  return (
+    <Suspense fallback={<CartPageFallback />}>
+      <CartPageContent />
+    </Suspense>
   );
 }
