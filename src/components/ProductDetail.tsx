@@ -83,9 +83,7 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
           <div className="space-y-6">
             <div>
               <p className="text-[0.62rem] uppercase tracking-[0.34em] text-black/42">Price</p>
-              <p className="mt-2 text-2xl md:text-[2rem]">
-                {getProductPriceLabel(product)}
-              </p>
+              <p className="mt-2 text-2xl md:text-[2rem]">{getProductPriceLabel(product)}</p>
             </div>
 
             <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">

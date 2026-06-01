@@ -307,6 +307,9 @@ const run = async () => {
       const mainStyles = appMain ? window.getComputedStyle(appMain) : null;
       const headerStyles = header ? window.getComputedStyle(header) : null;
       const playerStyles = player ? window.getComputedStyle(player) : null;
+      const backdropFilterSupported =
+        CSS.supports('backdrop-filter: blur(1px)') ||
+        CSS.supports('-webkit-backdrop-filter: blur(1px)');
 
       return {
         headerPosition: headerStyles?.position ?? null,
@@ -316,6 +319,7 @@ const run = async () => {
         playerBackgroundRgba: parseColor(playerStyles?.backgroundColor ?? null),
         playerBackdropFilter: playerStyles?.backdropFilter ?? null,
         playerWebkitBackdropFilter: playerStyles?.webkitBackdropFilter ?? null,
+        backdropFilterSupported,
         playerDotSpacing,
         playerWidth: playerRect?.width ?? null,
         playerCenterX: playerRect ? playerRect.left + playerRect.width / 2 : null,
@@ -345,6 +349,10 @@ const run = async () => {
     );
     assert(
       (mobileChromeMetrics.playerBackdropFilter && mobileChromeMetrics.playerBackdropFilter.includes('blur')) ||
+        (mobileChromeMetrics.backdropFilterSupported &&
+          mobileChromeMetrics.playerBackgroundRgba !== null &&
+          mobileChromeMetrics.playerBackgroundRgba.a > 0 &&
+          mobileChromeMetrics.playerBackgroundRgba.a < 1) ||
         (mobileChromeMetrics.playerWebkitBackdropFilter &&
           mobileChromeMetrics.playerWebkitBackdropFilter.includes('blur')),
       'Mobile player should keep backdrop blur enabled.',

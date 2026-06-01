@@ -277,19 +277,15 @@ html.route-transition-out .showcase-transition-cards {
 @keyframes store-rgb-cycle {
   0% {
     color: rgb(255, 80, 80);
-    border-color: rgb(255, 80, 80);
   }
   33% {
     color: rgb(80, 220, 120);
-    border-color: rgb(80, 220, 120);
   }
   66% {
     color: rgb(90, 160, 255);
-    border-color: rgb(90, 160, 255);
   }
   100% {
     color: rgb(255, 80, 80);
-    border-color: rgb(255, 80, 80);
   }
 }
 

@@ -1,11 +1,15 @@
-import { getR2ObjectText } from '@/lib/r2';
+import { getR2ObjectText } from './r2';
+
+export const DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV = 'DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH';
+export const DEVICE_FIRMWARE_LOCAL_PACKAGE_ROUTE = '/api/device/firmware/package?local=1';
 
 export type FirmwareUpdateStrategy = 'direct_flash';
 
 export interface FirmwareReleaseManifestEntry {
   version: string;
   releaseRank: number;
-  packageKey: string;
+  packageKey?: string;
+  downloadUrl?: string;
   sha256: string;
   strategy: FirmwareUpdateStrategy;
   notes?: string;
@@ -27,6 +31,8 @@ type SemverTuple = {
   patch: number;
 };
 
+const isLocalFirmwarePackageEnabled = process.env.NODE_ENV !== 'production';
+
 export const parseSemver = (candidate: string): SemverTuple | null => {
   const normalized = candidate.trim().replace(/^v/i, '');
   const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)$/);
@@ -47,7 +53,6 @@ export const computeReleaseRank = (version: string): number | null => {
     return null;
   }
 
-  // Preserve update ordering so 0.x firmware can supersede legacy 2.x line.
   if (parsed.major === 0) {
     return 50000 + parsed.minor * 100 + parsed.patch;
   }
@@ -63,11 +68,14 @@ const isManifestRelease = (candidate: unknown): candidate is FirmwareReleaseMani
     return false;
   }
 
+  const hasPackageKey = typeof candidate.packageKey === 'string' && candidate.packageKey.length > 0;
+  const hasDownloadUrl = typeof candidate.downloadUrl === 'string' && candidate.downloadUrl.length > 0;
+
   return (
     typeof candidate.version === 'string' &&
     typeof candidate.releaseRank === 'number' &&
     Number.isFinite(candidate.releaseRank) &&
-    typeof candidate.packageKey === 'string' &&
+    (hasPackageKey || hasDownloadUrl) &&
     typeof candidate.sha256 === 'string' &&
     candidate.strategy === 'direct_flash' &&
     (candidate.notes === undefined || typeof candidate.notes === 'string')
@@ -99,7 +107,41 @@ export const normalizeFirmwareManifest = (candidate: unknown): DeviceFirmwareMan
   };
 };
 
+export const loadLocalDeviceFirmwareManifest = async () => {
+  if (!isLocalFirmwarePackageEnabled) {
+    return null;
+  }
+
+  const { loadLocalFirmwarePackageMetadata } = await import('./deviceFirmwareLocalPackage');
+  const metadata = loadLocalFirmwarePackageMetadata();
+  if (!metadata) {
+    return null;
+  }
+
+  return normalizeFirmwareManifest({
+    device: 'hx01',
+    generatedAt: new Date().toISOString(),
+    latestVersion: metadata.version,
+    latestReleaseRank: metadata.releaseRank,
+    releases: [
+      {
+        version: metadata.version,
+        releaseRank: metadata.releaseRank,
+        downloadUrl: metadata.downloadUrl,
+        sha256: metadata.sha256,
+        strategy: 'direct_flash',
+        notes: metadata.notes,
+      },
+    ],
+  });
+};
+
 export const loadDeviceFirmwareManifest = async () => {
+  const localManifest = await loadLocalDeviceFirmwareManifest();
+  if (localManifest) {
+    return localManifest;
+  }
+
   const manifestText = await getR2ObjectText(FIRMWARE_MANIFEST_KEY);
   const parsed = JSON.parse(manifestText) as unknown;
   return normalizeFirmwareManifest(parsed);

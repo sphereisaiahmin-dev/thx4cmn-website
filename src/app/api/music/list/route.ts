@@ -4,12 +4,21 @@ import { listR2Objects } from '@/lib/r2';
 import { localFixtureTrack } from '@/lib/webplayer/fixture';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 const MUSIC_PREFIX = 'music/';
 
+const safeDecodeTitle = (value: string) => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+};
+
 const deriveTitle = (key: string) => {
   const trimmed = key.replace(MUSIC_PREFIX, '').replace(/\.mp3$/i, '');
-  return decodeURIComponent(trimmed.replace(/\+/g, ' '));
+  return safeDecodeTitle(trimmed.replace(/\+/g, ' '));
 };
 
 export async function GET() {
@@ -24,6 +33,8 @@ export async function GET() {
 
     return NextResponse.json({ tracks });
   } catch (error) {
+    console.error('[MusicList] Failed to load tracks from R2.', error);
+
     if (process.env.NODE_ENV !== 'production') {
       return NextResponse.json({ tracks: [localFixtureTrack], source: 'local-fixture' });
     }

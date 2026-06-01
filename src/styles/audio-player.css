@@ -85,15 +85,18 @@
 
 .audio-player__collapse-button {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: none;
+  -webkit-appearance: none;
+  appearance: none;
   border-radius: 999px;
+  box-shadow: none;
   padding: 4px 10px;
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.2em;
   color: inherit;
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  transition: color 0.2s ease, transform 0.2s ease;
   white-space: nowrap;
   transform: rotate(90deg);
 }
@@ -103,7 +106,6 @@
 }
 
 .audio-player__collapse-button:hover {
-  border-color: rgba(255, 255, 255, 0.6);
   color: rgba(255, 255, 255, 0.85);
 }
 

@@ -6,7 +6,7 @@ const workspaceRoot = resolve(process.cwd());
 const sourceDir = resolve(workspaceRoot, 'thxcmididevicecode');
 const distDir = resolve(workspaceRoot, 'dist');
 
-const requiredFiles = ['boot.py', 'code.py', 'protocol_v1.py'];
+const requiredFiles = ['boot.py', 'code.py', 'midi_note_utils.py', 'protocol_v1.py'];
 
 const getFirmwareVersion = (codeFilePath) => {
   const source = readFileSync(codeFilePath, 'utf8');

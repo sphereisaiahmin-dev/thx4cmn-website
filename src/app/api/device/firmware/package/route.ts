@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 
-import { getR2ObjectText } from '@/lib/r2';
+import { getR2ObjectText } from '../../../../../lib/r2';
 
 export const runtime = 'nodejs';
+
+const isLocalFirmwarePackageEnabled = process.env.NODE_ENV !== 'production';
 
 const isValidPackageKey = (candidate: string) =>
   candidate.startsWith('updates/') &&
@@ -35,9 +37,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const key = searchParams.get('key');
   const url = searchParams.get('url');
+  const local = searchParams.get('local') === '1';
 
-  if (!key && !url) {
-    return NextResponse.json({ error: 'Missing key or url.' }, { status: 400 });
+  if (!key && !url && !local) {
+    return NextResponse.json({ error: 'Missing key, url, or local package request.' }, { status: 400 });
   }
 
   if (key && !isValidPackageKey(key)) {
@@ -46,6 +49,30 @@ export async function GET(request: Request) {
 
   if (url && !isValidSignedPackageUrl(url)) {
     return NextResponse.json({ error: 'Invalid firmware package url.' }, { status: 400 });
+  }
+
+  if (local) {
+    if (!isLocalFirmwarePackageEnabled) {
+      return NextResponse.json({ error: 'Local firmware packages are only available in development.' }, { status: 404 });
+    }
+
+    try {
+      const { readLocalFirmwarePackageText } = await import('../../../../../lib/deviceFirmwareLocalPackage');
+      const source = readLocalFirmwarePackageText();
+      if (!source) {
+        return NextResponse.json({ error: 'No local firmware package is configured.' }, { status: 404 });
+      }
+
+      return new NextResponse(source.packageText, {
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to read firmware package.';
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
   }
 
   try {
@@ -66,6 +93,6 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to read firmware package.';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

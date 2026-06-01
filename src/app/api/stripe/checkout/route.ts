@@ -127,7 +127,6 @@ export async function POST(request: Request) {
     }
 
     const lineItems = paidProducts.map(({ item, product }) => {
-
       if (product.stripePriceId) {
         return {
           price: product.stripePriceId,

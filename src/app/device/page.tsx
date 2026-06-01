@@ -4,8 +4,10 @@ import { HexColorPicker } from 'react-colorful';
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  CHORD_OPTIONS,
   CHORD_TYPES,
   DEFAULT_DEVICE_STATE,
+  DEVICE_SERIAL_REQUEST_PORT_OPTIONS,
   DeviceFirmwarePackage,
   MODIFIER_KEY_IDS,
   NOTE_PRESET_MODES,
@@ -17,10 +19,12 @@ import {
   ModifierKeyId,
   NotePresetMode,
 } from '@/lib/deviceSerialClient';
+import type { SerialPortRequestOptions } from '@/lib/deviceSerialClient';
 import {
   shouldUseLegacyRecoveryForError,
   validateFirmwarePackageText,
 } from '@/lib/firmwareUpdateSafety';
+import { getProductById } from '@/data/products';
 
 type SessionLogEntry = {
   message: string;
@@ -62,7 +66,7 @@ type BrowserSerialPortLike = {
 
 type BrowserSerialLike = {
   getPorts?: () => Promise<BrowserSerialPortLike[]>;
-  requestPort: () => Promise<BrowserSerialPortLike>;
+  requestPort: (options?: SerialPortRequestOptions) => Promise<BrowserSerialPortLike>;
 };
 
 const sleepMs = (ms: number) =>
@@ -76,6 +80,25 @@ const splitBySize = (value: string, size: number) => {
     chunks.push(value.slice(index, index + size));
   }
   return chunks;
+};
+
+const requestBrowserSerialPort = async (serial: BrowserSerialLike) => {
+  if (typeof serial.getPorts === 'function') {
+    const existingPorts = await serial.getPorts();
+    if (existingPorts.length > 0) {
+      return existingPorts[0];
+    }
+  }
+
+  try {
+    return await serial.requestPort(DEVICE_SERIAL_REQUEST_PORT_OPTIONS);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      return serial.requestPort();
+    }
+
+    throw error;
+  }
 };
 
 const flashFirmwareViaLegacyRepl = async (
@@ -97,7 +120,7 @@ const flashFirmwareViaLegacyRepl = async (
 
   if (!port) {
     appendLog('Select hx01 in the browser prompt to run legacy recovery update.');
-    port = await serial.requestPort();
+    port = await requestBrowserSerialPort(serial);
   }
 
   await port.open({ baudRate: 115200 });
@@ -180,7 +203,8 @@ const flashFirmwareViaLegacyRepl = async (
   };
 
   const totalChunks = pkg.files.reduce(
-    (count, file) => count + Math.max(1, Math.ceil(file.contentBase64.length / LEGACY_REPL_CHUNK_BASE64_SIZE)),
+    (count, file) =>
+      count + Math.max(1, Math.ceil(file.contentBase64.length / LEGACY_REPL_CHUNK_BASE64_SIZE)),
     0,
   );
 
@@ -269,11 +293,16 @@ const KEYPAD_LAYOUT: number[][] = buildKeypadLayout();
 const BLACK_NOTE_KEY_INDICES = new Set([1, 3, 6, 8, 10]);
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 const COLOR_PICKER_WIDTH_PX = 220;
-const PRESET_MODE_LABELS: Record<NotePresetMode, string> = {
-  piano: 'Piano',
-  gradient: 'Rain',
-  rain: 'Gradient',
+// Product naming intentionally inverts the two animated labels relative to the
+// protocol wire modes. Keep display metadata separate from persisted mode values.
+const PRESET_MODE_DISPLAY_BY_WIRE_MODE: Record<NotePresetMode, { selectorLabel: string }> = {
+  piano: { selectorLabel: 'Piano' },
+  gradient: { selectorLabel: 'Rain' },
+  rain: { selectorLabel: 'Gradient' },
 };
+
+const getPresetSelectorLabel = (wireMode: NotePresetMode) =>
+  PRESET_MODE_DISPLAY_BY_WIRE_MODE[wireMode].selectorLabel;
 
 const formatLogTimestamp = (timestamp: number) =>
   new Date(timestamp).toLocaleTimeString(undefined, {
@@ -436,9 +465,9 @@ function ColorPaletteField({ label, value, onChange }: ColorPaletteFieldProps) {
   );
 }
 
-type AnimatedPresetSection = 'gradient' | 'rain';
+type AnimatedPresetWireMode = 'gradient' | 'rain';
 
-const getAnimatedPresetSection = (mode: NotePresetMode): AnimatedPresetSection | null => {
+const getAnimatedPresetWireMode = (mode: NotePresetMode): AnimatedPresetWireMode | null => {
   if (mode === 'gradient' || mode === 'rain') {
     return mode;
   }
@@ -446,9 +475,11 @@ const getAnimatedPresetSection = (mode: NotePresetMode): AnimatedPresetSection |
   return null;
 };
 
-const getPresetSpeedLabel = (section: AnimatedPresetSection) => `${PRESET_MODE_LABELS[section]} speed`;
+const getAnimatedPresetSpeedLabel = (wireMode: AnimatedPresetWireMode) =>
+  `${getPresetSelectorLabel(wireMode)} speed`;
 
 export default function DevicePage() {
+  const isHx01Released = getProductById('midi-device')?.isReleased ?? true;
   const [status, setStatus] = useState<DeviceConnectionState>('idle');
   const [log, setLog] = useState<SessionLogEntry[]>([]);
   const [deviceState, setDeviceState] = useState<DeviceState>(cloneState(DEFAULT_DEVICE_STATE));
@@ -464,6 +495,7 @@ export default function DevicePage() {
   const [isUpdatePanelOpen, setIsUpdatePanelOpen] = useState(false);
 
   const clientRef = useRef<DeviceSerialClient | null>(null);
+  const connectInFlightRef = useRef(false);
   const statusRef = useRef<DeviceConnectionState>('idle');
   const keepaliveTimerRef = useRef<number | null>(null);
   const keepaliveFailuresRef = useRef(0);
@@ -552,8 +584,7 @@ export default function DevicePage() {
         }
 
         return payload;
-      } catch (error) {
-        console.error(error);
+      } catch {
         setFirmwareUpdateState(null);
         if (!options.silent) {
           appendLog('Unable to check firmware updates right now.');
@@ -592,7 +623,7 @@ export default function DevicePage() {
   }, [disconnectClient, logConnectionLost, stopKeepalive]);
 
   const handleConnect = useCallback(async () => {
-    if (status === 'connecting' || status === 'handshaking') {
+    if (connectInFlightRef.current || status === 'connecting' || status === 'handshaking') {
       return;
     }
 
@@ -602,26 +633,28 @@ export default function DevicePage() {
       return;
     }
 
-    setIsUpdatePanelOpen(false);
-    stopKeepalive();
-    hasLoggedConnectionLostRef.current = false;
-
-    if (clientRef.current) {
-      await disconnectClient();
-    }
-
-    const client = new DeviceSerialClient({
-      onDisconnect: () => {
-        setStatus('error');
-        logConnectionLost();
-      },
-    });
-
-    clientRef.current = client;
-    setStatus('connecting');
-
     try {
+      connectInFlightRef.current = true;
+      setIsUpdatePanelOpen(false);
+      stopKeepalive();
+      hasLoggedConnectionLostRef.current = false;
+
+      if (clientRef.current) {
+        await disconnectClient();
+      }
+
+      const client = new DeviceSerialClient({
+        onDisconnect: () => {
+          setStatus('error');
+          logConnectionLost();
+        },
+      });
+
+      clientRef.current = client;
+      appendLog('Connecting to hx01...');
+      setStatus('connecting');
       await client.connect();
+      appendLog('Serial port opened. Waiting for hx01 handshake...');
       setStatus('handshaking');
 
       const handshakeResponse = await client.handshake();
@@ -635,11 +668,9 @@ export default function DevicePage() {
 
       setStatus('ready');
       appendLog(`Connected to hx01 (${firmwareVersion}).`);
-
-      await refreshFirmwareUpdateState(firmwareVersion, { silent: true });
       startKeepalive();
+      void refreshFirmwareUpdateState(firmwareVersion, { silent: true });
     } catch (error) {
-      console.error(error);
       const message = error instanceof Error ? error.message : 'Unknown error';
       appendLog(`Connection failed: ${message}`);
       setStatus('error');
@@ -647,6 +678,8 @@ export default function DevicePage() {
       setConnectedFeatures([]);
       setFirmwareUpdateState(null);
       await disconnectClient();
+    } finally {
+      connectInFlightRef.current = false;
     }
   }, [
     appendLog,
@@ -687,8 +720,7 @@ export default function DevicePage() {
 
       appendLog('Configuration updated on hx01.');
     } catch (error) {
-      const detail =
-        error instanceof Error && error.message ? ` ${error.message}` : '';
+      const detail = error instanceof Error && error.message ? ` ${error.message}` : '';
       appendLog(`Couldn't update configuration.${detail} Try again.`);
     } finally {
       setIsApplying(false);
@@ -696,7 +728,12 @@ export default function DevicePage() {
   }, [appendLog, draftState, hydrateState, isApplying, isUpdatingFirmware, status]);
 
   const handleUpdateMe = useCallback(async () => {
-    if (!clientRef.current || status !== 'ready' || !firmwareUpdateState?.updateAvailable || isUpdatingFirmware) {
+    if (
+      !clientRef.current ||
+      status !== 'ready' ||
+      !firmwareUpdateState?.updateAvailable ||
+      isUpdatingFirmware
+    ) {
       return;
     }
 
@@ -749,13 +786,19 @@ export default function DevicePage() {
       }
       if (effectiveState.downloadUrl) {
         packageFetchCandidates.push({
-          label: 'signed_url_proxy',
-          url: `/api/device/firmware/package?url=${encodeURIComponent(effectiveState.downloadUrl)}`,
+          label: /^https?:\/\//i.test(effectiveState.downloadUrl)
+            ? 'signed_url_proxy'
+            : 'local_route',
+          url: /^https?:\/\//i.test(effectiveState.downloadUrl)
+            ? `/api/device/firmware/package?url=${encodeURIComponent(effectiveState.downloadUrl)}`
+            : effectiveState.downloadUrl,
         });
-        packageFetchCandidates.push({
-          label: 'signed_url_direct',
-          url: effectiveState.downloadUrl,
-        });
+        if (/^https?:\/\//i.test(effectiveState.downloadUrl)) {
+          packageFetchCandidates.push({
+            label: 'signed_url_direct',
+            url: effectiveState.downloadUrl,
+          });
+        }
       }
 
       let packagePayload: DeviceFirmwarePackage | null = null;
@@ -923,22 +966,19 @@ export default function DevicePage() {
     }));
   }, []);
 
-  const handleModifierChordChange = useCallback(
-    (keyId: ModifierKeyId, chord: string) => {
-      if (!CHORD_TYPES.includes(chord as (typeof CHORD_TYPES)[number])) {
-        return;
-      }
+  const handleModifierChordChange = useCallback((keyId: ModifierKeyId, chord: string) => {
+    if (!CHORD_TYPES.includes(chord as (typeof CHORD_TYPES)[number])) {
+      return;
+    }
 
-      setDraftState((prev) => ({
-        ...prev,
-        modifierChords: {
-          ...prev.modifierChords,
-          [keyId]: chord as DeviceState['modifierChords'][ModifierKeyId],
-        },
-      }));
-    },
-    [],
-  );
+    setDraftState((prev) => ({
+      ...prev,
+      modifierChords: {
+        ...prev.modifierChords,
+        [keyId]: chord as DeviceState['modifierChords'][ModifierKeyId],
+      },
+    }));
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -954,7 +994,8 @@ export default function DevicePage() {
   const statusLabel =
     status === 'connecting' || status === 'handshaking' ? 'connecting...' : status;
   const showUpdateButton = status === 'ready' && Boolean(firmwareUpdateState?.updateAvailable);
-  const updateTargetVersion = firmwareUpdateState?.targetVersion ?? firmwareUpdateState?.latestVersion;
+  const updateTargetVersion =
+    firmwareUpdateState?.targetVersion ?? firmwareUpdateState?.latestVersion;
   const hasDirtyConfig = useMemo(
     () => !statesEqual(deviceState, draftState),
     [deviceState, draftState],
@@ -963,287 +1004,324 @@ export default function DevicePage() {
   const selectedModifierChord = selectedModifierKey
     ? draftState.modifierChords[selectedModifierKey]
     : null;
-  const animatedPresetSection = getAnimatedPresetSection(draftState.notePreset.mode);
-  const animatedPresetSpeed = animatedPresetSection
-    ? draftState.notePreset[animatedPresetSection].speed
+  const animatedPresetWireMode = getAnimatedPresetWireMode(draftState.notePreset.mode);
+  const animatedPresetSpeed = animatedPresetWireMode
+    ? draftState.notePreset[animatedPresetWireMode].speed
     : null;
   const animatedPresetSpeedProgress =
     animatedPresetSpeed === null ? 0.5 : normalizePresetSpeedProgress(animatedPresetSpeed);
 
   return (
-    <section className="relative space-y-8">
-      <div className="showcase-transition-title text-center">
-        <h1 className="text-3xl uppercase tracking-[0.3em]">hx01</h1>
-      </div>
+    <section className="relative">
+      <div
+        className={`space-y-8 transition ${!isHx01Released ? 'pointer-events-none select-none blur-[10px]' : ''}`}
+        aria-hidden={!isHx01Released}
+        inert={!isHx01Released}
+      >
+        <div className="showcase-transition-title text-center">
+          <h1 className="text-3xl uppercase tracking-[0.3em]">hx01</h1>
+        </div>
 
-      <div className="showcase-transition-cards mx-auto w-full max-w-[1188px]">
-        <div className="grid gap-[2.2rem] lg:grid-cols-[minmax(0,308px)_auto_minmax(0,308px)] lg:items-start lg:justify-center">
-          <div className="flex w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:min-h-[616px] lg:w-[308px]">
-          <h2 className="text-sm uppercase tracking-[0.3em]">...</h2>
+        <div className="showcase-transition-cards mx-auto w-full max-w-[1188px]">
+          <div className="grid gap-[2.2rem] lg:grid-cols-[minmax(0,308px)_auto_minmax(0,308px)] lg:items-start lg:justify-center">
+            <div className="flex w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:min-h-[616px] lg:w-[308px]">
+              <h2 className="text-sm uppercase tracking-[0.3em]">...</h2>
 
-          <div className="mt-4 flex flex-1 flex-col items-center gap-3">
-            {draftState.notePreset.mode === 'piano' && (
-              <>
-                <ColorPaletteField
-                  label="White keys"
-                  value={draftState.notePreset.piano.whiteKeyColor}
-                  onChange={(color) => handlePianoColorChange('whiteKeyColor', color)}
-                />
-                <ColorPaletteField
-                  label="Black keys"
-                  value={draftState.notePreset.piano.blackKeyColor}
-                  onChange={(color) => handlePianoColorChange('blackKeyColor', color)}
-                />
-              </>
-            )}
+              <div className="mt-4 flex flex-1 flex-col items-center gap-3">
+                {draftState.notePreset.mode === 'piano' && (
+                  <>
+                    <ColorPaletteField
+                      label="White keys"
+                      value={draftState.notePreset.piano.whiteKeyColor}
+                      onChange={(color) => handlePianoColorChange('whiteKeyColor', color)}
+                    />
+                    <ColorPaletteField
+                      label="Black keys"
+                      value={draftState.notePreset.piano.blackKeyColor}
+                      onChange={(color) => handlePianoColorChange('blackKeyColor', color)}
+                    />
+                  </>
+                )}
 
-            {draftState.notePreset.mode === 'gradient' && (
-              <>
-                <ColorPaletteField
-                  label="Color"
-                  value={draftState.notePreset.gradient.colorA}
-                  onChange={(color) => handleAnimatedColorChange('gradient', 'colorA', color)}
-                />
-                <ColorPaletteField
-                  label="Color"
-                  value={draftState.notePreset.gradient.colorB}
-                  onChange={(color) => handleAnimatedColorChange('gradient', 'colorB', color)}
-                />
-              </>
-            )}
+                {draftState.notePreset.mode === 'gradient' && (
+                  <>
+                    <ColorPaletteField
+                      label="Color"
+                      value={draftState.notePreset.gradient.colorA}
+                      onChange={(color) => handleAnimatedColorChange('gradient', 'colorA', color)}
+                    />
+                    <ColorPaletteField
+                      label="Color"
+                      value={draftState.notePreset.gradient.colorB}
+                      onChange={(color) => handleAnimatedColorChange('gradient', 'colorB', color)}
+                    />
+                  </>
+                )}
 
-            {draftState.notePreset.mode === 'rain' && (
-              <>
-                <ColorPaletteField
-                  label="Color"
-                  value={draftState.notePreset.rain.colorA}
-                  onChange={(color) => handleAnimatedColorChange('rain', 'colorA', color)}
-                />
-                <ColorPaletteField
-                  label="Color"
-                  value={draftState.notePreset.rain.colorB}
-                  onChange={(color) => handleAnimatedColorChange('rain', 'colorB', color)}
-                />
-              </>
-            )}
+                {draftState.notePreset.mode === 'rain' && (
+                  <>
+                    <ColorPaletteField
+                      label="Color"
+                      value={draftState.notePreset.rain.colorA}
+                      onChange={(color) => handleAnimatedColorChange('rain', 'colorA', color)}
+                    />
+                    <ColorPaletteField
+                      label="Color"
+                      value={draftState.notePreset.rain.colorB}
+                      onChange={(color) => handleAnimatedColorChange('rain', 'colorB', color)}
+                    />
+                  </>
+                )}
 
-            <div
-              className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3"
-              style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
-            >
-              <label className="text-xs uppercase tracking-[0.2em] text-black/70">Preset change</label>
-              <select
-                value={draftState.notePreset.mode}
-                onChange={(event) => handlePresetModeChange(event.target.value as NotePresetMode)}
-                className="w-full rounded-lg border border-black/25 bg-white/80 px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
-              >
-                {NOTE_PRESET_MODES.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {PRESET_MODE_LABELS[mode]}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div
-              className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3"
-              style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
-            >
-              {selectedModifierKey ? (
-                <>
-                  <label className="text-[11px] uppercase tracking-[0.2em] text-black/65">Chord change</label>
+                <div
+                  className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3"
+                  style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
+                >
+                  <label className="text-xs uppercase tracking-[0.2em] text-black/70">
+                    Preset change
+                  </label>
                   <select
-                    value={selectedModifierChord ?? CHORD_TYPES[0]}
-                    onChange={(event) => handleModifierChordChange(selectedModifierKey, event.target.value)}
-                    className="w-full rounded-lg border border-black/25 bg-white px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
+                    value={draftState.notePreset.mode}
+                    onChange={(event) =>
+                      handlePresetModeChange(event.target.value as NotePresetMode)
+                    }
+                    className="w-full rounded-lg border border-black/25 bg-white/80 px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
                   >
-                    {CHORD_TYPES.map((chord) => (
-                      <option key={chord} value={chord}>
-                        {chord}
+                    {NOTE_PRESET_MODES.map((mode) => (
+                      <option key={mode} value={mode}>
+                        {getPresetSelectorLabel(mode)}
                       </option>
                     ))}
                   </select>
-                </>
-              ) : (
-                <>
-                  <label className="text-[11px] uppercase tracking-[0.2em] text-black/65">Chord change</label>
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-black/65">
-                    Select a modifier key
-                  </p>
-                </>
-              )}
-            </div>
+                </div>
 
-            {animatedPresetSection && animatedPresetSpeed !== null && (
-              <div
-                className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70"
-                style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
-              >
-                <span className="flex items-center justify-between gap-3">
-                  <span>{getPresetSpeedLabel(animatedPresetSection)}</span>
-                  <span className="text-[11px]">{animatedPresetSpeed.toFixed(1)}x</span>
-                </span>
-                <input
-                  type="range"
-                  min={NOTE_PRESET_SPEED_MIN}
-                  max={NOTE_PRESET_SPEED_MAX}
-                  step={0.1}
-                  value={animatedPresetSpeed}
-                  onChange={(event) => handlePresetSpeedChange(animatedPresetSection, event.target.value)}
-                  className="audio-player__rpm-slider block w-full"
-                  style={{ '--rpm-progress': animatedPresetSpeedProgress } as CSSProperties}
-                />
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={handleApplyConfig}
-              disabled={status !== 'ready' || !hasDirtyConfig || isApplying || isBusy || isUpdatingFirmware}
-              className="mt-auto self-start rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isApplying ? 'Applying...' : 'Apply'}
-            </button>
-          </div>
-        </div>
-
-          <div className="flex w-full flex-col items-center gap-4 lg:justify-self-center">
-            <div className="flex h-fit w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:w-fit">
-              <h2 className="mb-4 text-sm uppercase tracking-[0.3em]">Keypad</h2>
-
-              <div className="mx-auto grid w-full max-w-[462px] grid-cols-4 gap-[0.825rem] lg:w-[462px]">
-                {KEYPAD_LAYOUT.flat().map((keyIndex) => {
-                  const isModifier = keyIndex >= 12;
-                  const keyId = `${keyIndex}` as ModifierKeyId;
-
-                  if (isModifier) {
-                    const delayMs = (keyIndex - 12) * 120;
-                    const style = {
-                      '--modifier-delay': `${delayMs}ms`,
-                    } as CSSProperties;
-
-                    return (
-                      <button
-                        key={keyIndex}
-                        type="button"
-                        onClick={() => setSelectedModifierKey(keyId)}
-                        style={style}
-                        className={`device-modifier-cycle flex aspect-square flex-col items-center justify-center rounded-xl border text-xs uppercase tracking-[0.2em] transition ${
-                          selectedModifierKey === keyId
-                            ? 'border-black bg-black text-white shadow-[0_0_0_2px_rgba(0,0,0,0.9)] ring-2 ring-black'
-                            : 'border-black/40 bg-black text-white'
-                        }`}
-                      >
-                        <span className="text-[10px] opacity-70">K{keyIndex}</span>
-                        <span className="mt-1 text-[11px]">{draftState.modifierChords[keyId]}</span>
-                      </button>
-                    );
-                  }
-
-                  const previewColor = getNotePreviewColor(draftState, keyIndex, previewTick);
-                  const noteTextClass =
-                    previewColor.startsWith('#') && isColorDark(previewColor)
-                      ? 'text-white'
-                      : 'text-black';
-
-                  return (
-                    <div
-                      key={keyIndex}
-                      className={`flex aspect-square flex-col items-center justify-center rounded-xl border border-black/30 text-xs uppercase tracking-[0.2em] ${noteTextClass}`}
-                      style={{ backgroundColor: previewColor }}
-                    >
-                      <span className="text-[10px] opacity-70">K{keyIndex}</span>
-                      <span className="mt-1 text-[11px]">N{keyIndex}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <p className="w-full max-w-[462px] text-center text-sm text-black/70">
-              change your colors, patterns, and chords here for your hx01 device.
-            </p>
-          </div>
-
-          <div className="flex w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:min-h-[616px] lg:w-[308px]">
-            <h2 className="text-sm uppercase tracking-[0.3em]">Session log</h2>
-
-            <div className="mt-4 flex-1 space-y-2 overflow-y-auto pr-1 text-xs text-black/70">
-              {log.length === 0 && <p>No activity yet. Connect your hx01 to begin.</p>}
-              {log.map((entry, index) => (
-                <p key={`${entry.timestamp}-${index}`}>
-                  [{formatLogTimestamp(entry.timestamp)}] {entry.message}
-                </p>
-              ))}
-            </div>
-
-            <div className="mt-6 space-y-3 border-t border-black/10 pt-4">
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleConnect}
-                  disabled={isBusy || isUpdatingFirmware}
-                  className="device-connect-hover-cycle rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition disabled:cursor-not-allowed disabled:opacity-50"
+                <div
+                  className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3"
+                  style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
                 >
-                  {status === 'ready' ? 'Reconnect' : 'Connect'}
-                </button>
-
-                {status === 'ready' && (
-                  <button
-                    type="button"
-                    onClick={handleDisconnect}
-                    disabled={!clientRef.current || isBusy || isUpdatingFirmware}
-                    className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Disconnect
-                  </button>
-                )}
-
-                {showUpdateButton && (
-                  <button
-                    type="button"
-                    onClick={handleUpdateMe}
-                    disabled={isBusy || isUpdatingFirmware}
-                    className="device-update-cycle rounded-full border px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {isUpdatingFirmware
-                      ? 'Updating...'
-                      : `Update me${updateTargetVersion ? ` (${updateTargetVersion})` : ''}`}
-                  </button>
-                )}
-
-                <span className="text-xs uppercase tracking-[0.3em] text-black/60">
-                  Status: {statusLabel}
-                </span>
-
-                {connectedFirmwareVersion && (
-                  <span className="text-xs uppercase tracking-[0.3em] text-black/60">
-                    Firmware: {connectedFirmwareVersion}
-                  </span>
-                )}
-
-                {isCheckingFirmware && (
-                  <span className="text-xs uppercase tracking-[0.3em] text-black/60">
-                    Checking updates...
-                  </span>
-                )}
-              </div>
-
-              {isUpdatePanelOpen && firmwareUpdateState?.updateAvailable && (
-                <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-xs uppercase tracking-[0.2em] text-black/70">
-                  <p>
-                    Update target: {updateTargetVersion ?? firmwareUpdateState.latestVersion} (direct flash)
-                  </p>
-                  {firmwareUpdateState.notes && <p className="mt-2">{firmwareUpdateState.notes}</p>}
-                  {firmwareUpdateState.sha256 && (
-                    <p className="mt-3 normal-case">sha256: {firmwareUpdateState.sha256}</p>
+                  {selectedModifierKey ? (
+                    <>
+                      <label className="text-[11px] uppercase tracking-[0.2em] text-black/65">
+                        Chord change
+                      </label>
+                      <select
+                        value={selectedModifierChord ?? CHORD_TYPES[0]}
+                        onChange={(event) =>
+                          handleModifierChordChange(selectedModifierKey, event.target.value)
+                        }
+                        className="w-full rounded-lg border border-black/25 bg-white px-3 py-2 text-sm uppercase tracking-[0.08em] text-black"
+                      >
+                        {CHORD_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  ) : (
+                    <>
+                      <label className="text-[11px] uppercase tracking-[0.2em] text-black/65">
+                        Chord change
+                      </label>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-black/65">
+                        Select a modifier key
+                      </p>
+                    </>
                   )}
                 </div>
-              )}
+
+                {animatedPresetWireMode && animatedPresetSpeed !== null && (
+                  <div
+                    className="space-y-2 rounded-xl border border-black/15 bg-white/70 p-3 text-xs uppercase tracking-[0.2em] text-black/70"
+                    style={{ width: `${COLOR_PICKER_WIDTH_PX}px` }}
+                  >
+                    <span className="flex items-center justify-between gap-3">
+                      <span>{getAnimatedPresetSpeedLabel(animatedPresetWireMode)}</span>
+                      <span className="text-[11px]">{animatedPresetSpeed.toFixed(1)}x</span>
+                    </span>
+                    <input
+                      type="range"
+                      min={NOTE_PRESET_SPEED_MIN}
+                      max={NOTE_PRESET_SPEED_MAX}
+                      step={0.1}
+                      value={animatedPresetSpeed}
+                      onChange={(event) =>
+                        handlePresetSpeedChange(animatedPresetWireMode, event.target.value)
+                      }
+                      className="audio-player__rpm-slider block w-full"
+                      style={{ '--rpm-progress': animatedPresetSpeedProgress } as CSSProperties}
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleApplyConfig}
+                  disabled={
+                    status !== 'ready' ||
+                    !hasDirtyConfig ||
+                    isApplying ||
+                    isBusy ||
+                    isUpdatingFirmware
+                  }
+                  className="mt-auto self-start rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isApplying ? 'Applying...' : 'Apply'}
+                </button>
+              </div>
+            </div>
+
+            <div className="flex w-full flex-col items-center gap-4 lg:justify-self-center">
+              <div className="flex h-fit w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:w-fit">
+                <h2 className="mb-4 text-sm uppercase tracking-[0.3em]">Keypad</h2>
+
+                <div className="mx-auto grid w-full max-w-[462px] grid-cols-4 gap-[0.825rem] lg:w-[462px]">
+                  {KEYPAD_LAYOUT.flat().map((keyIndex) => {
+                    const isModifier = keyIndex >= 12;
+                    const keyId = `${keyIndex}` as ModifierKeyId;
+
+                    if (isModifier) {
+                      const delayMs = (keyIndex - 12) * 120;
+                      const style = {
+                        '--modifier-delay': `${delayMs}ms`,
+                      } as CSSProperties;
+
+                      return (
+                        <button
+                          key={keyIndex}
+                          type="button"
+                          onClick={() => setSelectedModifierKey(keyId)}
+                          style={style}
+                          className={`device-modifier-cycle flex aspect-square flex-col items-center justify-center rounded-xl border text-xs uppercase tracking-[0.2em] transition ${
+                            selectedModifierKey === keyId
+                              ? 'border-black bg-black text-white shadow-[0_0_0_2px_rgba(0,0,0,0.9)] ring-2 ring-black'
+                              : 'border-black/40 bg-black text-white'
+                          }`}
+                        >
+                          <span className="text-[10px] opacity-70">K{keyIndex}</span>
+                          <span className="mt-1 text-[11px]">
+                            {draftState.modifierChords[keyId]}
+                          </span>
+                        </button>
+                      );
+                    }
+
+                    const previewColor = getNotePreviewColor(draftState, keyIndex, previewTick);
+                    const noteTextClass =
+                      previewColor.startsWith('#') && isColorDark(previewColor)
+                        ? 'text-white'
+                        : 'text-black';
+
+                    return (
+                      <div
+                        key={keyIndex}
+                        className={`flex aspect-square flex-col items-center justify-center rounded-xl border border-black/30 text-xs uppercase tracking-[0.2em] ${noteTextClass}`}
+                        style={{ backgroundColor: previewColor }}
+                      >
+                        <span className="text-[10px] opacity-70">K{keyIndex}</span>
+                        <span className="mt-1 text-[11px]">N{keyIndex}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <p className="w-full max-w-[462px] text-center text-sm text-black/70">
+                change your colors, patterns, and chords here for your hx01 device.
+              </p>
+            </div>
+
+            <div className="flex w-full flex-col rounded-[1.75rem] border border-black/10 bg-black/5 p-[26px] lg:min-h-[616px] lg:w-[308px]">
+              <h2 className="text-sm uppercase tracking-[0.3em]">Session log</h2>
+
+              <div className="mt-4 flex-1 space-y-2 overflow-y-auto pr-1 text-xs text-black/70">
+                {log.length === 0 && <p>No activity yet. Connect your hx01 to begin.</p>}
+                {log.map((entry, index) => (
+                  <p key={`${entry.timestamp}-${index}`}>
+                    [{formatLogTimestamp(entry.timestamp)}] {entry.message}
+                  </p>
+                ))}
+              </div>
+
+              <div className="mt-6 space-y-3 border-t border-black/10 pt-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleConnect}
+                    disabled={isBusy || isUpdatingFirmware}
+                    className="device-connect-hover-cycle rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {status === 'ready' ? 'Reconnect' : 'Connect'}
+                  </button>
+
+                  {status === 'ready' && (
+                    <button
+                      type="button"
+                      onClick={handleDisconnect}
+                      disabled={!clientRef.current || isBusy || isUpdatingFirmware}
+                      className="rounded-full border border-black/30 px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Disconnect
+                    </button>
+                  )}
+
+                  {showUpdateButton && (
+                    <button
+                      type="button"
+                      onClick={handleUpdateMe}
+                      disabled={isBusy || isUpdatingFirmware}
+                      className="device-update-cycle rounded-full border px-6 py-3 text-xs uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isUpdatingFirmware
+                        ? 'Updating...'
+                        : `Update me${updateTargetVersion ? ` (${updateTargetVersion})` : ''}`}
+                    </button>
+                  )}
+
+                  <span className="text-xs uppercase tracking-[0.3em] text-black/60">
+                    Status: {statusLabel}
+                  </span>
+
+                  {connectedFirmwareVersion && (
+                    <span className="text-xs uppercase tracking-[0.3em] text-black/60">
+                      Firmware: {connectedFirmwareVersion}
+                    </span>
+                  )}
+
+                  {isCheckingFirmware && (
+                    <span className="text-xs uppercase tracking-[0.3em] text-black/60">
+                      Checking updates...
+                    </span>
+                  )}
+                </div>
+
+                {isUpdatePanelOpen && firmwareUpdateState?.updateAvailable && (
+                  <div className="rounded-2xl border border-black/10 bg-black/5 p-4 text-xs uppercase tracking-[0.2em] text-black/70">
+                    <p>
+                      Update target: {updateTargetVersion ?? firmwareUpdateState.latestVersion}{' '}
+                      (direct flash)
+                    </p>
+                    {firmwareUpdateState.notes && (
+                      <p className="mt-2">{firmwareUpdateState.notes}</p>
+                    )}
+                    {firmwareUpdateState.sha256 && (
+                      <p className="mt-3 normal-case">sha256: {firmwareUpdateState.sha256}</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
+      {!isHx01Released ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center px-6">
+          <div className="rounded-[1.75rem] border border-black/10 bg-white/80 px-8 py-6 text-center shadow-[0_16px_40px_rgba(0,0,0,0.12)] backdrop-blur-sm">
+            <p className="text-xs uppercase tracking-[0.4em] text-black/55">hx01</p>
+            <h2 className="mt-2 text-2xl uppercase tracking-[0.3em]">Coming soon..</h2>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

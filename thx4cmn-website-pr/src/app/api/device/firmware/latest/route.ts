@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 
-import { loadDeviceFirmwareManifest } from '../../../../../lib/deviceFirmwareManifest';
+import {
+  computeReleaseRank,
+  loadDeviceFirmwareManifest,
+} from '@/lib/deviceFirmwareManifest';
 import {
   buildLatestFirmwareResponse,
   buildUnavailableLatestFirmwareResponse,
-} from '../../../../../lib/deviceFirmwareLookup';
-import { computeReleaseRank } from '../../../../../lib/deviceFirmwareManifest';
+} from '@/lib/deviceFirmwareLookup';
 import { getSignedDownloadUrl } from '@/lib/r2';
 
 export const runtime = 'nodejs';

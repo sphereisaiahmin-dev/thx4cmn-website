@@ -620,7 +620,9 @@ const TwoUpStoreShowcase = ({ products, isMobile, onAddProduct }: TwoUpStoreShow
         <ThreeCanvas
           className="h-full w-full"
           camera={
-            isMobile ? { position: [0, 0.2, 8.4], fov: 38 } : { position: [0, 0.28, 7.05], fov: 34 }
+            isMobile
+              ? { position: [0, 0.2, 8.4], fov: 38 }
+              : { position: [0, 0.28, 7.05], fov: 34 }
           }
           performanceMode="auto"
         >
