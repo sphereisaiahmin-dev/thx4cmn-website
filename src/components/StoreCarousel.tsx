@@ -108,20 +108,40 @@ const TWO_UP_MOBILE_SLOTS: Record<'left' | 'right', SlotConfig> = {
   },
 };
 
+const MOBILE_PRODUCT_SLOTS: Record<'sample' | 'universe', SlotConfig> = {
+  sample: {
+    pos: [0, -0.48, -0.15],
+    rotY: Math.PI / 30,
+    radius: 1.08,
+    rotationSpeed: 0.3,
+    draggable: true,
+    scaleMultiplier: 0.44,
+  },
+  universe: {
+    pos: [0, 1.08, -0.2],
+    rotY: -Math.PI / 28,
+    radius: 1.7,
+    rotationSpeed: 0.3,
+    draggable: true,
+    scaleMultiplier: 0.96,
+  },
+};
+
 const LERP_SPEED = 0.09;
 const SIDE_IDLE_OPACITY = 0.48;
 const TWO_UP_SAMPLE_PACK_LIGHT_LAYER = 1;
 const TWO_UP_UNIVERSE_LIGHT_LAYER = 2;
-const TWO_UP_MOBILE_CANVAS_HEIGHT =
-  'clamp(38rem, calc(100svh - var(--site-header-height) - 1rem), 48rem)';
+const TWO_UP_MOBILE_MODEL_STAGE_HEIGHT = '24rem';
 const TWO_UP_DESKTOP_REFERENCE_SIZE = {
   width: 1280,
   height: 760,
 } as const;
 const TWO_UP_MOBILE_REFERENCE_SIZE = {
   width: 390,
-  height: 844,
+  height: 1180,
 } as const;
+const TWO_UP_DESKTOP_MIN_WIDTH = 768;
+const TWO_UP_DESKTOP_MIN_HEIGHT = 560;
 
 const wrap = (index: number, total: number) =>
   total === 0 ? 0 : ((index % total) + total) % total;
@@ -581,6 +601,29 @@ interface TwoUpSceneProps {
   isMobile: boolean;
 }
 
+const useTwoUpLayoutProgress = (size: { width: number; height: number }) => {
+  return useMemo(() => {
+    const widthProgress = MathUtils.clamp(
+      (size.width - TWO_UP_DESKTOP_MIN_WIDTH) /
+        (TWO_UP_DESKTOP_REFERENCE_SIZE.width - TWO_UP_DESKTOP_MIN_WIDTH),
+      0,
+      1,
+    );
+    const heightProgress = MathUtils.clamp(
+      (size.height - TWO_UP_DESKTOP_MIN_HEIGHT) /
+        (TWO_UP_DESKTOP_REFERENCE_SIZE.height - TWO_UP_DESKTOP_MIN_HEIGHT),
+      0,
+      1,
+    );
+
+    return {
+      widthProgress,
+      heightProgress,
+      compositionProgress: Math.min(widthProgress, heightProgress),
+    };
+  }, [size.height, size.width]);
+};
+
 const TwoUpSceneCameraLayers = () => {
   const { camera } = useThree();
 
@@ -592,10 +635,91 @@ const TwoUpSceneCameraLayers = () => {
   return null;
 };
 
+const TwoUpSceneCameraRig = ({ isMobile }: { isMobile: boolean }) => {
+  const { camera, size } = useThree();
+  const { compositionProgress } = useTwoUpLayoutProgress(size);
+
+  useEffect(() => {
+    if (isMobile) {
+      camera.position.set(0, -0.1, 10.35);
+      camera.lookAt(0, -0.72, 0);
+      camera.updateProjectionMatrix();
+      return;
+    }
+
+    camera.position.set(
+      0,
+      MathUtils.lerp(0.18, 0.34, compositionProgress),
+      MathUtils.lerp(8.9, 7.45, compositionProgress),
+    );
+    camera.lookAt(0, 0.02, 0);
+    camera.updateProjectionMatrix();
+  }, [camera, compositionProgress, isMobile]);
+
+  return null;
+};
+
+const useResponsiveTwoUpSlots = (isMobile: boolean) => {
+  const { size } = useThree();
+  const { widthProgress, heightProgress, compositionProgress } = useTwoUpLayoutProgress(size);
+
+  return useMemo(() => {
+    if (isMobile) {
+      return {
+        left: {
+          ...TWO_UP_MOBILE_SLOTS.left,
+          pos: [0, MathUtils.lerp(3.2, 3.75, MathUtils.clamp(size.height / 1180, 0, 1)), -0.2] as [
+            number,
+            number,
+            number,
+          ],
+        },
+        right: {
+          ...TWO_UP_MOBILE_SLOTS.right,
+          pos: [0, MathUtils.lerp(-2.9, -4.85, MathUtils.clamp(size.height / 1180, 0, 1)), -0.3] as [
+            number,
+            number,
+            number,
+          ],
+        },
+      } as const;
+    }
+
+    const horizontalScale = MathUtils.lerp(0.74, 1, widthProgress);
+    const radiusScale = MathUtils.lerp(0.84, 1, compositionProgress);
+    const depthOffset = MathUtils.lerp(0.34, 0, compositionProgress);
+
+    return {
+      left: {
+        ...TWO_UP_DESKTOP_SLOTS.left,
+        pos: [
+          TWO_UP_DESKTOP_SLOTS.left.pos[0] * horizontalScale,
+          MathUtils.lerp(0.04, TWO_UP_DESKTOP_SLOTS.left.pos[1], heightProgress),
+          TWO_UP_DESKTOP_SLOTS.left.pos[2] + depthOffset,
+        ] as [number, number, number],
+        radius: TWO_UP_DESKTOP_SLOTS.left.radius * radiusScale,
+      },
+      right: {
+        ...TWO_UP_DESKTOP_SLOTS.right,
+        pos: [
+          TWO_UP_DESKTOP_SLOTS.right.pos[0] * horizontalScale,
+          MathUtils.lerp(-0.02, TWO_UP_DESKTOP_SLOTS.right.pos[1], heightProgress),
+          TWO_UP_DESKTOP_SLOTS.right.pos[2] + depthOffset,
+        ] as [number, number, number],
+        radius: TWO_UP_DESKTOP_SLOTS.right.radius * radiusScale,
+      },
+    } as const;
+  }, [compositionProgress, heightProgress, isMobile, size.height, widthProgress]);
+};
+
 const useResponsiveUniverseScale = (isMobile: boolean) => {
   const { size } = useThree();
 
   return useMemo(() => {
+    if (!isMobile) {
+      return 1;
+    }
+
     const reference = isMobile ? TWO_UP_MOBILE_REFERENCE_SIZE : TWO_UP_DESKTOP_REFERENCE_SIZE;
     const widthRatio = size.width / reference.width;
     const heightRatio = size.height / reference.height;
@@ -622,8 +746,7 @@ const TwoUpScene = ({ leftUrl, rightUrl, isMobile }: TwoUpSceneProps) => {
   const { bloomSettings } = getScenePresentation(visibleModelUrls);
   const leftOpacity = useRef(1);
   const rightOpacity = useRef(1);
-  const activeLeftSlot = isMobile ? TWO_UP_MOBILE_SLOTS.left : TWO_UP_DESKTOP_SLOTS.left;
-  const activeRightSlot = isMobile ? TWO_UP_MOBILE_SLOTS.right : TWO_UP_DESKTOP_SLOTS.right;
+  const { left: activeLeftSlot, right: activeRightSlot } = useResponsiveTwoUpSlots(isMobile);
   const universeViewportScaleMultiplier = useResponsiveUniverseScale(isMobile);
   const samplePackSlot = isSamplePackModel(leftUrl)
     ? activeLeftSlot
@@ -634,6 +757,7 @@ const TwoUpScene = ({ leftUrl, rightUrl, isMobile }: TwoUpSceneProps) => {
 
   return (
     <>
+      <TwoUpSceneCameraRig isMobile={isMobile} />
       <TwoUpSceneCameraLayers />
       {samplePackSlot ? (
         <>
@@ -730,6 +854,31 @@ interface TwoUpStoreShowcaseProps {
   onAddProduct: (product: Product) => void;
 }
 
+const MobileStoreModelScene = ({ modelUrl }: { modelUrl: string }) => {
+  const { bloomSettings } = getScenePresentation([modelUrl]);
+  const opacityRef = useRef(1);
+  const universeViewportScaleMultiplier = useResponsiveUniverseScale(true);
+  const slotConfig = isUniverseModel(modelUrl)
+    ? MOBILE_PRODUCT_SLOTS.universe
+    : MOBILE_PRODUCT_SLOTS.sample;
+
+  return (
+    <>
+      {isUniverseModel(modelUrl) ? <SceneLights lightRig="universe" /> : <SceneLights lightRig="default" />}
+      <Suspense fallback={null}>
+        <SlotModel
+          modelUrl={modelUrl}
+          slotConfig={slotConfig}
+          opacityRef={opacityRef}
+          isMobile
+          viewportScaleMultiplier={isUniverseModel(modelUrl) ? universeViewportScaleMultiplier : 1}
+        />
+      </Suspense>
+      {bloomSettings ? <SceneBloom {...bloomSettings} /> : null}
+    </>
+  );
+};
+
 const TwoUpStoreShowcase = ({ products, isMobile, onAddProduct }: TwoUpStoreShowcaseProps) => {
   const [leftProduct, rightProduct] = products;
   const leftUrl = modelUrlsByProductId[leftProduct.id];
@@ -739,32 +888,77 @@ const TwoUpStoreShowcase = ({ products, isMobile, onAddProduct }: TwoUpStoreShow
     return null;
   }
 
+  if (isMobile) {
+    return (
+      <div aria-label="Store products" className="showcase-transition-carousel relative w-full">
+        <div className="flex flex-col gap-12 px-6 pb-10 pt-2 sm:px-8">
+          <section
+            className="flex flex-col gap-5"
+            style={{ paddingTop: 'calc(var(--mobile-player-offset) + 1.5rem)' }}
+          >
+            <div className="relative" style={{ height: TWO_UP_MOBILE_MODEL_STAGE_HEIGHT }}>
+              <ThreeCanvas
+                className="h-full w-full"
+                camera={{ position: [0, -0.08, 9.4], fov: 41 }}
+                performanceMode="auto"
+              >
+                <MobileStoreModelScene modelUrl={leftUrl} />
+              </ThreeCanvas>
+
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  background:
+                    'radial-gradient(ellipse 96% 82% at 50% 52%, transparent 50%, rgba(255,255,255,0.92) 100%)',
+                }}
+              />
+            </div>
+            <ProductInfoPanel product={leftProduct} onAdd={() => onAddProduct(leftProduct)} />
+          </section>
+
+          <section className="flex flex-col gap-5">
+            <div className="relative" style={{ height: TWO_UP_MOBILE_MODEL_STAGE_HEIGHT }}>
+              <ThreeCanvas
+                className="h-full w-full"
+                camera={{ position: [0, 0.1, 10.2], fov: 42 }}
+                performanceMode="auto"
+              >
+                <MobileStoreModelScene modelUrl={rightUrl} />
+              </ThreeCanvas>
+
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  background:
+                    'radial-gradient(ellipse 96% 82% at 50% 52%, transparent 50%, rgba(255,255,255,0.92) 100%)',
+                }}
+              />
+            </div>
+            <ProductInfoPanel product={rightProduct} onAdd={() => onAddProduct(rightProduct)} />
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       aria-label="Store products"
-      className={
-        isMobile
-          ? 'showcase-transition-carousel relative w-full'
-          : 'showcase-transition-carousel relative grid w-full min-h-0 overflow-hidden'
-      }
-      style={
-        isMobile
-          ? undefined
-          : {
-              height: getStoreViewportHeight(false),
-              gridTemplateRows: 'minmax(0, 1.04fr) minmax(0, 0.96fr)',
-            }
-      }
+      className="showcase-transition-carousel relative grid w-full min-h-0 overflow-hidden"
+      style={{
+        height: getStoreViewportHeight(false),
+        gridTemplateRows: 'minmax(0, 1.04fr) minmax(0, 0.96fr)',
+      }}
     >
-      <div className="relative min-h-0" style={isMobile ? { height: TWO_UP_MOBILE_CANVAS_HEIGHT } : undefined}>
+      <div className="relative min-h-0">
         <ThreeCanvas
           className="h-full w-full"
-          camera={
-            isMobile ? { position: [0, 0.22, 9.25], fov: 42 } : { position: [0, 0.34, 7.45], fov: 36 }
-          }
+          camera={{ position: [0, 0.34, 7.45], fov: 36 }}
           performanceMode="auto"
         >
-          <TwoUpScene leftUrl={leftUrl} rightUrl={rightUrl} isMobile={isMobile} />
+          <TwoUpScene leftUrl={leftUrl} rightUrl={rightUrl} isMobile={false} />
         </ThreeCanvas>
 
         <div
@@ -772,26 +966,14 @@ const TwoUpStoreShowcase = ({ products, isMobile, onAddProduct }: TwoUpStoreShow
           className="pointer-events-none absolute inset-0"
           style={{
             background:
-              isMobile
-                ? 'radial-gradient(ellipse 96% 82% at 50% 48%, transparent 51%, rgba(255,255,255,0.92) 100%)'
-                : 'radial-gradient(ellipse 92% 82% at 50% 58%, transparent 50%, rgba(255,255,255,0.92) 100%)',
+              'radial-gradient(ellipse 92% 82% at 50% 58%, transparent 50%, rgba(255,255,255,0.92) 100%)',
           }}
         />
       </div>
 
-      <div
-        className={
-          isMobile
-            ? 'relative z-10 px-6 pb-8 pt-5 sm:px-8'
-            : 'relative z-10 min-h-0 px-6 pb-2 pt-2 sm:px-8 md:px-10 md:pb-8 md:pt-4 lg:px-14'
-        }
-      >
+      <div className="relative z-10 min-h-0 px-6 pb-2 pt-2 sm:px-8 md:px-10 md:pb-8 md:pt-4 lg:px-14">
         <div
-          className={
-            isMobile
-              ? 'relative grid grid-cols-1 gap-8'
-              : 'relative grid h-full min-h-0 grid-cols-1 grid-rows-2 gap-6 md:grid-cols-2 md:grid-rows-1 md:gap-10'
-          }
+          className="relative grid h-full min-h-0 grid-cols-1 grid-rows-2 gap-6 md:grid-cols-2 md:grid-rows-1 md:gap-10"
         >
           <div className="hidden md:block md:absolute md:left-1/2 md:top-4 md:h-[calc(100%-2rem)] md:w-px md:-translate-x-1/2 md:bg-black/8" />
           <ProductInfoPanel product={leftProduct} onAdd={() => onAddProduct(leftProduct)} />
