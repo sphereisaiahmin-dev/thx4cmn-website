@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import {
+  type ReactNode,
   Suspense,
   useCallback,
   useEffect,
@@ -73,27 +74,54 @@ const CAROUSEL_SLOTS: Record<SlotKey, SlotConfig> = {
   },
 };
 
-const TWO_UP_SLOTS: Record<'left' | 'right', SlotConfig> = {
+const TWO_UP_DESKTOP_SLOTS: Record<'left' | 'right', SlotConfig> = {
   left: {
-    pos: [-4.45, 0.08, -0.6],
-    rotY: Math.PI / 22,
-    radius: 1.45,
+    pos: [-4.85, 0.18, -0.72],
+    rotY: Math.PI / 26,
+    radius: 1.52,
     rotationSpeed: 0.34,
     draggable: true,
     scaleMultiplier: 0.5,
   },
   right: {
-    pos: [4.45, -0.08, -0.6],
-    rotY: -Math.PI / 22,
-    radius: 2.95,
+    pos: [4.95, -0.1, -0.5],
+    rotY: -Math.PI / 24,
+    radius: 2.72,
     rotationSpeed: 0.34,
     draggable: true,
     scaleMultiplier: 1.1,
   },
 };
 
+const TWO_UP_MOBILE_SLOTS: Record<'left' | 'right', SlotConfig> = {
+  left: {
+    ...TWO_UP_DESKTOP_SLOTS.left,
+    pos: [0, 2.5, -0.2],
+    rotY: Math.PI / 28,
+    radius: 1.18,
+  },
+  right: {
+    ...TWO_UP_DESKTOP_SLOTS.right,
+    pos: [0, -1.78, -0.3],
+    rotY: -Math.PI / 28,
+    radius: 1.96,
+  },
+};
+
 const LERP_SPEED = 0.09;
 const SIDE_IDLE_OPACITY = 0.48;
+const TWO_UP_SAMPLE_PACK_LIGHT_LAYER = 1;
+const TWO_UP_UNIVERSE_LIGHT_LAYER = 2;
+const TWO_UP_MOBILE_CANVAS_HEIGHT =
+  'clamp(38rem, calc(100svh - var(--site-header-height) - 1rem), 48rem)';
+const TWO_UP_DESKTOP_REFERENCE_SIZE = {
+  width: 1280,
+  height: 760,
+} as const;
+const TWO_UP_MOBILE_REFERENCE_SIZE = {
+  width: 390,
+  height: 844,
+} as const;
 
 const wrap = (index: number, total: number) =>
   total === 0 ? 0 : ((index % total) + total) % total;
@@ -104,11 +132,12 @@ const getStoreViewportHeight = (isMobile: boolean) =>
 
 interface SceneLightsProps {
   lightRig: 'default' | 'universe';
+  lightLayer?: number;
 }
 
-const SceneLights = ({ lightRig }: SceneLightsProps) => {
-  if (lightRig === 'universe') {
-    return (
+const SceneLights = ({ lightRig, lightLayer }: SceneLightsProps) => {
+  const lights =
+    lightRig === 'universe' ? (
       <>
         <ambientLight intensity={0.24} color="#dce8ff" />
         <pointLight
@@ -127,17 +156,20 @@ const SceneLights = ({ lightRig }: SceneLightsProps) => {
         />
         <directionalLight position={[0, 1, 4]} intensity={0.22} color="#f5f9ff" />
       </>
+    ) : (
+      <>
+        <ambientLight intensity={0.75} />
+        <directionalLight position={[4, 4, 5]} intensity={1.2} />
+        <directionalLight position={[-4, -2, 3]} intensity={0.55} />
+        <directionalLight position={[0, -4, 2]} intensity={0.25} />
+      </>
     );
+
+  if (lightLayer === undefined) {
+    return lights;
   }
 
-  return (
-    <>
-      <ambientLight intensity={0.75} />
-      <directionalLight position={[4, 4, 5]} intensity={1.2} />
-      <directionalLight position={[-4, -2, 3]} intensity={0.55} />
-      <directionalLight position={[0, -4, 2]} intensity={0.25} />
-    </>
-  );
+  return <LayeredGroup layer={lightLayer}>{lights}</LayeredGroup>;
 };
 
 const getScenePresentation = (modelUrls: string[]) => {
@@ -152,9 +184,53 @@ const getScenePresentation = (modelUrls: string[]) => {
   return { bloomSettings, lightRig } as const;
 };
 
-const SamplePackAccentLight = ({ position }: { position: [number, number, number] }) => {
+const LayeredGroup = ({
+  layer,
+  mode = 'set',
+  children,
+}: {
+  layer: number;
+  mode?: 'enable' | 'set';
+  children: ReactNode;
+}) => {
+  const ref = useRef<Group>(null);
+
+  useEffect(() => {
+    const group = ref.current;
+    if (!group) return;
+
+    group.traverse((object) => {
+      if (mode === 'set') {
+        object.layers.set(layer);
+        return;
+      }
+
+      object.layers.enable(layer);
+    });
+  }, [layer, mode]);
+
+  return <group ref={ref}>{children}</group>;
+};
+
+const DetailStyleLights = ({ lightLayer }: { lightLayer: number }) => {
   return (
-    <>
+    <LayeredGroup layer={lightLayer}>
+      <ambientLight intensity={0.7} />
+      <directionalLight position={[3, 3, 4]} intensity={1.1} />
+      <directionalLight position={[-3, -2, 2]} intensity={0.6} />
+    </LayeredGroup>
+  );
+};
+
+const SamplePackAccentLight = ({
+  position,
+  lightLayer,
+}: {
+  position: [number, number, number];
+  lightLayer: number;
+}) => {
+  return (
+    <LayeredGroup layer={lightLayer}>
       <pointLight
         position={[position[0] - 0.6, position[1] + 1.05, position[2] + 3.1]}
         intensity={0.82}
@@ -169,7 +245,7 @@ const SamplePackAccentLight = ({ position }: { position: [number, number, number
         decay={2}
         color="#b3dcff"
       />
-    </>
+    </LayeredGroup>
   );
 };
 
@@ -179,9 +255,19 @@ interface SlotModelProps {
   opacityRef: MutableRefObject<number>;
   onNavigate?: () => void;
   isMobile: boolean;
+  objectLayer?: number;
+  viewportScaleMultiplier?: number;
 }
 
-const SlotModel = ({ modelUrl, slotConfig, opacityRef, onNavigate, isMobile }: SlotModelProps) => {
+const SlotModel = ({
+  modelUrl,
+  slotConfig,
+  opacityRef,
+  onNavigate,
+  isMobile,
+  objectLayer,
+  viewportScaleMultiplier = 1,
+}: SlotModelProps) => {
   const { gl } = useThree();
   const { scene } = useGLTF(modelUrl);
   const cloned = useMemo(() => clonePreparedProductScene(scene, modelUrl), [modelUrl, scene]);
@@ -200,6 +286,15 @@ const SlotModel = ({ modelUrl, slotConfig, opacityRef, onNavigate, isMobile }: S
   const dragStartRotX = useRef(0);
   const canDrag = Boolean(slotConfig.draggable);
   const isClickable = !canDrag && !isMobile && Boolean(onNavigate);
+
+  useEffect(() => {
+    const group = outerRef.current;
+    if (!group || objectLayer === undefined) return;
+
+    group.traverse((object) => {
+      object.layers.enable(objectLayer);
+    });
+  }, [cloned, objectLayer]);
 
   useEffect(() => {
     const group = innerRef.current;
@@ -322,7 +417,7 @@ const SlotModel = ({ modelUrl, slotConfig, opacityRef, onNavigate, isMobile }: S
     >
       <group
         ref={outerRef}
-        scale={normScale * normalizedScaleMultiplier}
+        scale={normScale * normalizedScaleMultiplier * viewportScaleMultiplier}
         onClick={handleClick}
         onPointerDown={handlePointerDown}
         onPointerOut={handlePointerOut}
@@ -486,36 +581,71 @@ interface TwoUpSceneProps {
   isMobile: boolean;
 }
 
+const TwoUpSceneCameraLayers = () => {
+  const { camera } = useThree();
+
+  useEffect(() => {
+    camera.layers.enable(TWO_UP_SAMPLE_PACK_LIGHT_LAYER);
+    camera.layers.enable(TWO_UP_UNIVERSE_LIGHT_LAYER);
+  }, [camera]);
+
+  return null;
+};
+
+const useResponsiveUniverseScale = (isMobile: boolean) => {
+  const { size } = useThree();
+
+  return useMemo(() => {
+    const reference = isMobile ? TWO_UP_MOBILE_REFERENCE_SIZE : TWO_UP_DESKTOP_REFERENCE_SIZE;
+    const widthRatio = size.width / reference.width;
+    const heightRatio = size.height / reference.height;
+    const proportionalRatio = widthRatio * 0.76 + heightRatio * 0.24;
+
+    return MathUtils.clamp(proportionalRatio, isMobile ? 0.92 : 0.84, isMobile ? 1.12 : 1.18);
+  }, [isMobile, size.height, size.width]);
+};
+
+const getTwoUpObjectLayer = (modelUrl: string) => {
+  if (isUniverseModel(modelUrl)) {
+    return TWO_UP_UNIVERSE_LIGHT_LAYER;
+  }
+
+  if (isSamplePackModel(modelUrl)) {
+    return TWO_UP_SAMPLE_PACK_LIGHT_LAYER;
+  }
+
+  return undefined;
+};
+
 const TwoUpScene = ({ leftUrl, rightUrl, isMobile }: TwoUpSceneProps) => {
   const visibleModelUrls = [leftUrl, rightUrl];
-  const { bloomSettings, lightRig } = getScenePresentation(visibleModelUrls);
+  const { bloomSettings } = getScenePresentation(visibleModelUrls);
   const leftOpacity = useRef(1);
   const rightOpacity = useRef(1);
-  const mobileLeftSlot = useMemo<SlotConfig>(
-    () => ({
-      ...TWO_UP_SLOTS.left,
-      pos: [-3.1, -0.12, -0.35],
-      radius: 1.15,
-    }),
-    [],
-  );
-  const mobileRightSlot = useMemo<SlotConfig>(
-    () => ({
-      ...TWO_UP_SLOTS.right,
-      pos: [3.1, -0.28, -0.35],
-      radius: 2.05,
-    }),
-    [],
-  );
-  const activeLeftSlot = isMobile ? mobileLeftSlot : TWO_UP_SLOTS.left;
-  const activeRightSlot = isMobile ? mobileRightSlot : TWO_UP_SLOTS.right;
+  const activeLeftSlot = isMobile ? TWO_UP_MOBILE_SLOTS.left : TWO_UP_DESKTOP_SLOTS.left;
+  const activeRightSlot = isMobile ? TWO_UP_MOBILE_SLOTS.right : TWO_UP_DESKTOP_SLOTS.right;
+  const universeViewportScaleMultiplier = useResponsiveUniverseScale(isMobile);
+  const samplePackSlot = isSamplePackModel(leftUrl)
+    ? activeLeftSlot
+    : isSamplePackModel(rightUrl)
+      ? activeRightSlot
+      : null;
+  const hasUniverseModel = isUniverseModel(leftUrl) || isUniverseModel(rightUrl);
 
   return (
     <>
-      <SceneLights lightRig={lightRig} />
-      {isSamplePackModel(leftUrl) ? <SamplePackAccentLight position={activeLeftSlot.pos} /> : null}
-      {isSamplePackModel(rightUrl) ? (
-        <SamplePackAccentLight position={activeRightSlot.pos} />
+      <TwoUpSceneCameraLayers />
+      {samplePackSlot ? (
+        <>
+          <DetailStyleLights lightLayer={TWO_UP_SAMPLE_PACK_LIGHT_LAYER} />
+          <SamplePackAccentLight
+            position={samplePackSlot.pos}
+            lightLayer={TWO_UP_SAMPLE_PACK_LIGHT_LAYER}
+          />
+        </>
+      ) : null}
+      {hasUniverseModel ? (
+        <SceneLights lightRig="universe" lightLayer={TWO_UP_UNIVERSE_LIGHT_LAYER} />
       ) : null}
 
       <Suspense fallback={null}>
@@ -525,6 +655,8 @@ const TwoUpScene = ({ leftUrl, rightUrl, isMobile }: TwoUpSceneProps) => {
           slotConfig={activeLeftSlot}
           opacityRef={leftOpacity}
           isMobile={isMobile}
+          objectLayer={getTwoUpObjectLayer(leftUrl)}
+          viewportScaleMultiplier={isUniverseModel(leftUrl) ? universeViewportScaleMultiplier : 1}
         />
       </Suspense>
 
@@ -535,6 +667,8 @@ const TwoUpScene = ({ leftUrl, rightUrl, isMobile }: TwoUpSceneProps) => {
           slotConfig={activeRightSlot}
           opacityRef={rightOpacity}
           isMobile={isMobile}
+          objectLayer={getTwoUpObjectLayer(rightUrl)}
+          viewportScaleMultiplier={isUniverseModel(rightUrl) ? universeViewportScaleMultiplier : 1}
         />
       </Suspense>
 
@@ -608,21 +742,25 @@ const TwoUpStoreShowcase = ({ products, isMobile, onAddProduct }: TwoUpStoreShow
   return (
     <div
       aria-label="Store products"
-      className="showcase-transition-carousel relative grid w-full min-h-0 overflow-hidden"
-      style={{
-        height: getStoreViewportHeight(isMobile),
-        gridTemplateRows: isMobile
-          ? 'minmax(0, 1fr) minmax(0, 1fr)'
-          : 'minmax(0, 1.04fr) minmax(0, 0.96fr)',
-      }}
+      className={
+        isMobile
+          ? 'showcase-transition-carousel relative w-full'
+          : 'showcase-transition-carousel relative grid w-full min-h-0 overflow-hidden'
+      }
+      style={
+        isMobile
+          ? undefined
+          : {
+              height: getStoreViewportHeight(false),
+              gridTemplateRows: 'minmax(0, 1.04fr) minmax(0, 0.96fr)',
+            }
+      }
     >
-      <div className="relative min-h-0">
+      <div className="relative min-h-0" style={isMobile ? { height: TWO_UP_MOBILE_CANVAS_HEIGHT } : undefined}>
         <ThreeCanvas
           className="h-full w-full"
           camera={
-            isMobile
-              ? { position: [0, 0.2, 8.4], fov: 38 }
-              : { position: [0, 0.28, 7.05], fov: 34 }
+            isMobile ? { position: [0, 0.22, 9.25], fov: 42 } : { position: [0, 0.34, 7.45], fov: 36 }
           }
           performanceMode="auto"
         >
@@ -634,13 +772,27 @@ const TwoUpStoreShowcase = ({ products, isMobile, onAddProduct }: TwoUpStoreShow
           className="pointer-events-none absolute inset-0"
           style={{
             background:
-              'radial-gradient(ellipse 92% 82% at 50% 58%, transparent 50%, rgba(255,255,255,0.92) 100%)',
+              isMobile
+                ? 'radial-gradient(ellipse 96% 82% at 50% 48%, transparent 51%, rgba(255,255,255,0.92) 100%)'
+                : 'radial-gradient(ellipse 92% 82% at 50% 58%, transparent 50%, rgba(255,255,255,0.92) 100%)',
           }}
         />
       </div>
 
-      <div className="relative z-10 min-h-0 px-6 pb-2 pt-2 sm:px-8 md:px-10 md:pb-8 md:pt-4 lg:px-14">
-        <div className="relative grid h-full min-h-0 grid-cols-1 grid-rows-2 gap-6 md:grid-cols-2 md:grid-rows-1 md:gap-10">
+      <div
+        className={
+          isMobile
+            ? 'relative z-10 px-6 pb-8 pt-5 sm:px-8'
+            : 'relative z-10 min-h-0 px-6 pb-2 pt-2 sm:px-8 md:px-10 md:pb-8 md:pt-4 lg:px-14'
+        }
+      >
+        <div
+          className={
+            isMobile
+              ? 'relative grid grid-cols-1 gap-8'
+              : 'relative grid h-full min-h-0 grid-cols-1 grid-rows-2 gap-6 md:grid-cols-2 md:grid-rows-1 md:gap-10'
+          }
+        >
           <div className="hidden md:block md:absolute md:left-1/2 md:top-4 md:h-[calc(100%-2rem)] md:w-px md:-translate-x-1/2 md:bg-black/8" />
           <ProductInfoPanel product={leftProduct} onAdd={() => onAddProduct(leftProduct)} />
           <ProductInfoPanel product={rightProduct} onAdd={() => onAddProduct(rightProduct)} />
