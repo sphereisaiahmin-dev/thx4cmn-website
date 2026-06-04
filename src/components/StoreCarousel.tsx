@@ -17,6 +17,7 @@ import { Box3, type Group, MathUtils, Sphere } from 'three';
 
 import { SceneBloom } from '@/components/SceneBloom';
 import { ThreeCanvas } from '@/components/ThreeCanvas';
+import { ProductModelScene } from '@/components/ProductModelScene';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import {
   applyProductMotion,
@@ -27,7 +28,6 @@ import {
   getModelLightRig,
   getRenderableBounds,
   getSurfacePresentation,
-  isSamplePackModel,
   isUniverseModel,
   scaleByModelUrl,
 } from '@/components/productModelPresentation';
@@ -70,25 +70,6 @@ const CAROUSEL_SLOTS: Record<SlotKey, SlotConfig> = {
     rotY: -Math.PI / 5,
     radius: 0.95,
     rotationSpeed: 0.28,
-  },
-};
-
-const TWO_UP_SLOTS: Record<'left' | 'right', SlotConfig> = {
-  left: {
-    pos: [-4.45, 0.08, -0.6],
-    rotY: Math.PI / 22,
-    radius: 1.45,
-    rotationSpeed: 0.34,
-    draggable: true,
-    scaleMultiplier: 0.5,
-  },
-  right: {
-    pos: [4.45, -0.08, -0.6],
-    rotY: -Math.PI / 22,
-    radius: 2.95,
-    rotationSpeed: 0.34,
-    draggable: true,
-    scaleMultiplier: 1.1,
   },
 };
 
@@ -150,27 +131,6 @@ const getScenePresentation = (modelUrls: string[]) => {
     : 'default';
 
   return { bloomSettings, lightRig } as const;
-};
-
-const SamplePackAccentLight = ({ position }: { position: [number, number, number] }) => {
-  return (
-    <>
-      <pointLight
-        position={[position[0] - 0.6, position[1] + 1.05, position[2] + 3.1]}
-        intensity={0.82}
-        distance={6.2}
-        decay={2}
-        color="#8fc9ff"
-      />
-      <pointLight
-        position={[position[0] + 0.25, position[1] - 0.3, position[2] + 2.05]}
-        intensity={0.3}
-        distance={4.1}
-        decay={2}
-        color="#b3dcff"
-      />
-    </>
-  );
 };
 
 interface SlotModelProps {
@@ -480,69 +440,6 @@ const CarouselScene = ({
   );
 };
 
-interface TwoUpSceneProps {
-  leftUrl: string;
-  rightUrl: string;
-  isMobile: boolean;
-}
-
-const TwoUpScene = ({ leftUrl, rightUrl, isMobile }: TwoUpSceneProps) => {
-  const visibleModelUrls = [leftUrl, rightUrl];
-  const { bloomSettings, lightRig } = getScenePresentation(visibleModelUrls);
-  const leftOpacity = useRef(1);
-  const rightOpacity = useRef(1);
-  const mobileLeftSlot = useMemo<SlotConfig>(
-    () => ({
-      ...TWO_UP_SLOTS.left,
-      pos: [-3.1, -0.12, -0.35],
-      radius: 1.15,
-    }),
-    [],
-  );
-  const mobileRightSlot = useMemo<SlotConfig>(
-    () => ({
-      ...TWO_UP_SLOTS.right,
-      pos: [3.1, -0.28, -0.35],
-      radius: 2.05,
-    }),
-    [],
-  );
-  const activeLeftSlot = isMobile ? mobileLeftSlot : TWO_UP_SLOTS.left;
-  const activeRightSlot = isMobile ? mobileRightSlot : TWO_UP_SLOTS.right;
-
-  return (
-    <>
-      <SceneLights lightRig={lightRig} />
-      {isSamplePackModel(leftUrl) ? <SamplePackAccentLight position={activeLeftSlot.pos} /> : null}
-      {isSamplePackModel(rightUrl) ? (
-        <SamplePackAccentLight position={activeRightSlot.pos} />
-      ) : null}
-
-      <Suspense fallback={null}>
-        <SlotModel
-          key={`two-up-left-${leftUrl}`}
-          modelUrl={leftUrl}
-          slotConfig={activeLeftSlot}
-          opacityRef={leftOpacity}
-          isMobile={isMobile}
-        />
-      </Suspense>
-
-      <Suspense fallback={null}>
-        <SlotModel
-          key={`two-up-right-${rightUrl}`}
-          modelUrl={rightUrl}
-          slotConfig={activeRightSlot}
-          opacityRef={rightOpacity}
-          isMobile={isMobile}
-        />
-      </Suspense>
-
-      {bloomSettings ? <SceneBloom {...bloomSettings} /> : null}
-    </>
-  );
-};
-
 interface ProductInfoPanelProps {
   product: Product;
   onAdd: () => void;
@@ -552,7 +449,7 @@ const ProductInfoPanel = ({ product, onAdd }: ProductInfoPanelProps) => {
   const deliveryNote = getDigitalDeliveryNote(product);
 
   return (
-    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 text-center md:gap-5">
+    <div className="flex shrink-0 flex-col items-center justify-center gap-4 text-center md:gap-5">
       <div className="space-y-2">
         <p className="text-[0.58rem] uppercase tracking-[0.42em] text-black/38">
           {getProductFulfillmentLabel(product)}
@@ -590,6 +487,44 @@ const ProductInfoPanel = ({ product, onAdd }: ProductInfoPanelProps) => {
   );
 };
 
+interface SplitProductPanelProps {
+  product: Product;
+  modelUrl: string;
+  hasDesktopDivider?: boolean;
+  onAdd: () => void;
+}
+
+const SplitProductPanel = ({
+  product,
+  modelUrl,
+  hasDesktopDivider = false,
+  onAdd,
+}: SplitProductPanelProps) => {
+  return (
+    <article
+      className={[
+        'flex min-h-0 flex-col items-center gap-5 px-4 pb-8 pt-3 sm:px-6 md:h-full md:px-8 md:pb-8 md:pt-5 lg:px-12',
+        hasDesktopDivider ? 'md:border-l md:border-black/8' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+        <div className="flex aspect-[6/5] w-full max-w-[720px] items-center justify-center md:h-full md:max-w-none md:aspect-auto">
+          <ProductModelScene
+            modelUrl={modelUrl}
+            className="h-full w-full"
+            fitMode="detail-immersive"
+            presentationScaleMultiplier={3.4}
+          />
+        </div>
+      </div>
+
+      <ProductInfoPanel product={product} onAdd={onAdd} />
+    </article>
+  );
+};
+
 interface TwoUpStoreShowcaseProps {
   products: [Product, Product];
   isMobile: boolean;
@@ -600,6 +535,7 @@ const TwoUpStoreShowcase = ({ products, isMobile, onAddProduct }: TwoUpStoreShow
   const [leftProduct, rightProduct] = products;
   const leftUrl = modelUrlsByProductId[leftProduct.id];
   const rightUrl = modelUrlsByProductId[rightProduct.id];
+  const viewportHeight = getStoreViewportHeight(isMobile);
 
   if (!leftUrl || !rightUrl) {
     return null;
@@ -608,44 +544,20 @@ const TwoUpStoreShowcase = ({ products, isMobile, onAddProduct }: TwoUpStoreShow
   return (
     <div
       aria-label="Store products"
-      className="showcase-transition-carousel relative grid w-full min-h-0 overflow-hidden"
-      style={{
-        height: getStoreViewportHeight(isMobile),
-        gridTemplateRows: isMobile
-          ? 'minmax(0, 1fr) minmax(0, 1fr)'
-          : 'minmax(0, 1.04fr) minmax(0, 0.96fr)',
-      }}
+      className="showcase-transition-carousel relative grid w-full min-h-0 grid-cols-1 gap-8 overflow-visible md:grid-cols-2 md:gap-0 md:overflow-hidden"
+      style={isMobile ? { minHeight: viewportHeight } : { height: viewportHeight }}
     >
-      <div className="relative min-h-0">
-        <ThreeCanvas
-          className="h-full w-full"
-          camera={
-            isMobile
-              ? { position: [0, 0.2, 8.4], fov: 38 }
-              : { position: [0, 0.28, 7.05], fov: 34 }
-          }
-          performanceMode="auto"
-        >
-          <TwoUpScene leftUrl={leftUrl} rightUrl={rightUrl} isMobile={isMobile} />
-        </ThreeCanvas>
-
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              'radial-gradient(ellipse 92% 82% at 50% 58%, transparent 50%, rgba(255,255,255,0.92) 100%)',
-          }}
-        />
-      </div>
-
-      <div className="relative z-10 min-h-0 px-6 pb-2 pt-2 sm:px-8 md:px-10 md:pb-8 md:pt-4 lg:px-14">
-        <div className="relative grid h-full min-h-0 grid-cols-1 grid-rows-2 gap-6 md:grid-cols-2 md:grid-rows-1 md:gap-10">
-          <div className="hidden md:block md:absolute md:left-1/2 md:top-4 md:h-[calc(100%-2rem)] md:w-px md:-translate-x-1/2 md:bg-black/8" />
-          <ProductInfoPanel product={leftProduct} onAdd={() => onAddProduct(leftProduct)} />
-          <ProductInfoPanel product={rightProduct} onAdd={() => onAddProduct(rightProduct)} />
-        </div>
-      </div>
+      <SplitProductPanel
+        product={leftProduct}
+        modelUrl={leftUrl}
+        onAdd={() => onAddProduct(leftProduct)}
+      />
+      <SplitProductPanel
+        product={rightProduct}
+        modelUrl={rightUrl}
+        hasDesktopDivider
+        onAdd={() => onAddProduct(rightProduct)}
+      />
     </div>
   );
 };
