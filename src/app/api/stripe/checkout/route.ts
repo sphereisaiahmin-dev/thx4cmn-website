@@ -11,6 +11,10 @@ import {
 import { persistCommerceOrder } from '@/lib/commerceOrders';
 import { createServerClient } from '@/lib/supabase/server';
 import { getStripeClient } from '@/lib/stripe';
+import {
+  buildStripeCheckoutLineItems,
+  shouldUseStripeCheckout,
+} from '@/lib/stripeCheckout';
 
 export const runtime = 'nodejs';
 
@@ -92,15 +96,14 @@ export async function POST(request: Request) {
       item,
       product: getProductById(item.productId)!,
     }));
-    const paidProducts = products.filter(({ product }) => product.priceCents > 0);
-    const hasPaidItems = paidProducts.length > 0;
+    const usesStripeCheckout = shouldUseStripeCheckout(products);
     const requiresEmailForFreeClaim = products.some(
       ({ product }) => product.type === 'digital' && product.deliveryMethod === 'email',
     );
     const requestHeaders = await headers();
     const origin = resolveCheckoutOrigin(requestHeaders);
 
-    if (!hasPaidItems) {
+    if (!usesStripeCheckout) {
       if (requiresEmailForFreeClaim && !isValidCheckoutEmail(recipientEmail)) {
         return NextResponse.json(
           { error: 'A valid email is required to claim free digital items.', requestId },
@@ -126,26 +129,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const lineItems = paidProducts.map(({ item, product }) => {
-      if (product.stripePriceId) {
-        return {
-          price: product.stripePriceId,
-          quantity: item.quantity,
-        } as const;
-      }
-
-      return {
-        price_data: {
-          currency: product.currency,
-          product_data: {
-            name: product.name,
-            description: product.description,
-          },
-          unit_amount: product.priceCents,
-        },
-        quantity: item.quantity,
-      } as const;
-    });
+    const lineItems = buildStripeCheckoutLineItems(products);
     const stripe = getStripeClient();
     const logContext = {
       requestId,
@@ -156,26 +140,31 @@ export async function POST(request: Request) {
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
+      ui_mode: 'elements',
       line_items: lineItems,
-      success_url: `${origin}/cart?checkout=success&mode=stripe&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/cart?checkout=cancel`,
+      return_url: `${origin}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
       metadata: {
         cart: JSON.stringify(items),
       },
     });
 
-    if (!session.url) {
-      console.error('Stripe checkout session missing URL.', {
+    if (!session.client_secret) {
+      console.error('Stripe checkout session missing client secret.', {
         ...logContext,
         sessionId: session.id,
       });
       return NextResponse.json(
-        { error: 'Checkout session did not return a URL.', requestId },
+        { error: 'Checkout session did not return a client secret.', requestId },
         { status: 500 },
       );
     }
 
-    return NextResponse.json({ url: session.url, requestId, persistCheckoutUrl: true });
+    return NextResponse.json({
+      clientSecret: session.client_secret,
+      sessionId: session.id,
+      requestId,
+      persistCheckoutUrl: false,
+    });
   } catch (error) {
     const isStripeError = error instanceof Stripe.errors.StripeError;
     console.error('Stripe checkout error.', {

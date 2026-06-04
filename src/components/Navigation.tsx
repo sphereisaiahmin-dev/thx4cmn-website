@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
-import { toCheckoutItemsPayload } from '@/lib/checkout';
+import { CHECKOUT_SESSION_STORAGE_KEY } from '@/lib/checkoutSessionStorage';
 import {
   cartRequiresEmailCapture,
   getCartItemDeliveryNote,
@@ -162,6 +162,7 @@ export const Navigation = () => {
 
   useEffect(() => {
     clearRouteTransition();
+    setIsCheckoutLoading(false);
   }, [clearRouteTransition, pathname]);
 
   useEffect(() => {
@@ -224,7 +225,7 @@ export const Navigation = () => {
     handleNavRouteChange(href);
   };
 
-  const handleCheckout = async () => {
+  const handleCheckout = () => {
     if (items.length === 0 || isCheckoutLoading) return;
     if (requiresEmailCapture) {
       setMiniCartOpen(false);
@@ -234,46 +235,11 @@ export const Navigation = () => {
 
     setCheckoutError(null);
     setIsCheckoutLoading(true);
-    try {
-      const response = await fetch('/api/stripe/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: toCheckoutItemsPayload(
-            items.map((item) => ({
-              productId: item.productId,
-              quantity: item.quantity,
-            })),
-          ),
-        }),
-      });
-
-      if (!response.ok) {
-        let errorPayload: { error?: string; requestId?: string } | null = null;
-        try {
-          errorPayload = (await response.json()) as { error?: string; requestId?: string };
-        } catch (parseError) {
-          console.error('Failed to parse checkout error response.', parseError);
-        }
-        const message = errorPayload?.error ?? 'Checkout failed';
-        const requestId = errorPayload?.requestId ? ` (requestId: ${errorPayload.requestId})` : '';
-        throw new Error(`${message}${requestId}`);
-      }
-
-      const payload = (await response.json()) as { url?: string; requestId?: string };
-      const checkoutUrl = typeof payload.url === 'string' ? payload.url : '';
-      if (!checkoutUrl) {
-        const requestId = payload.requestId ? ` (requestId: ${payload.requestId})` : '';
-        throw new Error(`Checkout session did not return a URL.${requestId}`);
-      }
-
-      setMiniCartOpen(false);
-      window.location.href = checkoutUrl;
-    } catch (error) {
-      console.error(error);
-      setCheckoutError(error instanceof Error ? error.message : 'Unable to start checkout.');
-      setIsCheckoutLoading(false);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(CHECKOUT_SESSION_STORAGE_KEY);
     }
+    setMiniCartOpen(false);
+    router.push('/checkout');
   };
 
   return (
@@ -432,7 +398,7 @@ export const Navigation = () => {
                 className="nav-link inline-flex w-full items-center justify-center px-4 py-3 text-xs uppercase tracking-[0.3em] transition disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isCheckoutLoading
-                  ? 'Redirecting...'
+                  ? 'Loading...'
                   : requiresEmailCapture
                     ? 'Continue in cart'
                     : 'Checkout'}

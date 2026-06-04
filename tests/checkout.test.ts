@@ -6,6 +6,10 @@ import {
   parseCheckoutItemsPayload,
   toCheckoutItemsPayload,
 } from '../src/lib/checkout.ts';
+import {
+  buildStripeCheckoutLineItems,
+  shouldUseStripeCheckout,
+} from '../src/lib/stripeCheckout.ts';
 
 test('normalizeCheckoutQuantity floors and clamps to minimum', () => {
   assert.equal(normalizeCheckoutQuantity(3.9), 3);
@@ -61,4 +65,68 @@ test('parseCheckoutItemsPayload rejects malformed items', () => {
   if (!parsed.ok) {
     assert.match(parsed.error, /productid/i);
   }
+});
+
+test('Stripe line items include zero-price products that have a Stripe price', () => {
+  const lineItems = buildStripeCheckoutLineItems([
+    {
+      item: { productId: 'sample-pack', quantity: 1 },
+      product: {
+        id: 'sample-pack',
+        slug: 'sample-pack',
+        name: 'Community Vol. 1',
+        description: 'Free pack',
+        type: 'digital',
+        isReleased: true,
+        priceCents: 0,
+        currency: 'USD',
+        stripePriceId: 'price_free_community',
+        r2Key: null,
+        deliveryMethod: 'email',
+      },
+    },
+  ]);
+
+  assert.equal(shouldUseStripeCheckout([
+    {
+      item: { productId: 'sample-pack', quantity: 1 },
+      product: {
+        id: 'sample-pack',
+        slug: 'sample-pack',
+        name: 'Community Vol. 1',
+        description: 'Free pack',
+        type: 'digital',
+        isReleased: true,
+        priceCents: 0,
+        currency: 'USD',
+        stripePriceId: 'price_free_community',
+        r2Key: null,
+        deliveryMethod: 'email',
+      },
+    },
+  ]), true);
+  assert.deepEqual(lineItems, [{ price: 'price_free_community', quantity: 1 }]);
+});
+
+test('free products without Stripe prices stay on the direct claim fallback', () => {
+  const products = [
+    {
+      item: { productId: 'legacy-free-pack', quantity: 1 },
+      product: {
+        id: 'legacy-free-pack',
+        slug: 'legacy-free-pack',
+        name: 'Legacy Free Pack',
+        description: 'Free pack',
+        type: 'digital',
+        isReleased: true,
+        priceCents: 0,
+        currency: 'USD',
+        r2Key: null,
+        deliveryMethod: 'email',
+      },
+    },
+  ] as const;
+
+  assert.equal(shouldUseStripeCheckout(products), false);
+  assert.deepEqual(buildStripeCheckoutLineItems(products), []);
 });

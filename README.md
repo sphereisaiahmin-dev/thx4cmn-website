@@ -27,9 +27,11 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 | `SUPABASE_URL` | Supabase project URL (server client) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key for server routes |
 | `STRIPE_SECRET_KEY` | Stripe secret key |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key for React Stripe.js |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret (`whsec_...`) for this endpoint |
 | `APP_ORIGIN` | Canonical site origin for production checkout redirects (e.g. `https://thx4cmn.com`) |
-| `NEXT_PUBLIC_STRIPE_PRICE_MIDI_DEVICE` | Stripe price ID for the hardware device |
+| `NEXT_PUBLIC_STRIPE_PRICE_COMMUNITY_PACK` | Stripe price ID for Community Vol. 1 |
+| `NEXT_PUBLIC_STRIPE_PRICE_UNIVERSE_PACK` | Stripe price ID for Universe Vol. 1 |
 | `R2_ENDPOINT` | Cloudflare R2 S3 endpoint |
 | `R2_ACCESS_KEY_ID` | R2 access key ID |
 | `R2_SECRET_ACCESS_KEY` | R2 secret access key |
@@ -41,11 +43,12 @@ If credentials were ever committed with real values, rotate them immediately in 
 ## Stripe webhook setup
 
 1. Install Stripe CLI.
-2. Run:
+2. Run for local testing:
    ```bash
    stripe listen --forward-to localhost:3000/api/stripe/webhook
    ```
-3. Copy the webhook signing secret into `STRIPE_WEBHOOK_SECRET`.
+3. Copy the CLI webhook signing secret (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`.
+4. For production, create a Dashboard webhook endpoint for `/api/stripe/webhook` and use that endpoint's separate `whsec_...` value.
 
 ## Supabase setup
 
