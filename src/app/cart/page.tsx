@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import {
   isValidCheckoutEmail,
@@ -9,6 +9,7 @@ import {
   normalizeCheckoutQuantity,
   toCheckoutItemsPayload,
 } from '@/lib/checkout';
+import { CHECKOUT_SESSION_STORAGE_KEY } from '@/lib/checkoutSessionStorage';
 import {
   cartRequiresEmailCapture,
   getCartItemDeliveryNote,
@@ -18,9 +19,8 @@ import {
 } from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
-const CHECKOUT_STORAGE_KEY = 'thx4cmn:checkout-url';
-
 function CartPageContent() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const items = useCartStore((state) => state.items);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
@@ -28,7 +28,6 @@ function CartPageContent() {
   const clear = useCartStore((state) => state.clear);
   const [isLoading, setIsLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [pendingCheckoutUrl, setPendingCheckoutUrl] = useState<string | null>(null);
   const [contactEmail, setContactEmail] = useState('');
   const handledSuccessRef = useRef(false);
   const total = useMemo(
@@ -45,36 +44,25 @@ function CartPageContent() {
     checkoutMode === 'free-claim'
       ? 'Claim received. Digital delivery is queued for email fulfillment.'
       : 'Checkout received. Digital delivery items will be fulfilled by email.';
-  const primaryActionLabel = getCartPrimaryActionLabel(items, pendingCheckoutUrl);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const storedUrl = window.localStorage.getItem(CHECKOUT_STORAGE_KEY);
-    if (storedUrl) {
-      setPendingCheckoutUrl(storedUrl);
-      setIsLoading(false);
-    }
-  }, []);
+  const primaryActionLabel = getCartPrimaryActionLabel(items);
 
   useEffect(() => {
     if (!showSuccess || handledSuccessRef.current) return;
     handledSuccessRef.current = true;
     clear();
-    setPendingCheckoutUrl(null);
     setCheckoutError(null);
     setIsLoading(false);
     if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
+      window.localStorage.removeItem(CHECKOUT_SESSION_STORAGE_KEY);
     }
   }, [clear, showSuccess]);
 
   useEffect(() => {
     if (items.length > 0) return;
-    setPendingCheckoutUrl(null);
     setCheckoutError(null);
     setIsLoading(false);
     if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
+      window.localStorage.removeItem(CHECKOUT_SESSION_STORAGE_KEY);
     }
   }, [items.length]);
 
@@ -86,9 +74,11 @@ function CartPageContent() {
       return;
     }
 
-    if (pendingCheckoutUrl && !requiresEmailCapture) {
-      setIsLoading(true);
-      window.location.href = pendingCheckoutUrl;
+    if (!requiresEmailCapture) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(CHECKOUT_SESSION_STORAGE_KEY);
+      }
+      router.push('/checkout');
       return;
     }
 
@@ -131,17 +121,9 @@ function CartPageContent() {
         throw new Error(`Checkout session did not return a URL.${requestId}`);
       }
 
-      if (typeof window !== 'undefined' && payload.persistCheckoutUrl) {
-        window.localStorage.setItem(CHECKOUT_STORAGE_KEY, checkoutUrl);
-      }
-      setPendingCheckoutUrl(payload.persistCheckoutUrl ? checkoutUrl : null);
       window.location.href = checkoutUrl;
     } catch (error) {
       console.error(error);
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(CHECKOUT_STORAGE_KEY);
-      }
-      setPendingCheckoutUrl(null);
       setCheckoutError(error instanceof Error ? error.message : 'Unable to start checkout.');
       setIsLoading(false);
     }

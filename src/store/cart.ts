@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-import type { Product } from '@/data/products';
+import { getProductById, type Product } from '@/data/products';
 import { normalizeCheckoutQuantity } from '@/lib/checkout';
 
 export interface CartItem {
@@ -85,10 +85,18 @@ export const useCartStore = create<CartState>()(
                 typeof item.currency === 'string' &&
                 typeof item.type === 'string',
             )
-            .map((item) => ({
-              ...item,
-              quantity: normalizeCheckoutQuantity(item.quantity),
-            })),
+            .map((item) => {
+              const product = getProductById(item.productId);
+
+              return {
+                productId: item.productId,
+                name: product?.name ?? item.name,
+                priceCents: product?.priceCents ?? item.priceCents,
+                currency: product?.currency ?? item.currency,
+                type: product?.type ?? item.type,
+                quantity: normalizeCheckoutQuantity(item.quantity),
+              };
+            }),
         };
       },
     },

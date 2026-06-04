@@ -8,7 +8,7 @@ export const getStripeClient = () => {
   }
 
   return new Stripe(secretKey, {
-    apiVersion: '2024-04-10',
+    apiVersion: '2026-05-27.dahlia',
     typescript: true,
   });
 };
