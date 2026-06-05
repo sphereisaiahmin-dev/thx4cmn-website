@@ -11,6 +11,7 @@ import {
 } from '@stripe/react-stripe-js/checkout';
 import { loadStripe } from '@stripe/stripe-js';
 
+import { CompactProductModel } from '@/components/CompactProductModel';
 import { toCheckoutItemsPayload } from '@/lib/checkout';
 import { CHECKOUT_SESSION_STORAGE_KEY } from '@/lib/checkoutSessionStorage';
 import { getCartItemDeliveryNote, getProductTotalLabel } from '@/lib/productCommerce';
@@ -18,6 +19,7 @@ import { useCartStore } from '@/store/cart';
 
 const stripePublishableKey = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? '';
 const stripePromise = stripePublishableKey ? loadStripe(stripePublishableKey) : null;
+const CHECKOUT_SESSION_TTL_MS = 60 * 60 * 1000;
 
 interface CheckoutSessionPayload {
   clientSecret?: string | null;
@@ -32,7 +34,18 @@ interface CheckoutSessionPayload {
 interface StoredCheckoutSession {
   cartSignature: string;
   sessionId: string;
+  createdAt: number;
+  updatedAt: number;
 }
+
+const isStoredCheckoutSessionExpired = (storedSession: Partial<StoredCheckoutSession>) => {
+  const timestamp = storedSession.updatedAt ?? storedSession.createdAt;
+  return (
+    typeof timestamp !== 'number' ||
+    !Number.isFinite(timestamp) ||
+    Date.now() - timestamp > CHECKOUT_SESSION_TTL_MS
+  );
+};
 
 type CheckoutSetupState =
   | { type: 'loading'; message: string }
@@ -47,6 +60,11 @@ const readStoredCheckoutSession = (cartSignature: string) => {
     const rawValue = window.localStorage.getItem(CHECKOUT_SESSION_STORAGE_KEY);
     if (!rawValue) return null;
     const parsed = JSON.parse(rawValue) as Partial<StoredCheckoutSession>;
+    if (isStoredCheckoutSessionExpired(parsed)) {
+      window.localStorage.removeItem(CHECKOUT_SESSION_STORAGE_KEY);
+      return null;
+    }
+
     if (parsed.cartSignature !== cartSignature || !parsed.sessionId) {
       return null;
     }
@@ -59,9 +77,15 @@ const readStoredCheckoutSession = (cartSignature: string) => {
 
 const writeStoredCheckoutSession = (cartSignature: string, sessionId: string) => {
   if (typeof window === 'undefined') return;
+  const now = Date.now();
   window.localStorage.setItem(
     CHECKOUT_SESSION_STORAGE_KEY,
-    JSON.stringify({ cartSignature, sessionId } satisfies StoredCheckoutSession),
+    JSON.stringify({
+      cartSignature,
+      sessionId,
+      createdAt: now,
+      updatedAt: now,
+    } satisfies StoredCheckoutSession),
   );
 };
 
@@ -218,7 +242,9 @@ function CheckoutPageContent() {
             return;
           }
 
-          router.replace(`/checkout/return?session_id=${encodeURIComponent(existingSession.sessionId)}`);
+          router.replace(
+            `/checkout/return?session_id=${encodeURIComponent(existingSession.sessionId)}`,
+          );
         } catch (error) {
           if (controller.signal.aborted) return;
           setSetupState({
@@ -342,17 +368,27 @@ function CheckoutPageContent() {
           ) : (
             <ul className="space-y-4 pt-6">
               {items.map((item) => (
-                <li key={item.productId} className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <p className="text-sm uppercase tracking-[0.18em]">{item.name}</p>
-                    <p className="text-xs text-black/60">Qty {item.quantity}</p>
-                    {getCartItemDeliveryNote(item) ? (
-                      <p className="text-[0.6rem] uppercase tracking-[0.2em] text-black/45">
-                        {getCartItemDeliveryNote(item)}
+                <li
+                  key={item.productId}
+                  className="flex items-start justify-between gap-4 border-b border-black/10 pb-4 last:border-b-0 last:pb-0"
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <CompactProductModel productId={item.productId} productName={item.name} />
+                    <div className="min-w-0 space-y-1">
+                      <p className="break-words text-sm uppercase tracking-[0.18em]">
+                        {item.name}
                       </p>
-                    ) : null}
+                      <p className="text-xs text-black/60">Qty {item.quantity}</p>
+                      {getCartItemDeliveryNote(item) ? (
+                        <p className="text-[0.6rem] uppercase tracking-[0.2em] text-black/45">
+                          {getCartItemDeliveryNote(item)}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
-                  <p className="text-xs text-black/60">{getProductTotalLabel(item)}</p>
+                  <p className="shrink-0 text-right text-xs text-black/60">
+                    {getProductTotalLabel(item)}
+                  </p>
                 </li>
               ))}
             </ul>

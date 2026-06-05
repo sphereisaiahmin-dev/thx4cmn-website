@@ -1,6 +1,7 @@
 import {
   buildDigitalFulfillmentEmail,
   type DigitalFulfillmentEmailItem,
+  type DigitalFulfillmentReceiptItem,
 } from './fulfillmentEmail';
 
 const RESEND_EMAIL_API_URL = 'https://api.resend.com/emails';
@@ -9,6 +10,11 @@ interface SendDigitalFulfillmentEmailParams {
   recipientEmail: string;
   orderId: string;
   items: ReadonlyArray<DigitalFulfillmentEmailItem>;
+  customerEmail?: string | null;
+  paymentStatus?: string | null;
+  amountTotalCents?: number | null;
+  currency?: string | null;
+  receiptItems?: ReadonlyArray<DigitalFulfillmentReceiptItem>;
   idempotencyKey: string;
 }
 
@@ -49,6 +55,11 @@ export const sendDigitalFulfillmentEmail = async (
     recipientEmail,
     orderId,
     items,
+    customerEmail,
+    paymentStatus,
+    amountTotalCents,
+    currency,
+    receiptItems,
     idempotencyKey,
   }: SendDigitalFulfillmentEmailParams,
   fetchImpl: FetchLike = fetch,
@@ -63,6 +74,11 @@ export const sendDigitalFulfillmentEmail = async (
   const email = buildDigitalFulfillmentEmail({
     orderId,
     items,
+    customerEmail,
+    paymentStatus,
+    amountTotalCents,
+    currency,
+    receiptItems,
     replyToEmail: replyTo || null,
   });
   const body: Record<string, unknown> = {

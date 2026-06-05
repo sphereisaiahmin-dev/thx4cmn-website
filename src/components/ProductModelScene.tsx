@@ -24,6 +24,8 @@ import {
   getRenderableBounds,
   getSurfacePresentation,
   scaleByModelUrl,
+  tuneUniversePointIntensity,
+  type UniversePointIntensityOptions,
 } from './productModelPresentation';
 
 type FitMode = 'default' | 'detail-fill' | 'detail-immersive';
@@ -36,6 +38,8 @@ interface ProductModelSceneProps {
   isActive?: boolean;
   performanceMode?: ScenePerformanceMode;
   presentationScaleMultiplier?: number;
+  universePointIntensity?: UniversePointIntensityOptions;
+  universeLightIntensityMultiplier?: number;
 }
 
 interface ProductModelRigProps {
@@ -47,6 +51,7 @@ interface ProductModelRigProps {
   orbitRef: MutableRefObject<Group | null>;
   spinRef: MutableRefObject<Group | null>;
   presentationScaleMultiplier?: number;
+  universePointIntensity?: UniversePointIntensityOptions;
 }
 
 interface DetailCameraFitterProps {
@@ -66,16 +71,22 @@ const ProductModel = ({
   modelUrl,
   surface,
   presentationScaleMultiplier = 1,
+  universePointIntensity,
 }: {
   modelUrl: string;
   surface: 'detail' | 'card';
   presentationScaleMultiplier?: number;
+  universePointIntensity?: UniversePointIntensityOptions;
 }) => {
   const { scene } = useGLTF(modelUrl);
-  const preparedScene = useMemo(
-    () => clonePreparedProductScene(scene, modelUrl),
-    [modelUrl, scene],
-  );
+  const preparedScene = useMemo(() => {
+    const clonedScene = clonePreparedProductScene(scene, modelUrl);
+    if (universePointIntensity) {
+      tuneUniversePointIntensity(clonedScene, modelUrl, universePointIntensity);
+    }
+
+    return clonedScene;
+  }, [modelUrl, scene, universePointIntensity]);
   const surfacePresentation = getSurfacePresentation(modelUrl, surface);
   const scale = (scaleByModelUrl[modelUrl] ?? 1) * presentationScaleMultiplier;
   const frameOffset = surfacePresentation.frameOffset ?? [0, 0, 0];
@@ -158,6 +169,7 @@ const ProductModelRig = ({
   orbitRef,
   spinRef,
   presentationScaleMultiplier = 1,
+  universePointIntensity,
 }: ProductModelRigProps) => {
   useFrame((state, delta) => {
     const orbitTarget = orbitRef.current;
@@ -189,6 +201,7 @@ const ProductModelRig = ({
             modelUrl={modelUrl}
             surface={fitMode === 'default' ? 'card' : 'detail'}
             presentationScaleMultiplier={presentationScaleMultiplier}
+            universePointIntensity={universePointIntensity}
           />
         </Center>
       </group>
@@ -203,6 +216,8 @@ export const ProductModelScene = ({
   isActive = true,
   performanceMode = 'auto',
   presentationScaleMultiplier = 1,
+  universePointIntensity,
+  universeLightIntensityMultiplier = 1,
 }: ProductModelSceneProps) => {
   const [autoRotate, setAutoRotate] = useState(true);
   const orbitRef = useRef<Group>(null);
@@ -223,19 +238,23 @@ export const ProductModelScene = ({
           <ambientLight intensity={0.28} color="#dce8ff" />
           <pointLight
             position={[2.4, 1.4, 2.8]}
-            intensity={7.7}
+            intensity={7.7 * universeLightIntensityMultiplier}
             distance={8}
             decay={2}
             color="#5da1ff"
           />
           <pointLight
             position={[-2.8, -1.1, 2.4]}
-            intensity={12}
+            intensity={12 * universeLightIntensityMultiplier}
             distance={8}
             decay={2}
             color="#9c4dff"
           />
-          <directionalLight position={[0, 0.5, 4]} intensity={0.209} color="#f5f9ff" />
+          <directionalLight
+            position={[0, 0.5, 4]}
+            intensity={0.209 * universeLightIntensityMultiplier}
+            color="#f5f9ff"
+          />
         </>
       ) : (
         <>
@@ -260,6 +279,7 @@ export const ProductModelScene = ({
           isActive={isActive}
           onToggle={() => setAutoRotate((value) => !value)}
           presentationScaleMultiplier={presentationScaleMultiplier}
+          universePointIntensity={universePointIntensity}
         />
         <DetailCameraFitter
           fitMode={fitMode}

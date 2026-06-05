@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
+import { modelUrlsByProductId } from '@/components/productModelUrls';
+import { getProductById } from '@/data/products';
 import { resolveAppOrigin } from '@/lib/appOrigin';
-import { parseCheckoutItemsPayload } from '@/lib/checkout';
+import { parseCheckoutItemsPayload, type CheckoutItem } from '@/lib/checkout';
 import { persistCommerceOrder } from '@/lib/commerceOrders';
 import { createOrderDownloadLinks } from '@/lib/downloadLinks';
 import { fulfillDigitalOrder } from '@/lib/digitalOrderFulfillment';
@@ -49,6 +51,22 @@ const parseSessionCheckoutItems = (session: Stripe.Checkout.Session) => {
   return parseCheckoutItemsPayload({ items: metadataItemsPayload });
 };
 
+const toReceiptItems = (items: ReadonlyArray<CheckoutItem>) =>
+  items
+    .map((item) => {
+      const product = getProductById(item.productId);
+      if (!product) return null;
+
+      return {
+        productId: product.id,
+        productName: product.name,
+        quantity: item.quantity,
+        unitAmountCents: product.priceCents,
+        modelUrl: modelUrlsByProductId[product.id] ?? null,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
 export async function GET(request: Request) {
   const requestId = globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
   const { searchParams } = new URL(request.url);
@@ -74,16 +92,17 @@ export async function GET(request: Request) {
     }> = [];
     let orderId: string | null = null;
     let fulfillmentError: string | null = null;
+    const parsedSessionItems = parseSessionCheckoutItems(session);
+    const receiptItems = parsedSessionItems.ok ? toReceiptItems(parsedSessionItems.items) : [];
 
     if (canFulfillSession(session)) {
-      const parsedItems = parseSessionCheckoutItems(session);
       const origin = resolveAppOrigin(request.headers);
 
-      if (parsedItems.ok) {
+      if (parsedSessionItems.ok) {
         try {
           const persistedOrder = await persistCommerceOrder({
             supabase,
-            items: parsedItems.items,
+            items: parsedSessionItems.items,
             stripeSessionId: session.id,
             stripeCustomerId: getStripeCustomerId(session),
             status: session.payment_status,
@@ -100,6 +119,10 @@ export async function GET(request: Request) {
               recipientEmail: persistedOrder.recipientEmail,
               deliveries: persistedOrder.digitalDeliveries,
               appOrigin: origin,
+              paymentStatus: session.payment_status,
+              amountTotalCents: session.amount_total ?? 0,
+              currency: session.currency ?? 'usd',
+              receiptItems,
             });
           } catch (error) {
             fulfillmentError = error instanceof Error ? error.message : 'Unable to send fulfillment email.';
@@ -121,7 +144,7 @@ export async function GET(request: Request) {
         console.error('Checkout return metadata payload is invalid.', {
           requestId,
           sessionId,
-          error: parsedItems.error,
+          error: parsedSessionItems.error,
         });
 
         const { data: existingOrder, error: existingOrderError } = await supabase
@@ -157,6 +180,7 @@ export async function GET(request: Request) {
       orderId,
       customerEmail: session.customer_details?.email ?? null,
       receiptUrl: getReceiptUrl(session),
+      receiptItems,
       downloadLinks,
       fulfillmentError,
       clientSecret: session.status === 'open' ? session.client_secret : null,
