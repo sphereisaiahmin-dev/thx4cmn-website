@@ -20,6 +20,18 @@ import {
 
 export const runtime = 'nodejs';
 
+const toReceiptItems = (
+  products: ReadonlyArray<{
+    item: { quantity: number };
+    product: { name: string; priceCents: number };
+  }>,
+) =>
+  products.map(({ item, product }) => ({
+    productName: product.name,
+    quantity: item.quantity,
+    unitAmountCents: product.priceCents,
+  }));
+
 export async function POST(request: Request) {
   const requestId = globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
 
@@ -60,6 +72,7 @@ export async function POST(request: Request) {
       item,
       product: getProductById(item.productId)!,
     }));
+    const receiptItems = toReceiptItems(products);
     const usesStripeCheckout = shouldUseStripeCheckout(products);
     const requiresEmailForFreeClaim = products.some(
       ({ product }) => product.type === 'digital' && product.deliveryMethod === 'email',
@@ -91,6 +104,10 @@ export async function POST(request: Request) {
         recipientEmail: persistedOrder.recipientEmail,
         deliveries: persistedOrder.digitalDeliveries,
         appOrigin: origin,
+        paymentStatus: 'no_payment_required',
+        amountTotalCents: 0,
+        currency: products[0]?.product.currency ?? 'USD',
+        receiptItems,
       });
 
       return NextResponse.json({

@@ -4,14 +4,29 @@ import { Suspense, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
+import { CompactProductModel } from '@/components/CompactProductModel';
 import { CHECKOUT_SESSION_STORAGE_KEY } from '@/lib/checkoutSessionStorage';
+import { formatCurrency } from '@/lib/format';
 import { useCartStore } from '@/store/cart';
+
+interface CheckoutReceiptItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  unitAmountCents: number;
+  modelUrl?: string | null;
+}
 
 interface CheckoutSessionStatusPayload {
   id?: string;
   status?: 'open' | 'complete' | 'expired' | null;
   paymentStatus?: 'paid' | 'unpaid' | 'no_payment_required' | null;
+  orderId?: string | null;
+  amountTotal?: number | null;
+  currency?: string | null;
+  customerEmail?: string | null;
   receiptUrl?: string | null;
+  receiptItems?: CheckoutReceiptItem[];
   downloadLinks?: Array<{
     productId: string;
     productName: string;
@@ -26,8 +41,12 @@ type StatusState =
   | { type: 'loading' }
   | {
       type: 'complete';
+      orderId: string | null;
+      customerEmail: string | null;
       paymentStatus: CheckoutSessionStatusPayload['paymentStatus'];
-      receiptUrl: string | null;
+      amountTotal: number | null;
+      currency: string | null;
+      receiptItems: CheckoutReceiptItem[];
       downloadLinks: NonNullable<CheckoutSessionStatusPayload['downloadLinks']>;
       fulfillmentError: string | null;
     }
@@ -38,6 +57,16 @@ type StatusState =
 const clearStoredCheckoutSession = () => {
   if (typeof window === 'undefined') return;
   window.localStorage.removeItem(CHECKOUT_SESSION_STORAGE_KEY);
+};
+
+const formatOrderReference = (orderId: string | null) =>
+  orderId ? orderId.slice(0, 8).toUpperCase() : 'Pending';
+
+const formatPaymentStatus = (status: CheckoutSessionStatusPayload['paymentStatus']) => {
+  if (status === 'no_payment_required') return 'No payment required';
+  if (status === 'paid') return 'Paid';
+  if (status === 'unpaid') return 'Unpaid';
+  return 'Recorded';
 };
 
 function CheckoutReturnContent() {
@@ -77,8 +106,12 @@ function CheckoutReturnContent() {
           clearStoredCheckoutSession();
           setStatusState({
             type: 'complete',
+            orderId: payload.orderId ?? null,
+            customerEmail: payload.customerEmail ?? null,
             paymentStatus: payload.paymentStatus ?? null,
-            receiptUrl: payload.receiptUrl ?? null,
+            amountTotal: payload.amountTotal ?? null,
+            currency: payload.currency ?? null,
+            receiptItems: payload.receiptItems ?? [],
             downloadLinks: payload.downloadLinks ?? [],
             fulfillmentError: payload.fulfillmentError ?? null,
           });
@@ -135,39 +168,95 @@ function CheckoutReturnContent() {
                 ? 'Your free checkout is recorded. Digital delivery is queued for email fulfillment.'
                 : 'Checkout received. Digital delivery items are ready below and will also be fulfilled by email.'}
             </p>
-            {statusState.receiptUrl ? (
-              <a
-                href={statusState.receiptUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex text-xs uppercase tracking-[0.3em] text-black/60"
-              >
-                View Stripe receipt
-              </a>
-            ) : null}
-            {statusState.downloadLinks.length > 0 ? (
+
+            <div className="space-y-3 border-t border-black/10 pt-4">
+              <p className="text-[0.62rem] uppercase tracking-[0.3em] text-black/52">Receipt</p>
+              <dl className="grid gap-3 text-xs text-black/60 sm:grid-cols-2">
+                <div>
+                  <dt className="uppercase tracking-[0.22em] text-black/42">Order</dt>
+                  <dd className="mt-1 text-sm text-black/75">
+                    {formatOrderReference(statusState.orderId)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="uppercase tracking-[0.22em] text-black/42">Status</dt>
+                  <dd className="mt-1 text-sm text-black/75">
+                    {formatPaymentStatus(statusState.paymentStatus)}
+                  </dd>
+                </div>
+                {statusState.customerEmail ? (
+                  <div>
+                    <dt className="uppercase tracking-[0.22em] text-black/42">Email</dt>
+                    <dd className="mt-1 break-words text-sm text-black/75">
+                      {statusState.customerEmail}
+                    </dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt className="uppercase tracking-[0.22em] text-black/42">Total</dt>
+                  <dd className="mt-1 text-sm text-black/75">
+                    {typeof statusState.amountTotal === 'number'
+                      ? formatCurrency(statusState.amountTotal, statusState.currency ?? 'USD')
+                      : 'Recorded'}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            {statusState.receiptItems.length > 0 ? (
               <div className="space-y-3 border-t border-black/10 pt-4">
-                <p className="text-[0.62rem] uppercase tracking-[0.3em] text-black/52">
-                  Downloads
-                </p>
-                <ul className="space-y-3">
-                  {statusState.downloadLinks.map((download) => (
-                    <li
-                      key={`${download.productId}-${download.downloadUrl}`}
-                      className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <span className="text-sm text-black/75">{download.productName}</span>
-                      <a
-                        href={download.downloadUrl}
-                        className="text-xs uppercase tracking-[0.3em] text-black/60"
+                <p className="text-[0.62rem] uppercase tracking-[0.3em] text-black/52">Items</p>
+                <ul className="space-y-4">
+                  {statusState.receiptItems.map((item, index) => {
+                    const itemDownloads = statusState.downloadLinks.filter(
+                      (download) => download.productId === item.productId,
+                    );
+
+                    return (
+                      <li
+                        key={`${item.productId}-${index}`}
+                        className="flex flex-col gap-3 border-b border-black/10 pb-4 last:border-b-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between"
                       >
-                        Download
-                      </a>
-                    </li>
-                  ))}
+                        <div className="flex min-w-0 items-start gap-3">
+                          <CompactProductModel
+                            productId={item.productId}
+                            productName={item.productName}
+                          />
+                          <div className="min-w-0 space-y-2">
+                            <div>
+                              <p className="break-words text-sm uppercase tracking-[0.18em] text-black/75">
+                                {item.productName}
+                              </p>
+                              <p className="text-xs text-black/55">Qty {item.quantity}</p>
+                            </div>
+                            {itemDownloads.length > 0 ? (
+                              <div className="flex flex-wrap gap-3">
+                                {itemDownloads.map((download) => (
+                                  <a
+                                    key={download.downloadUrl}
+                                    href={download.downloadUrl}
+                                    className="text-xs uppercase tracking-[0.3em] text-black/60"
+                                  >
+                                    Download
+                                  </a>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                        <p className="shrink-0 text-xs text-black/60 sm:text-right">
+                          {formatCurrency(
+                            item.unitAmountCents * item.quantity,
+                            statusState.currency ?? 'USD',
+                          )}
+                        </p>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ) : null}
+
             {statusState.fulfillmentError ? (
               <p className="text-xs text-red-600">
                 Email delivery hit an issue, but your download link is available here.

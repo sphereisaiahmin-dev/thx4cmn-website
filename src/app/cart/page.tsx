@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+import { CompactProductModel } from '@/components/CompactProductModel';
 import {
   isValidCheckoutEmail,
   normalizeCheckoutEmail,
@@ -158,14 +159,19 @@ function CartPageContent() {
                   key={item.productId}
                   className="flex flex-col gap-4 border border-black/10 bg-black/5 p-4 md:flex-row md:items-center md:justify-between"
                 >
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.2em]">{item.name}</p>
-                    <p className="text-xs text-black/60">{getCartItemPriceLabel(item)}</p>
-                    {getCartItemDeliveryNote(item) ? (
-                      <p className="mt-1 text-[0.62rem] uppercase tracking-[0.22em] text-black/45">
-                        {getCartItemDeliveryNote(item)}
+                  <div className="flex min-w-0 items-start gap-4">
+                    <CompactProductModel productId={item.productId} productName={item.name} />
+                    <div className="min-w-0">
+                      <p className="break-words text-sm uppercase tracking-[0.2em]">
+                        {item.name}
                       </p>
-                    ) : null}
+                      <p className="text-xs text-black/60">{getCartItemPriceLabel(item)}</p>
+                      {getCartItemDeliveryNote(item) ? (
+                        <p className="mt-1 text-[0.62rem] uppercase tracking-[0.22em] text-black/45">
+                          {getCartItemDeliveryNote(item)}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
                   <div className="flex items-center gap-4">
                     <input

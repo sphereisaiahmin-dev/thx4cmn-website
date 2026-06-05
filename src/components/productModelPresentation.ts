@@ -24,6 +24,12 @@ export interface BloomSettings {
   threshold: number;
 }
 
+export interface UniversePointIntensityOptions {
+  opacity?: number;
+  glowBoost?: number;
+  pointSizeScale?: number;
+}
+
 export type ProductPresentationSurface = 'store-carousel' | 'detail' | 'card';
 
 interface SurfacePresentation {
@@ -215,6 +221,41 @@ export const clonePreparedProductScene = (scene: Group, modelUrl: string) => {
   });
 
   return clonedScene;
+};
+
+export const tuneUniversePointIntensity = (
+  root: Group,
+  modelUrl: string,
+  { opacity = 1, glowBoost = 1.05, pointSizeScale = 1 }: UniversePointIntensityOptions,
+) => {
+  if (!isUniverseModel(modelUrl)) {
+    return;
+  }
+
+  root.traverse((object) => {
+    if (!(object instanceof Points)) {
+      return;
+    }
+
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (!(material instanceof ShaderMaterial)) {
+        continue;
+      }
+
+      if (material.uniforms.uOpacity) {
+        material.uniforms.uOpacity.value = opacity;
+      }
+
+      if (material.uniforms.uGlowBoost) {
+        material.uniforms.uGlowBoost.value = glowBoost;
+      }
+
+      if (material.uniforms.uPointSize) {
+        material.uniforms.uPointSize.value *= pointSizeScale;
+      }
+    }
+  });
 };
 
 export const applyRenderableOpacity = (root: Group, opacity: number) => {

@@ -2,14 +2,29 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
+import { getProductById } from '@/data/products';
 import { resolveAppOrigin } from '@/lib/appOrigin';
-import { parseCheckoutItemsPayload } from '@/lib/checkout';
+import { parseCheckoutItemsPayload, type CheckoutItem } from '@/lib/checkout';
 import { persistCommerceOrder } from '@/lib/commerceOrders';
 import { fulfillDigitalOrder } from '@/lib/digitalOrderFulfillment';
 import { getStripeClient } from '@/lib/stripe';
 import { createServerClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
+
+const toReceiptItems = (items: ReadonlyArray<CheckoutItem>) =>
+  items
+    .map((item) => {
+      const product = getProductById(item.productId);
+      if (!product) return null;
+
+      return {
+        productName: product.name,
+        quantity: item.quantity,
+        unitAmountCents: product.priceCents,
+      };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
 export async function POST(request: Request) {
   const requestHeaders = await headers();
@@ -80,6 +95,10 @@ export async function POST(request: Request) {
         recipientEmail: persistedOrder.recipientEmail,
         deliveries: persistedOrder.digitalDeliveries,
         appOrigin: resolveAppOrigin(requestHeaders),
+        paymentStatus: session.payment_status,
+        amountTotalCents: session.amount_total ?? 0,
+        currency: session.currency ?? 'usd',
+        receiptItems: toReceiptItems(items),
       });
     } catch (orderError) {
       console.error(orderError);

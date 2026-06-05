@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
+import { CompactProductModel } from '@/components/CompactProductModel';
 import { CHECKOUT_SESSION_STORAGE_KEY } from '@/lib/checkoutSessionStorage';
 import {
   cartRequiresEmailCapture,
@@ -361,16 +362,25 @@ export const Navigation = () => {
             <ul className="flex flex-1 flex-col gap-4 overflow-auto pr-1">
               {items.map((item) => (
                 <li key={item.productId} className="flex items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <p className="text-sm">{item.name}</p>
-                    <p className="text-xs text-black/60">Qty {item.quantity}</p>
-                    {getCartItemDeliveryNote(item) ? (
-                      <p className="text-[0.6rem] uppercase tracking-[0.2em] text-black/45">
-                        {getCartItemDeliveryNote(item)}
-                      </p>
-                    ) : null}
+                  <div className="flex min-w-0 items-start gap-3">
+                    <CompactProductModel
+                      productId={item.productId}
+                      productName={item.name}
+                      className="h-16 w-16 sm:h-16 sm:w-16"
+                    />
+                    <div className="min-w-0 space-y-1">
+                      <p className="break-words text-sm">{item.name}</p>
+                      <p className="text-xs text-black/60">Qty {item.quantity}</p>
+                      {getCartItemDeliveryNote(item) ? (
+                        <p className="text-[0.6rem] uppercase tracking-[0.2em] text-black/45">
+                          {getCartItemDeliveryNote(item)}
+                        </p>
+                      ) : null}
+                    </div>
                   </div>
-                  <p className="text-xs text-black/60">{getProductTotalLabel(item)}</p>
+                  <p className="shrink-0 text-right text-xs text-black/60">
+                    {getProductTotalLabel(item)}
+                  </p>
                 </li>
               ))}
             </ul>

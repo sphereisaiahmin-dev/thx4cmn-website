@@ -7,6 +7,11 @@ import {
   toCheckoutItemsPayload,
 } from '../src/lib/checkout.ts';
 import {
+  CART_TTL_MS,
+  isPersistedCartExpired,
+  normalizePersistedCartItems,
+} from '../src/lib/cartPersistence.ts';
+import {
   buildStripeCheckoutLineItems,
   shouldUseStripeCheckout,
 } from '../src/lib/stripeCheckout.ts';
@@ -129,4 +134,41 @@ test('free products without Stripe prices stay on the direct claim fallback', ()
 
   assert.equal(shouldUseStripeCheckout(products), false);
   assert.deepEqual(buildStripeCheckoutLineItems(products), []);
+});
+
+test('persisted cart ttl accepts fresh state and expires stale state', () => {
+  const now = 1_800_000_000_000;
+
+  assert.equal(isPersistedCartExpired(now - CART_TTL_MS + 1, now), false);
+  assert.equal(isPersistedCartExpired(now - CART_TTL_MS - 1, now), true);
+  assert.equal(isPersistedCartExpired(undefined, now), true);
+});
+
+test('persisted cart items hydrate from current product data', () => {
+  const items = normalizePersistedCartItems([
+    {
+      productId: 'sample-pack',
+      name: 'Old name',
+      priceCents: 999,
+      currency: 'EUR',
+      quantity: 2.8,
+      type: 'digital',
+    },
+  ], () => ({
+    name: 'Community Vol. 1',
+    priceCents: 0,
+    currency: 'USD',
+    type: 'digital',
+  }));
+
+  assert.deepEqual(items, [
+    {
+      productId: 'sample-pack',
+      name: 'Community Vol. 1',
+      priceCents: 0,
+      currency: 'USD',
+      quantity: 2,
+      type: 'digital',
+    },
+  ]);
 });

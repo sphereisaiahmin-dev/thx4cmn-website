@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import type { DigitalFulfillmentReceiptItem } from './fulfillmentEmail';
 import { toDownloadUrl } from './downloadLinks';
 import { sendDigitalFulfillmentEmail } from './resend';
 
@@ -16,6 +17,10 @@ interface FulfillDigitalOrderParams {
   recipientEmail: string | null;
   deliveries: ReadonlyArray<PendingDigitalDelivery>;
   appOrigin: string;
+  paymentStatus?: string | null;
+  amountTotalCents?: number | null;
+  currency?: string | null;
+  receiptItems?: ReadonlyArray<DigitalFulfillmentReceiptItem>;
 }
 
 const toLastError = (error: unknown) =>
@@ -27,6 +32,10 @@ export const fulfillDigitalOrder = async ({
   recipientEmail,
   deliveries,
   appOrigin,
+  paymentStatus,
+  amountTotalCents,
+  currency,
+  receiptItems = [],
 }: FulfillDigitalOrderParams) => {
   if (!recipientEmail || deliveries.length === 0) {
     return null;
@@ -44,6 +53,11 @@ export const fulfillDigitalOrder = async ({
       recipientEmail,
       orderId,
       items: emailItems,
+      customerEmail: recipientEmail,
+      paymentStatus,
+      amountTotalCents,
+      currency,
+      receiptItems,
       idempotencyKey,
     });
 
