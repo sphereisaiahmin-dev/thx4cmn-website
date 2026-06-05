@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { getProductById } from '../src/data/products.ts';
 import { resolveAppOrigin } from '../src/lib/appOrigin.ts';
 import { createDownloadToken, hashDownloadToken } from '../src/lib/downloadTokens.ts';
+import { readEmailLogoAttachment } from '../src/lib/emailLogoAttachment.ts';
 import { buildDigitalFulfillmentEmail } from '../src/lib/fulfillmentEmail.ts';
 
 test('download tokens are URL-safe and hash deterministically', () => {
@@ -34,6 +36,7 @@ test('fulfillment email includes the product download link', () => {
         downloadUrl: 'https://example.com/api/download?token=abc123',
       },
     ],
+    logoSrc: 'cid:thx4cmn-email-logo',
   });
 
   assert.equal(email.subject, 'Your Community Vol. 1 download');
@@ -44,8 +47,15 @@ test('fulfillment email includes the product download link', () => {
   assert.match(email.html, /buyer@example\.com/);
   assert.match(email.html, /Community Vol\. 1/);
   assert.match(email.html, /https:\/\/example\.com\/api\/download\?token=abc123/);
+  assert.match(email.html, /cid:thx4cmn-email-logo/);
+  assert.match(email.html, /alt="thx4cmn"/);
+  assert.ok(
+    email.html.indexOf('cid:thx4cmn-email-logo') < email.html.indexOf('Questions? Reply'),
+    'email logo should appear above the support reply line',
+  );
   assert.doesNotMatch(email.html, /3d\/samplepack/i);
   assert.doesNotMatch(email.text, /3D model asset/i);
+  assert.doesNotMatch(email.text, /thx4cmn-logo\.png/);
   assert.match(email.text, /Order: C2A23A48/);
   assert.match(email.text, /Status: Paid/);
   assert.match(email.text, /Total: \$30\.00/);
@@ -100,4 +110,22 @@ test('development app origin ignores placeholder env and uses request host', () 
       process.env.NODE_ENV = previousNodeEnv;
     }
   }
+});
+
+test('released digital products point to distinct verified R2 pack objects', () => {
+  const community = getProductById('sample-pack');
+  const universe = getProductById('universe-vol-1');
+
+  assert.equal(community?.r2Key, 'packs/Community Vol. 1.zip');
+  assert.equal(universe?.r2Key, 'packs/Universe Vol. 1.zip');
+  assert.notEqual(community?.r2Key, universe?.r2Key);
+});
+
+test('email logo attachment is encoded for inline CID embedding', () => {
+  const attachment = readEmailLogoAttachment();
+
+  assert.equal(attachment.filename, 'thx4cmn-logo.png');
+  assert.equal(attachment.content_type, 'image/png');
+  assert.equal(attachment.content_id, 'thx4cmn-email-logo');
+  assert.match(attachment.content, /^[A-Za-z0-9+/]+={0,2}$/);
 });
