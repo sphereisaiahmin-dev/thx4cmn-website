@@ -27,7 +27,7 @@ export const products: Product[] = [
     priceCents: 0,
     currency: 'USD',
     stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_COMMUNITY_PACK,
-    r2Key: 'sample-packs/thx4cmn-vol-1.zip',
+    r2Key: 'packs/Community Vol. 1-20260605T024044Z-3-001.zip',
     deliveryMethod: 'email',
   },
   {
@@ -41,7 +41,7 @@ export const products: Product[] = [
     priceCents: 3000,
     currency: 'USD',
     stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_UNIVERSE_PACK,
-    r2Key: null,
+    r2Key: 'packs/Community Vol. 1-20260605T024044Z-3-001.zip',
     deliveryMethod: 'email',
   },
   {

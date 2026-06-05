@@ -14,6 +14,50 @@ create table if not exists products (
   created_at timestamp with time zone default now()
 );
 
+insert into products (
+  id,
+  slug,
+  name,
+  description,
+  type,
+  price_cents,
+  currency,
+  r2_key,
+  active
+)
+values
+  (
+    'sample-pack',
+    'sample-pack',
+    'Community Vol. 1',
+    'Downloadable sample pack with curated drum, texture, and instrument sounds from the lab.',
+    'digital',
+    0,
+    'USD',
+    'packs/Community Vol. 1-20260605T024044Z-3-001.zip',
+    true
+  ),
+  (
+    'universe-vol-1',
+    'universe-vol-1',
+    'Universe Vol. 1',
+    'Downloadable melody pack with spaced-out keys, cosmic textures, and celestial loops built for wide, atmospheric ideas.',
+    'digital',
+    3000,
+    'USD',
+    'packs/Community Vol. 1-20260605T024044Z-3-001.zip',
+    true
+  )
+on conflict (id) do update set
+  slug = excluded.slug,
+  name = excluded.name,
+  description = excluded.description,
+  type = excluded.type,
+  price_cents = excluded.price_cents,
+  currency = excluded.currency,
+  r2_key = coalesce(excluded.r2_key, products.r2_key),
+  active = excluded.active;
+
 create table if not exists customers (
   id uuid primary key default gen_random_uuid(),
   email text unique not null check (email = lower(email) and position('@' in email) > 1),
@@ -34,6 +78,10 @@ create table if not exists orders (
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );
+
+alter table orders add column if not exists customer_id uuid references customers(id) on delete set null;
+alter table orders add column if not exists stripe_customer_id text;
+alter table orders add column if not exists updated_at timestamp with time zone default now();
 
 create index if not exists orders_customer_id_idx on orders(customer_id);
 create index if not exists orders_stripe_customer_email_idx on orders(stripe_customer_email);
@@ -60,27 +108,14 @@ create table if not exists entitlements (
   updated_at timestamp with time zone default now()
 );
 
+alter table entitlements add column if not exists download_token_hash text;
+alter table entitlements add column if not exists last_downloaded_at timestamp with time zone;
+alter table entitlements add column if not exists updated_at timestamp with time zone default now();
+
 create unique index if not exists entitlements_order_product_key on entitlements(order_id, product_id);
 create unique index if not exists entitlements_download_token_hash_key
   on entitlements(download_token_hash)
   where download_token_hash is not null;
-
-create table if not exists entitlement_download_tokens (
-  id uuid primary key default gen_random_uuid(),
-  entitlement_id uuid not null references entitlements(id) on delete cascade,
-  token_hash text unique not null,
-  purpose text not null default 'email' check (purpose in ('email', 'checkout_return')),
-  download_count integer not null default 0,
-  expires_at timestamp with time zone,
-  last_downloaded_at timestamp with time zone,
-  created_at timestamp with time zone default now(),
-  updated_at timestamp with time zone default now()
-);
-
-create index if not exists entitlement_download_tokens_entitlement_id_idx
-  on entitlement_download_tokens(entitlement_id);
-create index if not exists entitlement_download_tokens_purpose_idx
-  on entitlement_download_tokens(purpose);
 
 create table if not exists digital_fulfillments (
   id uuid primary key default gen_random_uuid(),
@@ -96,6 +131,9 @@ create table if not exists digital_fulfillments (
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );
+
+alter table digital_fulfillments alter column provider set default 'resend';
+alter table digital_fulfillments add column if not exists provider_message_id text;
 
 create unique index if not exists digital_fulfillments_order_product_key
   on digital_fulfillments(order_id, product_id);
@@ -124,12 +162,6 @@ create trigger set_orders_updated_at
 drop trigger if exists set_entitlements_updated_at on entitlements;
 create trigger set_entitlements_updated_at
   before update on entitlements
-  for each row
-  execute function set_updated_at();
-
-drop trigger if exists set_entitlement_download_tokens_updated_at on entitlement_download_tokens;
-create trigger set_entitlement_download_tokens_updated_at
-  before update on entitlement_download_tokens
   for each row
   execute function set_updated_at();
 

@@ -1,60 +1,153 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { getProductById } from '@/data/products';
-import { createDigitalFulfillmentRows } from '@/lib/digitalFulfillment';
-import type { CheckoutItem } from '@/lib/checkout';
+import { getProductById, type Product } from '@/data/products';
+import { normalizeCheckoutEmail, type CheckoutItem } from '@/lib/checkout';
+import {
+  DIGITAL_FULFILLMENT_METHOD,
+  DIGITAL_FULFILLMENT_PROVIDER,
+  DIGITAL_FULFILLMENT_PENDING_STATUS,
+} from '@/lib/digitalFulfillment';
+import { createEntitlementDownloadToken } from '@/lib/downloadLinks';
+import type { PendingDigitalDelivery } from '@/lib/digitalOrderFulfillment';
 
 interface PersistCommerceOrderParams {
   supabase: SupabaseClient;
   items: CheckoutItem[];
   stripeSessionId: string;
+  stripeCustomerId?: string | null;
   status: string | null;
   amountTotalCents: number;
   currency: string;
   recipientEmail: string | null;
 }
 
-export const persistCommerceOrder = async ({
-  supabase,
-  items,
-  stripeSessionId,
-  status,
-  amountTotalCents,
-  currency,
-  recipientEmail,
-}: PersistCommerceOrderParams) => {
-  const { data: order, error: orderError } = await supabase
-    .from('orders')
-    .upsert({
-      stripe_session_id: stripeSessionId,
-      stripe_customer_email: recipientEmail,
-      status,
-      amount_total_cents: amountTotalCents,
-      currency,
-    })
-    .select()
-    .single();
+interface PersistedCustomer {
+  id: string;
+  email: string;
+  stripe_customer_id?: string | null;
+}
 
-  if (orderError) {
-    throw orderError;
+interface PersistedOrder {
+  id: string;
+  stripe_session_id: string;
+  stripe_customer_email: string | null;
+  customer_id?: string | null;
+}
+
+interface PersistedDigitalFulfillment {
+  id: string;
+  status: string;
+}
+
+interface EnsureDigitalFulfillmentResult {
+  fulfillment: PersistedDigitalFulfillment;
+  shouldSend: boolean;
+}
+
+export interface PersistCommerceOrderResult {
+  order: PersistedOrder;
+  recipientEmail: string | null;
+  digitalDeliveries: PendingDigitalDelivery[];
+}
+
+const aggregateCheckoutItems = (items: ReadonlyArray<CheckoutItem>) => {
+  const aggregated = new Map<string, CheckoutItem>();
+
+  items.forEach((item) => {
+    const existing = aggregated.get(item.productId);
+    aggregated.set(item.productId, {
+      productId: item.productId,
+      quantity: (existing?.quantity ?? 0) + item.quantity,
+    });
+  });
+
+  return Array.from(aggregated.values());
+};
+
+const ensureCustomer = async ({
+  supabase,
+  recipientEmail,
+  stripeCustomerId,
+}: {
+  supabase: SupabaseClient;
+  recipientEmail: string | null;
+  stripeCustomerId: string | null;
+}) => {
+  if (!recipientEmail) {
+    return null;
   }
 
-  const productsById = new Map(
-    items
-      .map((item) => {
-        const product = getProductById(item.productId);
-        return product ? [product.id, product] : null;
-      })
-      .filter((entry): entry is [string, NonNullable<ReturnType<typeof getProductById>>] => Boolean(entry)),
-  );
+  const { data: existingCustomer, error: existingCustomerError } = await supabase
+    .from('customers')
+    .select('id, email, stripe_customer_id')
+    .eq('email', recipientEmail)
+    .maybeSingle();
 
+  if (existingCustomerError) {
+    throw existingCustomerError;
+  }
+
+  if (existingCustomer) {
+    const customer = existingCustomer as PersistedCustomer;
+    if (stripeCustomerId && customer.stripe_customer_id !== stripeCustomerId) {
+      const { data: updatedCustomer, error: updateCustomerError } = await supabase
+        .from('customers')
+        .update({
+          stripe_customer_id: stripeCustomerId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', customer.id)
+        .select('id, email, stripe_customer_id')
+        .single();
+
+      if (updateCustomerError) {
+        throw updateCustomerError;
+      }
+
+      return updatedCustomer as PersistedCustomer;
+    }
+
+    return customer;
+  }
+
+  const customerInsert: Record<string, string> = {
+    email: recipientEmail,
+  };
+  if (stripeCustomerId) {
+    customerInsert.stripe_customer_id = stripeCustomerId;
+  }
+
+  const { data: insertedCustomer, error: insertCustomerError } = await supabase
+    .from('customers')
+    .insert(customerInsert)
+    .select('id, email, stripe_customer_id')
+    .single();
+
+  if (insertCustomerError) {
+    throw insertCustomerError;
+  }
+
+  return insertedCustomer as PersistedCustomer;
+};
+
+const ensureOrderItems = async ({
+  supabase,
+  orderId,
+  items,
+  productsById,
+}: {
+  supabase: SupabaseClient;
+  orderId: string;
+  items: ReadonlyArray<CheckoutItem>;
+  productsById: Map<string, Product>;
+}) => {
   const orderItems = items
     .map((item) => {
       const product = productsById.get(item.productId);
       if (!product) return null;
 
       return {
-        order_id: order.id,
+        order_id: orderId,
         product_id: product.id,
         quantity: item.quantity,
         unit_amount_cents: product.priceCents,
@@ -62,75 +155,256 @@ export const persistCommerceOrder = async ({
     })
     .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
-  if (orderItems.length > 0) {
-    const { data: existingOrderItems, error: existingOrderItemsError } = await supabase
-      .from('order_items')
-      .select('id')
-      .eq('order_id', order.id)
-      .limit(1);
-
-    if (existingOrderItemsError) {
-      console.error(existingOrderItemsError);
-    } else if (!existingOrderItems || existingOrderItems.length === 0) {
-      const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
-      if (itemsError) {
-        console.error(itemsError);
-      }
-    }
+  if (orderItems.length === 0) {
+    return;
   }
 
-  const entitlementRows = items
-    .map((item) => {
-      const product = productsById.get(item.productId);
-      if (!product || product.type !== 'digital') return null;
+  const { data: existingOrderItems, error: existingOrderItemsError } = await supabase
+    .from('order_items')
+    .select('id')
+    .eq('order_id', orderId)
+    .limit(1);
 
-      return {
-        order_id: order.id,
-        product_id: product.id,
-        download_count: 0,
-      };
+  if (existingOrderItemsError) {
+    throw existingOrderItemsError;
+  }
+
+  if (existingOrderItems && existingOrderItems.length > 0) {
+    return;
+  }
+
+  const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
+  if (itemsError) {
+    throw itemsError;
+  }
+};
+
+const ensureEntitlement = async ({
+  supabase,
+  orderId,
+  productId,
+}: {
+  supabase: SupabaseClient;
+  orderId: string;
+  productId: string;
+}) => {
+  const { data: existingEntitlement, error: existingEntitlementError } = await supabase
+    .from('entitlements')
+    .select('id')
+    .eq('order_id', orderId)
+    .eq('product_id', productId)
+    .maybeSingle();
+
+  if (existingEntitlementError) {
+    throw existingEntitlementError;
+  }
+
+  if (existingEntitlement) {
+    return existingEntitlement as { id: string };
+  }
+
+  const { data: insertedEntitlement, error: insertEntitlementError } = await supabase
+    .from('entitlements')
+    .insert({
+      order_id: orderId,
+      product_id: productId,
+      download_count: 0,
     })
-    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+    .select('id')
+    .single();
 
-  if (entitlementRows.length > 0) {
-    const { data: existingEntitlements, error: existingEntitlementsError } = await supabase
-      .from('entitlements')
-      .select('id')
-      .eq('order_id', order.id)
-      .limit(1);
-
-    if (existingEntitlementsError) {
-      console.error(existingEntitlementsError);
-    } else if (!existingEntitlements || existingEntitlements.length === 0) {
-      const { error: entitlementsError } = await supabase.from('entitlements').insert(entitlementRows);
-      if (entitlementsError) {
-        console.error(entitlementsError);
-      }
-    }
+  if (insertEntitlementError) {
+    throw insertEntitlementError;
   }
 
-  const digitalFulfillmentRows = createDigitalFulfillmentRows({
-    items,
-    productsById,
-    orderId: order.id,
-    recipientEmail,
+  return insertedEntitlement as { id: string };
+};
+
+const ensureDigitalFulfillment = async ({
+  supabase,
+  orderId,
+  product,
+  recipientEmail,
+}: {
+  supabase: SupabaseClient;
+  orderId: string;
+  product: Product;
+  recipientEmail: string | null;
+}): Promise<EnsureDigitalFulfillmentResult> => {
+  const { data: existingFulfillment, error: existingFulfillmentError } = await supabase
+    .from('digital_fulfillments')
+    .select('id, status')
+    .eq('order_id', orderId)
+    .eq('product_id', product.id)
+    .maybeSingle();
+
+  if (existingFulfillmentError) {
+    throw existingFulfillmentError;
+  }
+
+  if (existingFulfillment && (existingFulfillment as PersistedDigitalFulfillment).status === 'sent') {
+    return {
+      fulfillment: existingFulfillment as PersistedDigitalFulfillment,
+      shouldSend: false,
+    };
+  }
+
+  const canSend = Boolean(recipientEmail && product.r2Key);
+  const lastError = !recipientEmail
+    ? 'Missing recipient email.'
+    : !product.r2Key
+      ? 'Product missing R2 download key.'
+      : null;
+  const fulfillmentValues = {
+    recipient_email: recipientEmail,
+    delivery_method: DIGITAL_FULFILLMENT_METHOD,
+    provider: DIGITAL_FULFILLMENT_PROVIDER,
+    status: canSend ? DIGITAL_FULFILLMENT_PENDING_STATUS : 'failed',
+    last_error: lastError,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (existingFulfillment) {
+    const { data: updatedFulfillment, error: updateFulfillmentError } = await supabase
+      .from('digital_fulfillments')
+      .update(fulfillmentValues)
+      .eq('id', (existingFulfillment as PersistedDigitalFulfillment).id)
+      .select('id, status')
+      .single();
+
+    if (updateFulfillmentError) {
+      throw updateFulfillmentError;
+    }
+
+    return {
+      fulfillment: updatedFulfillment as PersistedDigitalFulfillment,
+      shouldSend: canSend,
+    };
+  }
+
+  const { data: insertedFulfillment, error: insertFulfillmentError } = await supabase
+    .from('digital_fulfillments')
+    .insert({
+      ...fulfillmentValues,
+      order_id: orderId,
+      product_id: product.id,
+    })
+    .select('id, status')
+    .single();
+
+  if (insertFulfillmentError) {
+    throw insertFulfillmentError;
+  }
+
+  return {
+    fulfillment: insertedFulfillment as PersistedDigitalFulfillment,
+    shouldSend: canSend,
+  };
+};
+
+export const persistCommerceOrder = async ({
+  supabase,
+  items,
+  stripeSessionId,
+  stripeCustomerId = null,
+  status,
+  amountTotalCents,
+  currency,
+  recipientEmail,
+}: PersistCommerceOrderParams): Promise<PersistCommerceOrderResult> => {
+  const normalizedRecipientEmail = normalizeCheckoutEmail(recipientEmail) || null;
+  const normalizedStripeCustomerId = stripeCustomerId?.trim() || null;
+  const checkoutItems = aggregateCheckoutItems(items);
+  const customer = await ensureCustomer({
+    supabase,
+    recipientEmail: normalizedRecipientEmail,
+    stripeCustomerId: normalizedStripeCustomerId,
   });
 
-  if (digitalFulfillmentRows.length > 0) {
-    const { data: existingDigitalFulfillments, error: existingDigitalFulfillmentsError } =
-      await supabase.from('digital_fulfillments').select('id').eq('order_id', order.id).limit(1);
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .upsert(
+      {
+        stripe_session_id: stripeSessionId,
+        stripe_customer_id: normalizedStripeCustomerId,
+        stripe_customer_email: normalizedRecipientEmail,
+        customer_id: customer?.id ?? null,
+        status,
+        amount_total_cents: amountTotalCents,
+        currency,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'stripe_session_id' },
+    )
+    .select('id, stripe_session_id, stripe_customer_email, customer_id')
+    .single();
 
-    if (existingDigitalFulfillmentsError) {
-      console.error(existingDigitalFulfillmentsError);
-    } else if (!existingDigitalFulfillments || existingDigitalFulfillments.length === 0) {
-      const { error: digitalFulfillmentsError } = await supabase
-        .from('digital_fulfillments')
-        .insert(digitalFulfillmentRows);
-      if (digitalFulfillmentsError) {
-        console.error(digitalFulfillmentsError);
+  if (orderError) {
+    throw orderError;
+  }
+
+  const persistedOrder = order as PersistedOrder;
+  const productsById = new Map(
+    checkoutItems
+      .map((item) => {
+        const product = getProductById(item.productId);
+        return product ? [product.id, product] : null;
+      })
+      .filter((entry): entry is [string, Product] => Boolean(entry)),
+  );
+
+  await ensureOrderItems({
+    supabase,
+    orderId: persistedOrder.id,
+    items: checkoutItems,
+    productsById,
+  });
+
+  const digitalDeliveries: PendingDigitalDelivery[] = [];
+  for (const item of checkoutItems) {
+    const product = productsById.get(item.productId);
+    if (!product || product.type !== 'digital') {
+      continue;
+    }
+
+    let downloadToken: string | null = null;
+    let digitalFulfillment: EnsureDigitalFulfillmentResult | null = null;
+    const entitlement = await ensureEntitlement({
+      supabase,
+      orderId: persistedOrder.id,
+      productId: product.id,
+    });
+
+    if (product.deliveryMethod === DIGITAL_FULFILLMENT_METHOD) {
+      digitalFulfillment = await ensureDigitalFulfillment({
+        supabase,
+        orderId: persistedOrder.id,
+        product,
+        recipientEmail: normalizedRecipientEmail,
+      });
+
+      if (digitalFulfillment.shouldSend && product.r2Key) {
+        downloadToken = await createEntitlementDownloadToken({
+          supabase,
+          entitlementId: entitlement.id,
+          purpose: 'email',
+        });
       }
+    }
+
+    if (downloadToken && digitalFulfillment) {
+      digitalDeliveries.push({
+        fulfillmentId: digitalFulfillment.fulfillment.id,
+        productId: product.id,
+        productName: product.name,
+        downloadToken,
+      });
     }
   }
 
-  return order;
+  return {
+    order: persistedOrder,
+    recipientEmail: normalizedRecipientEmail,
+    digitalDeliveries,
+  };
 };

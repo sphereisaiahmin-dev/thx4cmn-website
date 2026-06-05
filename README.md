@@ -26,6 +26,9 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key |
 | `SUPABASE_URL` | Supabase project URL (server client) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key for server routes |
+| `SUPABASE_ACCESS_TOKEN` | Supabase CLI access token for applying migrations |
+| `SUPABASE_PROJECT_REF` | Supabase project ref for linking migrations |
+| `SUPABASE_DB_PASSWORD` | Supabase database password for migration deployment |
 | `STRIPE_SECRET_KEY` | Stripe secret key |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key for React Stripe.js |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret (`whsec_...`) for this endpoint |
@@ -36,6 +39,9 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 | `R2_ACCESS_KEY_ID` | R2 access key ID |
 | `R2_SECRET_ACCESS_KEY` | R2 secret access key |
 | `R2_BUCKET` | R2 bucket name |
+| `RESEND_API_KEY` | Resend API key used by server routes to send fulfillment email |
+| `RESEND_FROM_EMAIL` | Verified sender, e.g. `THX4CMN <orders@send.thx4cmn.com>` |
+| `RESEND_REPLY_TO_EMAIL` | Reply-to inbox for fulfillment emails |
 
 Security note:
 If credentials were ever committed with real values, rotate them immediately in Stripe, Supabase, and R2 before deploying.
@@ -47,12 +53,21 @@ If credentials were ever committed with real values, rotate them immediately in 
    ```bash
    stripe listen --forward-to localhost:3000/api/stripe/webhook
    ```
+   If your dev server is running on another port, such as `3001`, forward to that exact port.
 3. Copy the CLI webhook signing secret (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`.
 4. For production, create a Dashboard webhook endpoint for `/api/stripe/webhook` and use that endpoint's separate `whsec_...` value.
+
+The checkout return route also performs a fulfillment fallback when Stripe reports the session is
+complete. This makes local testing more forgiving, but production should still keep the webhook
+registered because webhooks are the reliable server-to-server fulfillment path.
 
 ## Supabase setup
 
 See `supabase/README.md` for schema details and setup steps.
+
+The linked digital fulfillment migration creates customers, orders, entitlements, and Resend
+fulfillment tracking. It also seeds the released digital products with the R2 key
+`packs/Community Vol. 1-20260605T024044Z-3-001.zip`.
 
 ## R2 setup
 
@@ -71,8 +86,10 @@ See `supabase/README.md` for schema details and setup steps.
 
 ## How downloads work
 
-`/api/download` verifies entitlements in Supabase and returns a signed R2 URL. The digital
-product entitlement is created when Stripe sends `checkout.session.completed`.
+`/api/download?token=...` verifies a hashed entitlement token in Supabase and returns a signed R2
+URL. The digital product entitlement is created when Stripe sends `checkout.session.completed` or
+when a free digital claim is recorded. Resend sends the customer a fulfillment email with the secure
+download link; Stripe remains responsible for payment receipts.
 
 ## How the web audio player works
 
