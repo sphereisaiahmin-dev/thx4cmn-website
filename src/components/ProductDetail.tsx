@@ -7,11 +7,7 @@ import { useRouter } from 'next/navigation';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
 import { normalizeCheckoutQuantity } from '@/lib/checkout';
-import {
-  getDigitalDeliveryNote,
-  getProductFulfillmentLabel,
-  getProductPriceLabel,
-} from '@/lib/productCommerce';
+import { getProductPriceLabel } from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
 const ProductModelScene = dynamic(
@@ -30,8 +26,6 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   const addItem = useCartStore((state) => state.addItem);
   const [quantity, setQuantity] = useState(1);
   const modelUrl = modelUrlsByProductId[product.id];
-  const typeLabel = getProductFulfillmentLabel(product);
-  const deliveryNote = getDigitalDeliveryNote(product);
 
   const handleAdd = () => {
     addItem({
@@ -66,16 +60,15 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
       <div className="min-w-0">
         <div className="flex h-full min-h-0 flex-col justify-center gap-8 lg:gap-11">
           <div className="space-y-5">
-            <p className="text-[0.62rem] uppercase tracking-[0.42em] text-black/42">{typeLabel}</p>
             <h1 className="break-words text-3xl uppercase tracking-[0.24em] md:text-5xl lg:text-[3.35rem]">
               {product.name}
             </h1>
             <p className="max-w-[38rem] break-words text-base leading-8 text-black/68 md:text-[1rem]">
               {product.description}
             </p>
-            {deliveryNote ? (
-              <p className="text-[0.62rem] uppercase tracking-[0.32em] text-black/48">
-                {deliveryNote}
+            {product.contentsSummary ? (
+              <p className="max-w-[38rem] text-sm leading-6 text-black/56">
+                {product.contentsSummary}
               </p>
             ) : null}
           </div>

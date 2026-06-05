@@ -32,11 +32,7 @@ import {
   scaleByModelUrl,
 } from '@/components/productModelPresentation';
 import type { Product } from '@/data/products';
-import {
-  getDigitalDeliveryNote,
-  getProductFulfillmentLabel,
-  getProductPriceLabel,
-} from '@/lib/productCommerce';
+import { getProductPriceLabel } from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
 type SlotKey = 'left' | 'center' | 'right';
@@ -446,20 +442,15 @@ interface ProductInfoPanelProps {
 }
 
 const ProductInfoPanel = ({ product, onAdd }: ProductInfoPanelProps) => {
-  const deliveryNote = getDigitalDeliveryNote(product);
-
   return (
     <div className="flex shrink-0 flex-col items-center justify-center gap-4 text-center md:gap-5">
       <div className="space-y-2">
-        <p className="text-[0.58rem] uppercase tracking-[0.42em] text-black/38">
-          {getProductFulfillmentLabel(product)}
-        </p>
         <h2 className="text-sm uppercase tracking-[0.24em] md:text-base lg:text-lg">
           {product.name}
         </h2>
-        {deliveryNote ? (
-          <p className="text-[0.56rem] uppercase tracking-[0.28em] text-black/44">
-            {deliveryNote}
+        {product.contentsSummary ? (
+          <p className="mx-auto max-w-[24rem] text-xs leading-5 text-black/52 md:max-w-[30rem]">
+            {product.contentsSummary}
           </p>
         ) : null}
       </div>
@@ -772,15 +763,12 @@ export const StoreCarousel = ({ products }: StoreCarouselProps) => {
       >
         <div className="inline-flex flex-col items-center gap-3 px-7 py-4 md:gap-4 md:px-9 md:py-5">
           <div>
-            <p className="text-[0.55rem] uppercase tracking-[0.44em] text-black/40">
-              {getProductFulfillmentLabel(currProduct)}
-            </p>
             <h2 className="mt-0.5 text-base uppercase tracking-[0.22em] md:text-lg">
               {currProduct.name}
             </h2>
-            {getDigitalDeliveryNote(currProduct) ? (
-              <p className="mt-2 text-[0.56rem] uppercase tracking-[0.28em] text-black/46">
-                {getDigitalDeliveryNote(currProduct)}
+            {currProduct.contentsSummary ? (
+              <p className="mx-auto mt-2 max-w-[26rem] text-xs leading-5 text-black/52">
+                {currProduct.contentsSummary}
               </p>
             ) : null}
           </div>

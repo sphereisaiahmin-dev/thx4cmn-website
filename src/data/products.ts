@@ -6,6 +6,7 @@ export interface Product {
   slug: string;
   name: string;
   description: string;
+  contentsSummary?: string;
   type: ProductType;
   isReleased: boolean;
   priceCents: number;
@@ -21,7 +22,8 @@ export const products: Product[] = [
     slug: 'sample-pack',
     name: 'Community Vol. 1',
     description:
-      'Downloadable sample pack with curated drum, texture, and instrument sounds from the lab.',
+      'The "Community" series is a thank you to all the producers, artists, and creators. A small free collection made to give back to the same space that helped shape our journey.',
+    contentsSummary: '15 files. 6 Breaks, 7 melodies & 2 oneshots',
     type: 'digital',
     isReleased: true,
     priceCents: 0,
@@ -35,7 +37,9 @@ export const products: Product[] = [
     slug: 'universe-vol-1',
     name: 'Universe Vol. 1',
     description:
-      'Downloadable melody pack with spaced-out keys, cosmic textures, and celestial loops built for wide, atmospheric ideas.',
+      'The "Universe" series brings together ideas from across the THX4CMN team. With each producer contributing their own folder, style and approach, this collection was built to give creators more inspiration and more ways to create.',
+    contentsSummary:
+      '154 files. 19 Melodies, 23 Instrument One Shots, 17 Drum Breaks, 68 Drum One Shots, 10 Perc Loops & 17 MIDI Drum Patterns.',
     type: 'digital',
     isReleased: true,
     priceCents: 3000,
