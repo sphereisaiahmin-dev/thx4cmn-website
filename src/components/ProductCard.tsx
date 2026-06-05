@@ -6,7 +6,11 @@ import Link from 'next/link';
 
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
-import { getProductPriceLabel } from '@/lib/productCommerce';
+import {
+  getProductPriceLabel,
+  getPurchaseActionLabel,
+  isProductPurchasable,
+} from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
 const ProductModelScene = dynamic(
@@ -23,6 +27,7 @@ interface ProductCardProps {
 export const ProductCard = ({ product }: ProductCardProps) => {
   const addItem = useCartStore((state) => state.addItem);
   const modelUrl = modelUrlsByProductId[product.id];
+  const isPurchasable = isProductPurchasable(product);
   const modelContainerRef = useRef<HTMLDivElement | null>(null);
   const [isModelInView, setIsModelInView] = useState(false);
   const [hasActivatedModel, setHasActivatedModel] = useState(false);
@@ -56,6 +61,7 @@ export const ProductCard = ({ product }: ProductCardProps) => {
   }, [modelUrl]);
 
   const handleAdd = () => {
+    if (!isPurchasable) return;
     addItem({
       productId: product.id,
       name: product.name,
@@ -103,9 +109,10 @@ export const ProductCard = ({ product }: ProductCardProps) => {
           <button
             type="button"
             onClick={handleAdd}
-            className="add-to-cart-button rounded-full border border-black/30 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.3em] transition hover:bg-black/10 md:px-4 md:py-2 md:text-xs"
+            disabled={!isPurchasable}
+            className="add-to-cart-button rounded-full border border-black/30 px-3 py-1.5 text-[0.65rem] uppercase tracking-[0.3em] transition hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-transparent md:px-4 md:py-2 md:text-xs"
           >
-            Add to cart
+            {getPurchaseActionLabel(product)}
           </button>
           <Link
             href={`/store/${product.slug}`}

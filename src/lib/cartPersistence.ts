@@ -1,4 +1,5 @@
 type ProductType = 'digital' | 'physical';
+type ProductPurchaseStatus = 'available' | 'coming-soon';
 
 export interface PersistedCartItem {
   productId: string;
@@ -14,6 +15,7 @@ interface ProductSnapshot {
   priceCents: number;
   currency: string;
   type: ProductType;
+  purchaseStatus?: ProductPurchaseStatus;
 }
 
 export const CART_TTL_MS = 60 * 60 * 1000;
@@ -47,16 +49,19 @@ export const normalizePersistedCartItems = (
         typeof item.currency === 'string' &&
         typeof item.type === 'string',
     )
-    .map((item) => {
+    .flatMap((item) => {
       const product = getCurrentProduct?.(item.productId);
+      if (product?.purchaseStatus === 'coming-soon') {
+        return [];
+      }
 
-      return {
+      return [{
         productId: item.productId,
         name: product?.name ?? item.name,
         priceCents: product?.priceCents ?? item.priceCents,
         currency: product?.currency ?? item.currency,
         type: product?.type ?? item.type,
         quantity: normalizeCartQuantity(item.quantity),
-      };
+      }];
     });
 };

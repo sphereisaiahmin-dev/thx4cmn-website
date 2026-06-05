@@ -12,6 +12,7 @@ import {
 import { persistCommerceOrder } from '@/lib/commerceOrders';
 import { fulfillDigitalOrder } from '@/lib/digitalOrderFulfillment';
 import { createServerClient } from '@/lib/supabase/server';
+import { isProductPurchasable } from '@/lib/productCommerce';
 import { getStripeClient } from '@/lib/stripe';
 import {
   buildStripeCheckoutLineItems,
@@ -72,6 +73,14 @@ export async function POST(request: Request) {
       item,
       product: getProductById(item.productId)!,
     }));
+    const unavailableProduct = products.find(({ product }) => !isProductPurchasable(product));
+    if (unavailableProduct) {
+      return NextResponse.json(
+        { error: `${unavailableProduct.product.name} is coming soon.`, requestId },
+        { status: 400 },
+      );
+    }
+
     const receiptItems = toReceiptItems(products);
     const usesStripeCheckout = shouldUseStripeCheckout(products);
     const requiresEmailForFreeClaim = products.some(

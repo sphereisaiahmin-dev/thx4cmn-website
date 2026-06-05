@@ -7,6 +7,12 @@ export const isFreeProduct = (product: Pick<Product, 'priceCents'>) => product.p
 
 export const isFreeCartItem = (item: Pick<CartItem, 'priceCents'>) => item.priceCents <= 0;
 
+export const isProductPurchasable = (product: Pick<Product, 'purchaseStatus'>) =>
+  product.purchaseStatus === 'available';
+
+export const getPurchaseActionLabel = (product: Pick<Product, 'purchaseStatus'>) =>
+  isProductPurchasable(product) ? 'Add to cart' : 'Coming soon';
+
 export const hasStripePrice = (product: Pick<Product, 'stripePriceId'>) =>
   Boolean(product.stripePriceId);
 

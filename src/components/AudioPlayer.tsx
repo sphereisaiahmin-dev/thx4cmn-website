@@ -10,6 +10,11 @@ import { useUiStore } from '@/store/ui';
 
 const ARTIST_LABEL = 'thx4cmn';
 const DOT_COUNT = 24;
+const FIRST_INTERACTION_EVENT = 'thx4cmn:first-interaction';
+
+type FirstInteractionWindow = Window & {
+  __thx4cmnFirstInteractionAutoplay?: boolean;
+};
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -28,6 +33,7 @@ export const AudioPlayer = () => {
     handleReverseToggle,
     handleLoopStartToggle,
     handleLoopEndToggle,
+    requestFirstInteractionAutoplay,
   } = actions;
   const [isMobile, setIsMobile] = useState(false);
   const [isDspOpen, setIsDspOpen] = useState(false);
@@ -36,6 +42,9 @@ export const AudioPlayer = () => {
   const playerRef = useRef<HTMLDivElement | null>(null);
   const titleViewportRef = useRef<HTMLSpanElement | null>(null);
   const titleTextRef = useRef<HTMLSpanElement | null>(null);
+  const hasRequestedFirstAutoplayRef = useRef(false);
+  const lastAutoplayPathRef = useRef<string | null>(null);
+  const requestFirstInteractionAutoplayRef = useRef(requestFirstInteractionAutoplay);
   const isMobileCompact = isMobile && !isHome;
   const isDspVisible = isDspOpen && !isCollapsed && !isMobileCompact;
   const currentTrackTitle = currentTrack?.title ?? null;
@@ -108,6 +117,52 @@ export const AudioPlayer = () => {
     mediaQuery.addListener(handleChange);
     return () => mediaQuery.removeListener(handleChange);
   }, []);
+
+  useEffect(() => {
+    requestFirstInteractionAutoplayRef.current = requestFirstInteractionAutoplay;
+  }, [requestFirstInteractionAutoplay]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const firstInteractionWindow = window as FirstInteractionWindow;
+    const isInitialPath = lastAutoplayPathRef.current === null;
+    const hasPathChanged = lastAutoplayPathRef.current !== pathname;
+
+    if (hasPathChanged) {
+      hasRequestedFirstAutoplayRef.current = false;
+      lastAutoplayPathRef.current = pathname;
+      if (!isInitialPath) {
+        firstInteractionWindow.__thx4cmnFirstInteractionAutoplay = false;
+      }
+    }
+
+    const handleFirstInteraction = () => {
+      if (hasRequestedFirstAutoplayRef.current) return;
+      hasRequestedFirstAutoplayRef.current = true;
+      window.removeEventListener('mousemove', handleFirstInteraction);
+      window.removeEventListener('pointerdown', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+      window.removeEventListener(FIRST_INTERACTION_EVENT, handleFirstInteraction);
+      void requestFirstInteractionAutoplayRef.current();
+    };
+
+    if (firstInteractionWindow.__thx4cmnFirstInteractionAutoplay) {
+      handleFirstInteraction();
+      return;
+    }
+
+    window.addEventListener('mousemove', handleFirstInteraction, { passive: true });
+    window.addEventListener('pointerdown', handleFirstInteraction, { passive: true });
+    window.addEventListener('touchstart', handleFirstInteraction, { passive: true });
+    window.addEventListener(FIRST_INTERACTION_EVENT, handleFirstInteraction);
+
+    return () => {
+      window.removeEventListener('mousemove', handleFirstInteraction);
+      window.removeEventListener('pointerdown', handleFirstInteraction);
+      window.removeEventListener('touchstart', handleFirstInteraction);
+      window.removeEventListener(FIRST_INTERACTION_EVENT, handleFirstInteraction);
+    };
+  }, [pathname]);
 
   useEffect(() => {
     if (!currentTrackTitle) {

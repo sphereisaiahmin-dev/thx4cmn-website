@@ -83,6 +83,7 @@ test('Stripe line items include zero-price products that have a Stripe price', (
         description: 'Free pack',
         type: 'digital',
         isReleased: true,
+        purchaseStatus: 'available',
         priceCents: 0,
         currency: 'USD',
         stripePriceId: 'price_free_community',
@@ -102,6 +103,7 @@ test('Stripe line items include zero-price products that have a Stripe price', (
         description: 'Free pack',
         type: 'digital',
         isReleased: true,
+        purchaseStatus: 'available',
         priceCents: 0,
         currency: 'USD',
         stripePriceId: 'price_free_community',
@@ -124,6 +126,7 @@ test('free products without Stripe prices stay on the direct claim fallback', ()
         description: 'Free pack',
         type: 'digital',
         isReleased: true,
+        purchaseStatus: 'available',
         priceCents: 0,
         currency: 'USD',
         r2Key: null,
@@ -159,6 +162,7 @@ test('persisted cart items hydrate from current product data', () => {
     priceCents: 0,
     currency: 'USD',
     type: 'digital',
+    purchaseStatus: 'available',
   }));
 
   assert.deepEqual(items, [
@@ -171,4 +175,25 @@ test('persisted cart items hydrate from current product data', () => {
       type: 'digital',
     },
   ]);
+});
+
+test('persisted cart drops current products that are no longer purchasable', () => {
+  const items = normalizePersistedCartItems([
+    {
+      productId: 'universe-vol-1',
+      name: 'Universe Vol. 1',
+      priceCents: 3000,
+      currency: 'USD',
+      quantity: 1,
+      type: 'digital',
+    },
+  ], () => ({
+    name: 'Universe Vol. 1',
+    priceCents: 3000,
+    currency: 'USD',
+    type: 'digital',
+    purchaseStatus: 'coming-soon',
+  }));
+
+  assert.deepEqual(items, []);
 });

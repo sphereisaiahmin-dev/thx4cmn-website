@@ -42,9 +42,8 @@ const fallbackEnv = shouldUseFileFallback
   : {};
 
 const readR2ConfigValue = (key: string) => {
-  const runtimeValue = process.env[key]?.trim();
-  if (runtimeValue) {
-    return runtimeValue;
+  if (Object.prototype.hasOwnProperty.call(process.env, key)) {
+    return process.env[key]?.trim() ?? '';
   }
 
   const fallbackValue = fallbackEnv[key]?.trim();

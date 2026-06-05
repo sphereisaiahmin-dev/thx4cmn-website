@@ -297,6 +297,27 @@ export const useWebPlayer = () => {
     }
   }, [controlsDisabled, state.isPlaying, state.status]);
 
+  const requestFirstInteractionAutoplay = useCallback(async () => {
+    if (state.isPlaying) return;
+    autoPlayRef.current = true;
+
+    if (!engineRef.current) return;
+
+    try {
+      await engineRef.current.play();
+      if (engineRef.current.getIsPlaying()) {
+        autoPlayRef.current = false;
+        dispatch({ type: 'set-playing', payload: true });
+      }
+    } catch (error) {
+      console.error('[WebPlayer] First interaction auto-play failed.', error);
+      dispatch({
+        type: 'set-error',
+        payload: error instanceof Error ? error.message : 'Unable to start playback.',
+      });
+    }
+  }, [state.isPlaying]);
+
   const handleSeek = useCallback((time: number) => {
     if (!engineRef.current || !Number.isFinite(time)) {
       console.warn('[WebPlayer] Invalid seek requested.', time);
@@ -421,6 +442,7 @@ export const useWebPlayer = () => {
       handleReverseToggle,
       handleLoopStartToggle,
       handleLoopEndToggle,
+      requestFirstInteractionAutoplay,
     },
   };
 };

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Script from 'next/script';
 import { AudioPlayerShell } from '@/components/AudioPlayerShell';
 import { Footer } from '@/components/Footer';
 import { HomeLogoBackgroundShell } from '@/components/HomeLogoBackgroundShell';
@@ -33,6 +34,25 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
+        <Script id="thx4cmn-first-interaction-autoplay" strategy="beforeInteractive">
+          {`
+            (function () {
+              if (window.__thx4cmnFirstInteractionAutoplayReady) return;
+              window.__thx4cmnFirstInteractionAutoplayReady = true;
+              var eventName = 'thx4cmn:first-interaction';
+              var markInteraction = function () {
+                window.__thx4cmnFirstInteractionAutoplay = true;
+                window.removeEventListener('mousemove', markInteraction);
+                window.removeEventListener('pointerdown', markInteraction);
+                window.removeEventListener('touchstart', markInteraction);
+                window.dispatchEvent(new Event(eventName));
+              };
+              window.addEventListener('mousemove', markInteraction, { passive: true });
+              window.addEventListener('pointerdown', markInteraction, { passive: true });
+              window.addEventListener('touchstart', markInteraction, { passive: true });
+            })();
+          `}
+        </Script>
         <RouteBodyClass />
         <div className="site-background" aria-hidden="true">
           <div className="site-background__layer site-background__layer--red" />
