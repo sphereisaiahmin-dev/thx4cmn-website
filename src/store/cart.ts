@@ -37,6 +37,11 @@ export const useCartStore = create<CartState>()(
       updatedAt: getCartTimestamp(),
       addItem: (item) =>
         set((state) => {
+          const product = getProductById(item.productId);
+          if (product?.purchaseStatus === 'coming-soon') {
+            return state;
+          }
+
           const normalizedQuantity = normalizeCheckoutQuantity(item.quantity);
           const existing = state.items.find((cartItem) => cartItem.productId === item.productId);
           if (existing) {

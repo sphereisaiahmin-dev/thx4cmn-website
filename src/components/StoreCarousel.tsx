@@ -32,7 +32,11 @@ import {
   scaleByModelUrl,
 } from '@/components/productModelPresentation';
 import type { Product } from '@/data/products';
-import { getProductPriceLabel } from '@/lib/productCommerce';
+import {
+  getProductPriceLabel,
+  getPurchaseActionLabel,
+  isProductPurchasable,
+} from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
 type SlotKey = 'left' | 'center' | 'right';
@@ -71,6 +75,10 @@ const CAROUSEL_SLOTS: Record<SlotKey, SlotConfig> = {
 
 const LERP_SPEED = 0.09;
 const SIDE_IDLE_OPACITY = 0.48;
+const DEFAULT_STORE_LANDING_MODEL_SCALE = 3.4;
+const storeLandingModelScaleByProductId: Record<string, number> = {
+  'sample-pack': 3.05,
+};
 
 const wrap = (index: number, total: number) =>
   total === 0 ? 0 : ((index % total) + total) % total;
@@ -442,6 +450,8 @@ interface ProductInfoPanelProps {
 }
 
 const ProductInfoPanel = ({ product, onAdd }: ProductInfoPanelProps) => {
+  const isPurchasable = isProductPurchasable(product);
+
   return (
     <div className="flex shrink-0 flex-col items-center justify-center gap-4 text-center md:gap-5">
       <div className="space-y-2">
@@ -463,9 +473,10 @@ const ProductInfoPanel = ({ product, onAdd }: ProductInfoPanelProps) => {
         <button
           type="button"
           onClick={onAdd}
-          className="add-to-cart-button rounded-full px-4 py-1.5 text-[0.62rem] uppercase tracking-[0.34em] transition duration-200 hover:bg-white/65 md:px-5"
+          disabled={!isPurchasable}
+          className="add-to-cart-button rounded-full px-4 py-1.5 text-[0.62rem] uppercase tracking-[0.34em] transition duration-200 hover:bg-white/65 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-transparent md:px-5"
         >
-          Add to cart
+          {getPurchaseActionLabel(product)}
         </button>
         <Link
           href={`/store/${product.slug}`}
@@ -491,6 +502,9 @@ const SplitProductPanel = ({
   hasDesktopDivider = false,
   onAdd,
 }: SplitProductPanelProps) => {
+  const presentationScaleMultiplier =
+    storeLandingModelScaleByProductId[product.id] ?? DEFAULT_STORE_LANDING_MODEL_SCALE;
+
   return (
     <article
       className={[
@@ -506,7 +520,7 @@ const SplitProductPanel = ({
             modelUrl={modelUrl}
             className="h-full w-full"
             fitMode="detail-immersive"
-            presentationScaleMultiplier={3.4}
+            presentationScaleMultiplier={presentationScaleMultiplier}
           />
         </div>
       </div>
@@ -590,6 +604,7 @@ export const StoreCarousel = ({ products }: StoreCarouselProps) => {
 
   const addProductToCart = useCallback(
     (product: Product) => {
+      if (!isProductPurchasable(product)) return;
       addItem({
         productId: product.id,
         name: product.name,
@@ -618,6 +633,7 @@ export const StoreCarousel = ({ products }: StoreCarouselProps) => {
     products[1] !== undefined &&
     Boolean(modelUrlsByProductId[products[0].id]) &&
     Boolean(modelUrlsByProductId[products[1].id]);
+  const isCurrentProductPurchasable = currProduct ? isProductPurchasable(currProduct) : false;
 
   const navigate = useCallback(
     (delta: -1 | 1) => {
@@ -781,9 +797,10 @@ export const StoreCarousel = ({ products }: StoreCarouselProps) => {
             <button
               type="button"
               onClick={handleAdd}
-              className="add-to-cart-button rounded-full px-4 py-1.5 text-[0.62rem] uppercase tracking-[0.34em] transition duration-200 hover:bg-white/65 md:px-5"
+              disabled={!isCurrentProductPurchasable}
+              className="add-to-cart-button rounded-full px-4 py-1.5 text-[0.62rem] uppercase tracking-[0.34em] transition duration-200 hover:bg-white/65 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-transparent md:px-5"
             >
-              Add to cart
+              {getPurchaseActionLabel(currProduct)}
             </button>
             <Link
               href={`/store/${currProduct.slug}`}

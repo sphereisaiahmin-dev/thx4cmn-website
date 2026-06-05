@@ -1,5 +1,6 @@
 export type ProductType = 'digital' | 'physical';
 export type ProductDeliveryMethod = 'email';
+export type ProductPurchaseStatus = 'available' | 'coming-soon';
 
 export interface Product {
   id: string;
@@ -9,6 +10,7 @@ export interface Product {
   contentsSummary?: string;
   type: ProductType;
   isReleased: boolean;
+  purchaseStatus: ProductPurchaseStatus;
   priceCents: number;
   currency: string;
   stripePriceId?: string;
@@ -26,6 +28,7 @@ export const products: Product[] = [
     contentsSummary: '15 files. 6 Breaks, 7 melodies & 2 oneshots',
     type: 'digital',
     isReleased: true,
+    purchaseStatus: 'available',
     priceCents: 0,
     currency: 'USD',
     stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_COMMUNITY_PACK,
@@ -42,6 +45,7 @@ export const products: Product[] = [
       '154 files. 19 Melodies, 23 Instrument One Shots, 17 Drum Breaks, 68 Drum One Shots, 10 Perc Loops & 17 MIDI Drum Patterns.',
     type: 'digital',
     isReleased: true,
+    purchaseStatus: 'coming-soon',
     priceCents: 3000,
     currency: 'USD',
     stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_UNIVERSE_PACK,
@@ -56,6 +60,7 @@ export const products: Product[] = [
       'portable midi chord generator with interactive feedback and customizable configurations',
     type: 'physical',
     isReleased: false,
+    purchaseStatus: 'coming-soon',
     priceCents: 14900,
     currency: 'USD',
     stripePriceId: process.env.NEXT_PUBLIC_STRIPE_PRICE_MIDI_DEVICE,

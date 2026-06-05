@@ -7,7 +7,11 @@ import { useRouter } from 'next/navigation';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import type { Product } from '@/data/products';
 import { normalizeCheckoutQuantity } from '@/lib/checkout';
-import { getProductPriceLabel } from '@/lib/productCommerce';
+import {
+  getProductPriceLabel,
+  getPurchaseActionLabel,
+  isProductPurchasable,
+} from '@/lib/productCommerce';
 import { useCartStore } from '@/store/cart';
 
 const ProductModelScene = dynamic(
@@ -26,8 +30,10 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
   const addItem = useCartStore((state) => state.addItem);
   const [quantity, setQuantity] = useState(1);
   const modelUrl = modelUrlsByProductId[product.id];
+  const isPurchasable = isProductPurchasable(product);
 
   const handleAdd = () => {
+    if (!isPurchasable) return;
     addItem({
       productId: product.id,
       name: product.name,
@@ -93,21 +99,23 @@ export const ProductDetail = ({ product }: ProductDetailProps) => {
                   min={1}
                   step={1}
                   value={quantity}
+                  disabled={!isPurchasable}
                   onChange={(event) => {
                     const nextValue = normalizeCheckoutQuantity(
                       Number.parseInt(event.target.value, 10),
                     );
                     setQuantity(nextValue);
                   }}
-                  className="w-24 rounded-full border border-black/18 bg-white/60 px-3 py-2 text-sm outline-none transition focus:border-black/32"
+                  className="w-24 rounded-full border border-black/18 bg-white/60 px-3 py-2 text-sm outline-none transition focus:border-black/32 disabled:cursor-not-allowed disabled:opacity-55"
                 />
               </div>
               <button
                 type="button"
                 onClick={handleAdd}
-                className="add-to-cart-button inline-flex items-center justify-center self-start rounded-full px-6 py-3 text-xs uppercase tracking-[0.3em] transition duration-200 hover:bg-black/10 sm:self-auto"
+                disabled={!isPurchasable}
+                className="add-to-cart-button inline-flex items-center justify-center self-start rounded-full px-6 py-3 text-xs uppercase tracking-[0.3em] transition duration-200 hover:bg-black/10 disabled:cursor-not-allowed disabled:opacity-55 disabled:hover:bg-transparent sm:self-auto"
               >
-                Add to cart
+                {getPurchaseActionLabel(product)}
               </button>
             </div>
           </div>
