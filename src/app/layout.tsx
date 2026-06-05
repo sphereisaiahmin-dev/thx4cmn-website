@@ -11,6 +11,18 @@ import '@/styles/audio-player.css';
 export const metadata: Metadata = {
   title: 'thx4cmn',
   description: 'thx4cmn art + design group',
+  icons: {
+    icon: [
+      {
+        url: '/favicon-lighttheme.png',
+        media: '(prefers-color-scheme: light)',
+      },
+      {
+        url: '/favicon-darktheme.png',
+        media: '(prefers-color-scheme: dark)',
+      },
+    ],
+  },
 };
 
 export default function RootLayout({
