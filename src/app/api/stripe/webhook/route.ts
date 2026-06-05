@@ -2,15 +2,18 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
+import { resolveAppOrigin } from '@/lib/appOrigin';
 import { parseCheckoutItemsPayload } from '@/lib/checkout';
 import { persistCommerceOrder } from '@/lib/commerceOrders';
+import { fulfillDigitalOrder } from '@/lib/digitalOrderFulfillment';
 import { getStripeClient } from '@/lib/stripe';
 import { createServerClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: Request) {
-  const stripeSignature = (await headers()).get('stripe-signature');
+  const requestHeaders = await headers();
+  const stripeSignature = requestHeaders.get('stripe-signature');
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!stripeSignature || !webhookSecret) {
@@ -59,18 +62,28 @@ export async function POST(request: Request) {
 
     const supabase = createServerClient();
     try {
-      await persistCommerceOrder({
+      const stripeCustomerId =
+        typeof session.customer === 'string' ? session.customer : session.customer?.id ?? null;
+      const persistedOrder = await persistCommerceOrder({
         supabase,
         items,
         stripeSessionId: session.id,
+        stripeCustomerId,
         status: session.payment_status,
         amountTotalCents: session.amount_total ?? 0,
         currency: session.currency ?? 'usd',
-        recipientEmail: session.customer_details?.email ?? null,
+        recipientEmail: session.customer_details?.email ?? session.customer_email ?? null,
+      });
+      await fulfillDigitalOrder({
+        supabase,
+        orderId: persistedOrder.order.id,
+        recipientEmail: persistedOrder.recipientEmail,
+        deliveries: persistedOrder.digitalDeliveries,
+        appOrigin: resolveAppOrigin(requestHeaders),
       });
     } catch (orderError) {
       console.error(orderError);
-      return NextResponse.json({ error: 'Unable to save order.' }, { status: 500 });
+      return NextResponse.json({ error: 'Unable to save or fulfill order.' }, { status: 500 });
     }
   }
 

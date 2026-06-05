@@ -2,7 +2,7 @@ import type { Product } from '@/data/products';
 import type { CheckoutItem } from '@/lib/checkout';
 
 export const DIGITAL_FULFILLMENT_METHOD = 'email';
-export const DIGITAL_FULFILLMENT_PROVIDER = 'pending_email_service';
+export const DIGITAL_FULFILLMENT_PROVIDER = 'resend';
 export const DIGITAL_FULFILLMENT_PENDING_STATUS = 'pending';
 
 export const createDigitalFulfillmentRows = ({

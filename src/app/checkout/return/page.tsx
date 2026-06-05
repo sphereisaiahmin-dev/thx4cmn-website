@@ -11,13 +11,26 @@ interface CheckoutSessionStatusPayload {
   id?: string;
   status?: 'open' | 'complete' | 'expired' | null;
   paymentStatus?: 'paid' | 'unpaid' | 'no_payment_required' | null;
+  receiptUrl?: string | null;
+  downloadLinks?: Array<{
+    productId: string;
+    productName: string;
+    downloadUrl: string;
+  }>;
+  fulfillmentError?: string | null;
   requestId?: string;
   error?: string;
 }
 
 type StatusState =
   | { type: 'loading' }
-  | { type: 'complete'; paymentStatus: CheckoutSessionStatusPayload['paymentStatus'] }
+  | {
+      type: 'complete';
+      paymentStatus: CheckoutSessionStatusPayload['paymentStatus'];
+      receiptUrl: string | null;
+      downloadLinks: NonNullable<CheckoutSessionStatusPayload['downloadLinks']>;
+      fulfillmentError: string | null;
+    }
   | { type: 'open'; sessionId: string }
   | { type: 'expired' }
   | { type: 'error'; message: string };
@@ -62,7 +75,13 @@ function CheckoutReturnContent() {
         if (payload?.status === 'complete') {
           clear();
           clearStoredCheckoutSession();
-          setStatusState({ type: 'complete', paymentStatus: payload.paymentStatus ?? null });
+          setStatusState({
+            type: 'complete',
+            paymentStatus: payload.paymentStatus ?? null,
+            receiptUrl: payload.receiptUrl ?? null,
+            downloadLinks: payload.downloadLinks ?? [],
+            fulfillmentError: payload.fulfillmentError ?? null,
+          });
           return;
         }
 
@@ -114,8 +133,46 @@ function CheckoutReturnContent() {
             <p>
               {statusState.paymentStatus === 'no_payment_required'
                 ? 'Your free checkout is recorded. Digital delivery is queued for email fulfillment.'
-                : 'Checkout received. Digital delivery items will be fulfilled by email.'}
+                : 'Checkout received. Digital delivery items are ready below and will also be fulfilled by email.'}
             </p>
+            {statusState.receiptUrl ? (
+              <a
+                href={statusState.receiptUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex text-xs uppercase tracking-[0.3em] text-black/60"
+              >
+                View Stripe receipt
+              </a>
+            ) : null}
+            {statusState.downloadLinks.length > 0 ? (
+              <div className="space-y-3 border-t border-black/10 pt-4">
+                <p className="text-[0.62rem] uppercase tracking-[0.3em] text-black/52">
+                  Downloads
+                </p>
+                <ul className="space-y-3">
+                  {statusState.downloadLinks.map((download) => (
+                    <li
+                      key={`${download.productId}-${download.downloadUrl}`}
+                      className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <span className="text-sm text-black/75">{download.productName}</span>
+                      <a
+                        href={download.downloadUrl}
+                        className="text-xs uppercase tracking-[0.3em] text-black/60"
+                      >
+                        Download
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {statusState.fulfillmentError ? (
+              <p className="text-xs text-red-600">
+                Email delivery hit an issue, but your download link is available here.
+              </p>
+            ) : null}
             <Link href="/store" className="text-xs uppercase tracking-[0.3em] text-black/60">
               Back to store
             </Link>
