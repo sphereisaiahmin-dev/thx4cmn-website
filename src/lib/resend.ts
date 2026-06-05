@@ -3,6 +3,7 @@ import {
   type DigitalFulfillmentEmailItem,
   type DigitalFulfillmentReceiptItem,
 } from './fulfillmentEmail';
+import { EMAIL_LOGO_CID, readEmailLogoAttachment } from './emailLogoAttachment';
 
 const RESEND_EMAIL_API_URL = 'https://api.resend.com/emails';
 
@@ -71,6 +72,7 @@ export const sendDigitalFulfillmentEmail = async (
   const apiKey = readRequiredEnv('RESEND_API_KEY');
   const from = readRequiredEnv('RESEND_FROM_EMAIL');
   const replyTo = process.env.RESEND_REPLY_TO_EMAIL?.trim();
+  const logoAttachment = readEmailLogoAttachment();
   const email = buildDigitalFulfillmentEmail({
     orderId,
     items,
@@ -80,6 +82,7 @@ export const sendDigitalFulfillmentEmail = async (
     currency,
     receiptItems,
     replyToEmail: replyTo || null,
+    logoSrc: `cid:${EMAIL_LOGO_CID}`,
   });
   const body: Record<string, unknown> = {
     from,
@@ -87,6 +90,7 @@ export const sendDigitalFulfillmentEmail = async (
     subject: email.subject,
     html: email.html,
     text: email.text,
+    attachments: [logoAttachment],
   };
 
   if (replyTo) {
