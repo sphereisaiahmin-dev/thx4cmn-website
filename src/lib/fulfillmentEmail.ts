@@ -18,6 +18,7 @@ interface BuildDigitalFulfillmentEmailParams {
   currency?: string | null;
   receiptItems?: ReadonlyArray<DigitalFulfillmentReceiptItem>;
   replyToEmail?: string | null;
+  logoSrc?: string | null;
 }
 
 const escapeHtml = (value: string) =>
@@ -52,6 +53,7 @@ export const buildDigitalFulfillmentEmail = ({
   currency,
   receiptItems = [],
   replyToEmail,
+  logoSrc,
 }: BuildDigitalFulfillmentEmailParams) => {
   const firstItem = items[0];
   const subject =
@@ -107,6 +109,11 @@ export const buildDigitalFulfillmentEmail = ({
   const replyLine = replyToEmail
     ? `Questions? Reply to this email or reach us at ${replyToEmail}.`
     : 'Questions? Reply to this email and we will help.';
+  const logoHtml = logoSrc
+    ? `<p style="margin: 24px 0 10px;"><img src="${escapeHtml(
+        logoSrc,
+      )}" width="140" alt="thx4cmn" style="display: block; width: 140px; max-width: 100%; height: auto;" /></p>`
+    : '';
 
   return {
     subject,
@@ -142,6 +149,7 @@ export const buildDigitalFulfillmentEmail = ({
           orderReference,
         )} ${items.length === 1 ? 'is' : 'are'} ready:</p>
         <ul style="padding-left: 20px;">${itemListHtml}</ul>
+        ${logoHtml}
         <p style="color: #4b5563;">${escapeHtml(replyLine)}</p>
       </div>
     `,

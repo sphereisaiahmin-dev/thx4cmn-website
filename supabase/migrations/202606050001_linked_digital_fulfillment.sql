@@ -34,7 +34,7 @@ values
     'digital',
     0,
     'USD',
-    'packs/Community Vol. 1-20260605T024044Z-3-001.zip',
+    'packs/Community Vol. 1.zip',
     true
   ),
   (
@@ -45,7 +45,7 @@ values
     'digital',
     3000,
     'USD',
-    'packs/Community Vol. 1-20260605T024044Z-3-001.zip',
+    'packs/Universe Vol. 1.zip',
     true
   )
 on conflict (id) do update set
