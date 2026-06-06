@@ -247,7 +247,7 @@ export const Navigation = () => {
     <>
       <header
         ref={headerRef}
-        className="fixed left-0 right-0 top-0 z-[60] border-b border-black/10 bg-white/65 px-6 py-4 backdrop-blur-xl md:static md:left-auto md:right-auto md:top-auto md:bg-transparent md:px-0 md:py-6 md:backdrop-blur-none"
+        className="fixed left-0 right-0 top-0 z-[60] border-b border-black/10 bg-white/65 px-6 py-0 backdrop-blur-xl md:static md:left-auto md:right-auto md:top-auto md:bg-transparent md:px-0 md:py-6 md:backdrop-blur-none"
       >
         <div className="flex w-full items-center justify-center gap-4 md:justify-between md:gap-0">
           <div
@@ -268,7 +268,7 @@ export const Navigation = () => {
               />
             </div>
           </div>
-          <nav className="flex w-full flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[0.62rem] uppercase tracking-[0.22em] md:w-auto md:gap-6 md:text-xs md:tracking-[0.3em]">
+          <nav className="flex w-full flex-wrap items-center justify-center gap-x-1 gap-y-1 text-[0.62rem] uppercase tracking-[0.22em] md:w-auto md:gap-6 md:text-xs md:tracking-[0.3em]">
             {navItems.map((item) => {
               const isActive = isNavItemActive(pathname, item.href);
 
@@ -277,7 +277,7 @@ export const Navigation = () => {
                   key={item.href}
                   href={item.href}
                   prefetch={false}
-                  className={`nav-link${isActive ? ' nav-link-active' : ''}`}
+                  className={`nav-link inline-flex min-h-11 items-center justify-center px-2 md:min-h-0 md:px-0${isActive ? ' nav-link-active' : ''}`}
                   onClick={(event) => handleNavLinkClick(event, item.href)}
                   onMouseEnter={() => handleNavLinkIntent(item.href)}
                   onFocus={() => handleNavLinkIntent(item.href)}
@@ -289,7 +289,7 @@ export const Navigation = () => {
             <Link
               href="/cart"
               prefetch={false}
-              className="nav-link inline-flex items-center gap-2 md:hidden"
+              className="nav-link inline-flex min-h-11 items-center justify-center gap-2 px-2 md:hidden"
               onClick={(event) => handleNavLinkClick(event, '/cart')}
               onMouseEnter={() => handleNavLinkIntent('/cart')}
               onFocus={() => handleNavLinkIntent('/cart')}

@@ -19,9 +19,9 @@ export default async function DevicePage() {
   }
 
   return (
-    <section className="relative">
+    <section className="relative min-h-[calc(100svh-var(--site-header-height)-var(--mobile-player-offset)-8rem)] md:min-h-0">
       <div
-        className="pointer-events-none select-none blur-[10px]"
+        className="pointer-events-none hidden select-none blur-[10px] md:block"
         aria-hidden="true"
         inert
       >
