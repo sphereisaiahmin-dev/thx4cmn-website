@@ -130,6 +130,63 @@ const enterPlayingState = async (page) => {
   throw new Error('Play button did not transition to pause state.');
 };
 
+const assertInitialAutoplayActivationFlow = async (page) => {
+  await page.waitForSelector('.audio-player__controls button');
+  await page.waitForFunction(() => {
+    const playButton = Array.from(document.querySelectorAll('.audio-player__controls button')).find(
+      (button) => button.textContent?.trim().toLowerCase() === 'play',
+    );
+    return Boolean(playButton && !playButton.hasAttribute('disabled'));
+  });
+
+  await page.mouse.move(24, 24);
+  await page.waitForTimeout(350);
+
+  const stateAfterMouseMove = await page.evaluate(() => {
+    const transportButton = Array.from(document.querySelectorAll('.audio-player__controls button')).find((button) => {
+      const label = button.textContent?.trim().toLowerCase();
+      return label === 'play' || label === 'pause';
+    });
+    const status = document.querySelector('.audio-player__status')?.textContent ?? null;
+    return {
+      transportLabel: transportButton?.textContent?.trim().toLowerCase() ?? null,
+      status,
+    };
+  });
+
+  assert(
+    stateAfterMouseMove.transportLabel === 'play',
+    'Mouse movement should arm autoplay without starting audible playback.',
+  );
+  assert(
+    !stateAfterMouseMove.status || !stateAfterMouseMove.status.includes('Unable to start playback'),
+    'Mouse movement should not surface an autoplay failure message.',
+  );
+
+  await page.mouse.click(24, 24);
+  await page.getByRole('button', { name: 'pause', exact: true }).waitFor({ timeout: 5000 });
+  await page.getByRole('button', { name: 'pause', exact: true }).click();
+  await page.getByRole('button', { name: 'play', exact: true }).waitFor({ timeout: 3000 });
+};
+
+const assertActivationDuringTrackLoadAutoplays = async (browser) => {
+  const page = await browser.newPage();
+  await page.route('**/api/music/signed-url?**', async (route) => {
+    await page.waitForTimeout(900);
+    await route.continue();
+  });
+
+  try {
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+    await waitForPlayerMounted(page);
+    await page.waitForSelector('.audio-player__controls button');
+    await page.mouse.click(24, 24);
+    await page.getByRole('button', { name: 'pause', exact: true }).waitFor({ timeout: 8000 });
+  } finally {
+    await page.close();
+  }
+};
+
 const run = async () => {
   const verifyEnv = {
     ...process.env,
@@ -173,6 +230,8 @@ const run = async () => {
 
     const page = await browser.newPage();
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+    await assertInitialAutoplayActivationFlow(page);
+    await assertActivationDuringTrackLoadAutoplays(browser);
 
     // Desktop home: full player + transport correctness.
     await page.waitForSelector('.audio-player__controls button');
