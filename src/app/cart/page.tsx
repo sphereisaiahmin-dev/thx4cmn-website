@@ -148,7 +148,7 @@ function CartPageContent() {
         </div>
       ) : null}
 
-      <div className="showcase-transition-cards max-h-[60vh] w-full overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6 lg:mx-auto lg:max-w-5xl">
+      <div className="showcase-transition-cards w-full rounded-2xl border border-black/10 bg-black/5 p-6 md:max-h-[60vh] md:overflow-y-auto lg:mx-auto lg:max-w-5xl">
         {items.length === 0 ? (
           <p className="text-sm text-black/60">Your cart is empty.</p>
         ) : (
@@ -258,7 +258,7 @@ const CartPageFallback = () => (
     <div className="showcase-transition-title text-center">
       <h1 className="text-3xl uppercase tracking-[0.3em]">Cart</h1>
     </div>
-    <div className="showcase-transition-cards max-h-[60vh] w-full overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6 lg:mx-auto lg:max-w-5xl">
+    <div className="showcase-transition-cards w-full rounded-2xl border border-black/10 bg-black/5 p-6 md:max-h-[60vh] md:overflow-y-auto lg:mx-auto lg:max-w-5xl">
       <p className="text-sm text-black/60">Loading cart...</p>
     </div>
   </section>

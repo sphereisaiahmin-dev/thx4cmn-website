@@ -50,6 +50,7 @@ export const AudioPlayer = () => {
   const requestFirstInteractionAutoplayRef = useRef(requestFirstInteractionAutoplay);
   const isMobileCompact = isMobile && !isHome;
   const isDspVisible = isDspOpen && !isCollapsed && !isMobileCompact;
+  const areDetailsHidden = isCollapsed || isMobileCompact;
   const currentTrackTitle = currentTrack?.title ?? null;
 
   const safeDuration = Number.isFinite(state.duration) ? state.duration : 0;
@@ -341,7 +342,7 @@ export const AudioPlayer = () => {
           next
         </button>
       </div>
-      <div className="audio-player__details" aria-hidden={isCollapsed || isMobileCompact}>
+      <div className="audio-player__details" aria-hidden={areDetailsHidden} inert={areDetailsHidden}>
         {statusMessage && <div className="audio-player__status">{statusMessage}</div>}
         <div className="audio-player__progress">
           <div className="audio-player__dots" role="list">

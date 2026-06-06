@@ -83,7 +83,7 @@ export default function ProjectsPage() {
         </p>
       </div>
 
-      <div className="showcase-transition-cards max-h-[60vh] w-full overflow-y-auto rounded-2xl border border-black/10 bg-black/5 p-6 lg:mx-auto lg:max-w-5xl">
+      <div className="showcase-transition-cards w-full rounded-2xl border border-black/10 bg-black/5 p-6 md:max-h-[60vh] md:overflow-y-auto lg:mx-auto lg:max-w-5xl">
         <ul className="space-y-4 text-sm uppercase tracking-[0.3em]">
           {projects.map((project) => (
             <li
