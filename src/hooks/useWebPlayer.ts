@@ -83,6 +83,17 @@ const isExpiredError = (error: unknown) => {
   return message.includes('403') || message.includes('forbidden') || message.includes('expired');
 };
 
+const isAutoplayPolicyError = (error: unknown) => {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return (
+    error.name === 'NotAllowedError' ||
+    message.includes('not allowed') ||
+    message.includes('user gesture') ||
+    message.includes('user activation')
+  );
+};
+
 const shuffleTracks = (tracks: Track[]) => {
   const shuffled = [...tracks];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
@@ -102,6 +113,7 @@ export const useWebPlayer = () => {
   const [state, dispatch] = useReducer(reducer, initialState);
   const engineRef = useRef<WebPlayerEngine | null>(null);
   const autoPlayRef = useRef(false);
+  const autoPlayActivationRef = useRef(false);
   const loadRequestIdRef = useRef(0);
   const reverseStateRef = useRef(initialState.isReversed);
   const signedUrlCacheRef = useRef(new Map<string, { url: string; expiresAt: number }>());
@@ -175,16 +187,23 @@ export const useWebPlayer = () => {
         dispatch({ type: 'set-status', payload: 'ready' });
         dispatch({ type: 'set-duration', payload: engineRef.current?.getDuration() ?? 0 });
         dispatch({ type: 'set-current-time', payload: engineRef.current?.getCurrentTime() ?? 0 });
-        if (autoPlayRef.current) {
+        if (autoPlayRef.current && autoPlayActivationRef.current) {
           autoPlayRef.current = false;
+          autoPlayActivationRef.current = false;
           try {
             await engineRef.current?.play();
+            dispatch({ type: 'set-playing', payload: engineRef.current?.getIsPlaying() ?? false });
           } catch (error) {
-            console.error('[WebPlayer] Auto-play failed.', error);
-            dispatch({
-              type: 'set-error',
-              payload: error instanceof Error ? error.message : 'Unable to start playback.',
-            });
+            if (isAutoplayPolicyError(error)) {
+              autoPlayRef.current = true;
+              console.warn('[WebPlayer] Auto-play was blocked until user activation.', error);
+            } else {
+              console.error('[WebPlayer] Auto-play failed.', error);
+              dispatch({
+                type: 'set-error',
+                payload: error instanceof Error ? error.message : 'Unable to start playback.',
+              });
+            }
           }
         }
       } catch (error) {
@@ -279,10 +298,12 @@ export const useWebPlayer = () => {
     if (!engineRef.current || controlsDisabled) return;
     if (state.status === 'loading-track') {
       autoPlayRef.current = !autoPlayRef.current;
+      autoPlayActivationRef.current = autoPlayRef.current;
       return;
     }
     if (state.isPlaying) {
       autoPlayRef.current = false;
+      autoPlayActivationRef.current = false;
       engineRef.current.pause();
       return;
     }
@@ -297,26 +318,36 @@ export const useWebPlayer = () => {
     }
   }, [controlsDisabled, state.isPlaying, state.status]);
 
-  const requestFirstInteractionAutoplay = useCallback(async () => {
+  const requestFirstInteractionAutoplay = useCallback(async ({ canStartPlayback = false } = {}) => {
     if (state.isPlaying) return;
     autoPlayRef.current = true;
+    autoPlayActivationRef.current = autoPlayActivationRef.current || canStartPlayback;
 
-    if (!engineRef.current) return;
+    if (!engineRef.current || !canStartPlayback) return;
+
+    if (state.status === 'loading-list' || state.status === 'loading-track' || !currentTrack) {
+      return;
+    }
 
     try {
       await engineRef.current.play();
       if (engineRef.current.getIsPlaying()) {
         autoPlayRef.current = false;
+        autoPlayActivationRef.current = false;
         dispatch({ type: 'set-playing', payload: true });
       }
     } catch (error) {
+      if (isAutoplayPolicyError(error)) {
+        console.warn('[WebPlayer] First interaction auto-play was blocked until a stronger activation.', error);
+        return;
+      }
       console.error('[WebPlayer] First interaction auto-play failed.', error);
       dispatch({
         type: 'set-error',
         payload: error instanceof Error ? error.message : 'Unable to start playback.',
       });
     }
-  }, [state.isPlaying]);
+  }, [currentTrack, state.isPlaying, state.status]);
 
   const handleSeek = useCallback((time: number) => {
     if (!engineRef.current || !Number.isFinite(time)) {
@@ -393,6 +424,7 @@ export const useWebPlayer = () => {
   const handlePrev = useCallback(() => {
     if (!state.tracks.length) return;
     autoPlayRef.current = state.isPlaying;
+    autoPlayActivationRef.current = state.isPlaying;
     reverseStateRef.current = false;
     engineRef.current?.pause();
     engineRef.current?.setPlaybackRate(initialState.playbackRate);
@@ -408,6 +440,7 @@ export const useWebPlayer = () => {
   const handleNext = useCallback(() => {
     if (!state.tracks.length) return;
     autoPlayRef.current = state.isPlaying;
+    autoPlayActivationRef.current = state.isPlaying;
     reverseStateRef.current = false;
     engineRef.current?.pause();
     engineRef.current?.setPlaybackRate(initialState.playbackRate);

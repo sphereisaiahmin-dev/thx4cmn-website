@@ -39,17 +39,25 @@ export default function RootLayout({
             (function () {
               if (window.__thx4cmnFirstInteractionAutoplayReady) return;
               window.__thx4cmnFirstInteractionAutoplayReady = true;
-              var eventName = 'thx4cmn:first-interaction';
-              var markInteraction = function () {
-                window.__thx4cmnFirstInteractionAutoplay = true;
-                window.removeEventListener('mousemove', markInteraction);
-                window.removeEventListener('pointerdown', markInteraction);
-                window.removeEventListener('touchstart', markInteraction);
-                window.dispatchEvent(new Event(eventName));
+              window.__thx4cmnAutoplayActivationCount = window.__thx4cmnAutoplayActivationCount || 0;
+              var intentEventName = 'thx4cmn:autoplay-intent';
+              var activationEventName = 'thx4cmn:autoplay-activation';
+              var markIntent = function () {
+                window.__thx4cmnAutoplayIntent = true;
+                window.removeEventListener('mousemove', markIntent);
+                window.dispatchEvent(new Event(intentEventName));
               };
-              window.addEventListener('mousemove', markInteraction, { passive: true });
-              window.addEventListener('pointerdown', markInteraction, { passive: true });
-              window.addEventListener('touchstart', markInteraction, { passive: true });
+              var markActivation = function () {
+                window.__thx4cmnAutoplayIntent = true;
+                window.__thx4cmnAutoplayActivationCount += 1;
+                window.dispatchEvent(new Event(intentEventName));
+                window.dispatchEvent(new Event(activationEventName));
+              };
+              window.addEventListener('mousemove', markIntent, { passive: true });
+              window.addEventListener('pointerdown', markActivation, { passive: true });
+              window.addEventListener('click', markActivation, { passive: true });
+              window.addEventListener('touchstart', markActivation, { passive: true });
+              window.addEventListener('keydown', markActivation);
             })();
           `}
         </Script>

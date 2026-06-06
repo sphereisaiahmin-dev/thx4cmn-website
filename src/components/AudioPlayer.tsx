@@ -10,10 +10,12 @@ import { useUiStore } from '@/store/ui';
 
 const ARTIST_LABEL = 'thx4cmn';
 const DOT_COUNT = 24;
-const FIRST_INTERACTION_EVENT = 'thx4cmn:first-interaction';
+const AUTOPLAY_INTENT_EVENT = 'thx4cmn:autoplay-intent';
+const AUTOPLAY_ACTIVATION_EVENT = 'thx4cmn:autoplay-activation';
 
 type FirstInteractionWindow = Window & {
-  __thx4cmnFirstInteractionAutoplay?: boolean;
+  __thx4cmnAutoplayIntent?: boolean;
+  __thx4cmnAutoplayActivationCount?: number;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -42,7 +44,8 @@ export const AudioPlayer = () => {
   const playerRef = useRef<HTMLDivElement | null>(null);
   const titleViewportRef = useRef<HTMLSpanElement | null>(null);
   const titleTextRef = useRef<HTMLSpanElement | null>(null);
-  const hasRequestedFirstAutoplayRef = useRef(false);
+  const hasArmedAutoplayRef = useRef(false);
+  const handledActivationCountRef = useRef(0);
   const lastAutoplayPathRef = useRef<string | null>(null);
   const requestFirstInteractionAutoplayRef = useRef(requestFirstInteractionAutoplay);
   const isMobileCompact = isMobile && !isHome;
@@ -129,38 +132,51 @@ export const AudioPlayer = () => {
     const hasPathChanged = lastAutoplayPathRef.current !== pathname;
 
     if (hasPathChanged) {
-      hasRequestedFirstAutoplayRef.current = false;
+      hasArmedAutoplayRef.current = false;
       lastAutoplayPathRef.current = pathname;
       if (!isInitialPath) {
-        firstInteractionWindow.__thx4cmnFirstInteractionAutoplay = false;
+        firstInteractionWindow.__thx4cmnAutoplayIntent = false;
       }
     }
 
-    const handleFirstInteraction = () => {
-      if (hasRequestedFirstAutoplayRef.current) return;
-      hasRequestedFirstAutoplayRef.current = true;
-      window.removeEventListener('mousemove', handleFirstInteraction);
-      window.removeEventListener('pointerdown', handleFirstInteraction);
-      window.removeEventListener('touchstart', handleFirstInteraction);
-      window.removeEventListener(FIRST_INTERACTION_EVENT, handleFirstInteraction);
-      void requestFirstInteractionAutoplayRef.current();
+    const handleAutoplayIntent = () => {
+      if (hasArmedAutoplayRef.current) return;
+      hasArmedAutoplayRef.current = true;
+      void requestFirstInteractionAutoplayRef.current({ canStartPlayback: false });
     };
 
-    if (firstInteractionWindow.__thx4cmnFirstInteractionAutoplay) {
-      handleFirstInteraction();
-      return;
+    const handleAutoplayActivation = () => {
+      const activationCount = firstInteractionWindow.__thx4cmnAutoplayActivationCount ?? 0;
+      if (activationCount > handledActivationCountRef.current) {
+        handledActivationCountRef.current = activationCount;
+      }
+      hasArmedAutoplayRef.current = true;
+      void requestFirstInteractionAutoplayRef.current({ canStartPlayback: true });
+    };
+
+    if (firstInteractionWindow.__thx4cmnAutoplayIntent) {
+      handleAutoplayIntent();
+    }
+    if ((firstInteractionWindow.__thx4cmnAutoplayActivationCount ?? 0) > handledActivationCountRef.current) {
+      handleAutoplayActivation();
     }
 
-    window.addEventListener('mousemove', handleFirstInteraction, { passive: true });
-    window.addEventListener('pointerdown', handleFirstInteraction, { passive: true });
-    window.addEventListener('touchstart', handleFirstInteraction, { passive: true });
-    window.addEventListener(FIRST_INTERACTION_EVENT, handleFirstInteraction);
+    window.addEventListener('mousemove', handleAutoplayIntent, { passive: true });
+    window.addEventListener(AUTOPLAY_INTENT_EVENT, handleAutoplayIntent);
+    window.addEventListener(AUTOPLAY_ACTIVATION_EVENT, handleAutoplayActivation);
+    window.addEventListener('pointerdown', handleAutoplayActivation, { passive: true });
+    window.addEventListener('click', handleAutoplayActivation, { passive: true });
+    window.addEventListener('touchstart', handleAutoplayActivation, { passive: true });
+    window.addEventListener('keydown', handleAutoplayActivation);
 
     return () => {
-      window.removeEventListener('mousemove', handleFirstInteraction);
-      window.removeEventListener('pointerdown', handleFirstInteraction);
-      window.removeEventListener('touchstart', handleFirstInteraction);
-      window.removeEventListener(FIRST_INTERACTION_EVENT, handleFirstInteraction);
+      window.removeEventListener('mousemove', handleAutoplayIntent);
+      window.removeEventListener(AUTOPLAY_INTENT_EVENT, handleAutoplayIntent);
+      window.removeEventListener(AUTOPLAY_ACTIVATION_EVENT, handleAutoplayActivation);
+      window.removeEventListener('pointerdown', handleAutoplayActivation);
+      window.removeEventListener('click', handleAutoplayActivation);
+      window.removeEventListener('touchstart', handleAutoplayActivation);
+      window.removeEventListener('keydown', handleAutoplayActivation);
     };
   }, [pathname]);
 
