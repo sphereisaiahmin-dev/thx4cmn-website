@@ -24,6 +24,7 @@ const CHECKOUT_SESSION_TTL_MS = 60 * 60 * 1000;
 interface CheckoutSessionPayload {
   clientSecret?: string | null;
   sessionId?: string;
+  returnToken?: string | null;
   id?: string;
   status?: 'open' | 'complete' | 'expired' | null;
   url?: string;
@@ -34,6 +35,7 @@ interface CheckoutSessionPayload {
 interface StoredCheckoutSession {
   cartSignature: string;
   sessionId: string;
+  returnToken: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -49,7 +51,7 @@ const isStoredCheckoutSessionExpired = (storedSession: Partial<StoredCheckoutSes
 
 type CheckoutSetupState =
   | { type: 'loading'; message: string }
-  | { type: 'ready'; clientSecret: string; sessionId: string }
+  | { type: 'ready'; clientSecret: string; sessionId: string; returnToken: string }
   | { type: 'empty' }
   | { type: 'error'; message: string };
 
@@ -65,17 +67,24 @@ const readStoredCheckoutSession = (cartSignature: string) => {
       return null;
     }
 
-    if (parsed.cartSignature !== cartSignature || !parsed.sessionId) {
+    if (parsed.cartSignature !== cartSignature || !parsed.sessionId || !parsed.returnToken) {
       return null;
     }
 
-    return parsed.sessionId;
+    return {
+      sessionId: parsed.sessionId,
+      returnToken: parsed.returnToken,
+    };
   } catch {
     return null;
   }
 };
 
-const writeStoredCheckoutSession = (cartSignature: string, sessionId: string) => {
+const writeStoredCheckoutSession = (
+  cartSignature: string,
+  sessionId: string,
+  returnToken: string,
+) => {
   if (typeof window === 'undefined') return;
   const now = Date.now();
   window.localStorage.setItem(
@@ -83,6 +92,7 @@ const writeStoredCheckoutSession = (cartSignature: string, sessionId: string) =>
     JSON.stringify({
       cartSignature,
       sessionId,
+      returnToken,
       createdAt: now,
       updatedAt: now,
     } satisfies StoredCheckoutSession),
@@ -180,6 +190,7 @@ function CheckoutPageContent() {
     message: 'Preparing checkout...',
   });
   const sessionIdParam = searchParams.get('session_id')?.trim() ?? '';
+  const returnTokenParam = searchParams.get('return_token')?.trim() ?? '';
   const checkoutItems = useMemo(
     () =>
       toCheckoutItemsPayload(
@@ -202,18 +213,22 @@ function CheckoutPageContent() {
     currency: cartCurrency,
   });
 
-  const loadExistingSession = useCallback(async (sessionId: string, signal: AbortSignal) => {
-    const response = await fetch(
-      `/api/stripe/session?session_id=${encodeURIComponent(sessionId)}`,
-      { signal },
-    );
-    const payload = await parseCheckoutResponse(response);
-    return {
-      status: payload.status,
-      clientSecret: payload.clientSecret ?? null,
-      sessionId: payload.id ?? sessionId,
-    };
-  }, []);
+  const loadExistingSession = useCallback(
+    async (sessionId: string, returnToken: string, signal: AbortSignal) => {
+      const query = new URLSearchParams({
+        session_id: sessionId,
+        return_token: returnToken,
+      });
+      const response = await fetch(`/api/stripe/session?${query.toString()}`, { signal });
+      const payload = await parseCheckoutResponse(response);
+      return {
+        status: payload.status,
+        clientSecret: payload.clientSecret ?? null,
+        sessionId: payload.id ?? sessionId,
+      };
+    },
+    [],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -228,9 +243,21 @@ function CheckoutPageContent() {
       }
 
       if (sessionIdParam) {
+        if (!returnTokenParam) {
+          setSetupState({
+            type: 'error',
+            message: 'Missing checkout return token.',
+          });
+          return;
+        }
+
         setSetupState({ type: 'loading', message: 'Loading checkout session...' });
         try {
-          const existingSession = await loadExistingSession(sessionIdParam, controller.signal);
+          const existingSession = await loadExistingSession(
+            sessionIdParam,
+            returnTokenParam,
+            controller.signal,
+          );
           if (controller.signal.aborted) return;
 
           if (existingSession.status === 'open' && existingSession.clientSecret) {
@@ -238,13 +265,16 @@ function CheckoutPageContent() {
               type: 'ready',
               clientSecret: existingSession.clientSecret,
               sessionId: existingSession.sessionId,
+              returnToken: returnTokenParam,
             });
             return;
           }
 
-          router.replace(
-            `/checkout/return?session_id=${encodeURIComponent(existingSession.sessionId)}`,
-          );
+          const returnQuery = new URLSearchParams({
+            session_id: existingSession.sessionId,
+            return_token: returnTokenParam,
+          });
+          router.replace(`/checkout/return?${returnQuery.toString()}`);
         } catch (error) {
           if (controller.signal.aborted) return;
           setSetupState({
@@ -260,18 +290,23 @@ function CheckoutPageContent() {
         return;
       }
 
-      const storedSessionId = readStoredCheckoutSession(cartSignature);
-      if (storedSessionId) {
+      const storedSession = readStoredCheckoutSession(cartSignature);
+      if (storedSession) {
         setSetupState({ type: 'loading', message: 'Resuming checkout...' });
         try {
-          const storedSession = await loadExistingSession(storedSessionId, controller.signal);
+          const existingSession = await loadExistingSession(
+            storedSession.sessionId,
+            storedSession.returnToken,
+            controller.signal,
+          );
           if (controller.signal.aborted) return;
 
-          if (storedSession.status === 'open' && storedSession.clientSecret) {
+          if (existingSession.status === 'open' && existingSession.clientSecret) {
             setSetupState({
               type: 'ready',
-              clientSecret: storedSession.clientSecret,
-              sessionId: storedSession.sessionId,
+              clientSecret: existingSession.clientSecret,
+              sessionId: existingSession.sessionId,
+              returnToken: storedSession.returnToken,
             });
             return;
           }
@@ -299,15 +334,16 @@ function CheckoutPageContent() {
           return;
         }
 
-        if (!payload.clientSecret || !payload.sessionId) {
+        if (!payload.clientSecret || !payload.sessionId || !payload.returnToken) {
           throw new Error('Checkout session did not return a client secret.');
         }
 
-        writeStoredCheckoutSession(cartSignature, payload.sessionId);
+        writeStoredCheckoutSession(cartSignature, payload.sessionId, payload.returnToken);
         setSetupState({
           type: 'ready',
           clientSecret: payload.clientSecret,
           sessionId: payload.sessionId,
+          returnToken: payload.returnToken,
         });
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -320,12 +356,17 @@ function CheckoutPageContent() {
 
     void prepareCheckout();
     return () => controller.abort();
-  }, [cartSignature, checkoutItems, loadExistingSession, router, sessionIdParam]);
+  }, [cartSignature, checkoutItems, loadExistingSession, router, returnTokenParam, sessionIdParam]);
 
   const handleComplete = (completedSessionId: string) => {
     clear();
     clearStoredCheckoutSession();
-    router.push(`/checkout/return?session_id=${encodeURIComponent(completedSessionId)}`);
+    if (setupState.type !== 'ready') return;
+    const returnQuery = new URLSearchParams({
+      session_id: completedSessionId,
+      return_token: setupState.returnToken,
+    });
+    router.push(`/checkout/return?${returnQuery.toString()}`);
   };
 
   const checkoutOptions = useMemo(

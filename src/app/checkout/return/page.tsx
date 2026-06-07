@@ -50,7 +50,7 @@ type StatusState =
       downloadLinks: NonNullable<CheckoutSessionStatusPayload['downloadLinks']>;
       fulfillmentError: string | null;
     }
-  | { type: 'open'; sessionId: string }
+  | { type: 'open'; sessionId: string; returnToken: string }
   | { type: 'expired' }
   | { type: 'error'; message: string };
 
@@ -73,6 +73,7 @@ function CheckoutReturnContent() {
   const searchParams = useSearchParams();
   const clear = useCartStore((state) => state.clear);
   const sessionId = searchParams.get('session_id')?.trim() ?? '';
+  const returnToken = searchParams.get('return_token')?.trim() ?? '';
   const [statusState, setStatusState] = useState<StatusState>({ type: 'loading' });
 
   useEffect(() => {
@@ -84,11 +85,19 @@ function CheckoutReturnContent() {
         return;
       }
 
+      if (!returnToken) {
+        setStatusState({ type: 'error', message: 'Missing checkout return token.' });
+        return;
+      }
+
       try {
-        const response = await fetch(
-          `/api/stripe/session?session_id=${encodeURIComponent(sessionId)}`,
-          { signal: controller.signal },
-        );
+        const query = new URLSearchParams({
+          session_id: sessionId,
+          return_token: returnToken,
+        });
+        const response = await fetch(`/api/stripe/session?${query.toString()}`, {
+          signal: controller.signal,
+        });
         const payload = (await response.json().catch(() => null)) as
           | CheckoutSessionStatusPayload
           | null;
@@ -119,7 +128,7 @@ function CheckoutReturnContent() {
         }
 
         if (payload?.status === 'open') {
-          setStatusState({ type: 'open', sessionId: payload.id ?? sessionId });
+          setStatusState({ type: 'open', sessionId: payload.id ?? sessionId, returnToken });
           return;
         }
 
@@ -141,7 +150,7 @@ function CheckoutReturnContent() {
 
     void loadSessionStatus();
     return () => controller.abort();
-  }, [clear, sessionId]);
+  }, [clear, returnToken, sessionId]);
 
   const title =
     statusState.type === 'complete'
@@ -272,7 +281,10 @@ function CheckoutReturnContent() {
           <div className="space-y-4">
             <p>Checkout is still open.</p>
             <Link
-              href={`/checkout?session_id=${encodeURIComponent(statusState.sessionId)}`}
+              href={`/checkout?${new URLSearchParams({
+                session_id: statusState.sessionId,
+                return_token: statusState.returnToken,
+              }).toString()}`}
               className="text-xs uppercase tracking-[0.3em] text-black/60"
             >
               Continue checkout

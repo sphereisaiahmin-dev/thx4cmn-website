@@ -1,13 +1,31 @@
 import { NextResponse } from 'next/server';
 
 import { getProductById } from '@/data/products';
-import { hashDownloadToken } from '@/lib/downloadTokens';
+import {
+  hasDownloadTokenReachedLimit,
+  hashDownloadToken,
+  isDownloadTokenExpired,
+} from '@/lib/downloadTokens';
 import { getSignedDownloadUrl } from '@/lib/r2';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { createServerClient } from '@/lib/supabase/server';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: Request) {
+  const clientIp = getClientIp(request);
+  const limit = checkRateLimit({
+    key: `download:${clientIp}`,
+    limit: 120,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (limit.limited) {
+    return NextResponse.json(
+      { error: 'Too many download attempts.' },
+      { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds) } },
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const token = searchParams.get('token')?.trim();
 
@@ -19,7 +37,7 @@ export async function GET(request: Request) {
   const tokenHash = hashDownloadToken(token);
   const { data: tokenRow, error: tokenError } = await supabase
     .from('entitlement_download_tokens')
-    .select('id, entitlement_id, download_count, expires_at')
+    .select('id, entitlement_id, download_count, max_downloads, expires_at')
     .eq('token_hash', tokenHash)
     .maybeSingle();
 
@@ -31,6 +49,7 @@ export async function GET(request: Request) {
     id: string;
     entitlement_id: string;
     download_count: number | null;
+    max_downloads: number | null;
     expires_at: string | null;
   } | null;
   let entitlementId = tokenRecord?.entitlement_id ?? null;
@@ -70,12 +89,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Product not eligible for download.' }, { status: 400 });
   }
 
-  if (digitalEntitlement.expires_at && new Date(digitalEntitlement.expires_at) < new Date()) {
+  const now = new Date();
+
+  if (isDownloadTokenExpired(digitalEntitlement.expires_at, now)) {
     return NextResponse.json({ error: 'Entitlement expired.' }, { status: 403 });
   }
 
-  if (tokenRecord?.expires_at && new Date(tokenRecord.expires_at) < new Date()) {
+  if (tokenRecord && isDownloadTokenExpired(tokenRecord.expires_at, now)) {
     return NextResponse.json({ error: 'Download token expired.' }, { status: 403 });
+  }
+
+  if (
+    tokenRecord &&
+    hasDownloadTokenReachedLimit(tokenRecord.download_count, tokenRecord.max_downloads)
+  ) {
+    return NextResponse.json({ error: 'Download token usage limit reached.' }, { status: 403 });
   }
 
   const signedUrl = await getSignedDownloadUrl(product.r2Key, 90);

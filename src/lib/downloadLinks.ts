@@ -2,7 +2,13 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { getProductById } from '@/data/products';
 import {
+  CHECKOUT_RETURN_DOWNLOAD_MAX_DOWNLOADS,
+  CHECKOUT_RETURN_DOWNLOAD_TOKEN_TTL_MS,
   createDownloadToken,
+  deriveCheckoutReturnDownloadToken,
+  downloadTokenExpiresAt,
+  EMAIL_DOWNLOAD_MAX_DOWNLOADS,
+  EMAIL_DOWNLOAD_TOKEN_TTL_MS,
   hashDownloadToken,
   type DownloadTokenPurpose,
 } from '@/lib/downloadTokens';
@@ -17,12 +23,19 @@ interface CreateEntitlementDownloadTokenParams {
   supabase: SupabaseClient;
   entitlementId: string;
   purpose: DownloadTokenPurpose;
+  token?: string;
+  expiresAt?: string;
+  maxDownloads?: number;
+  upsert?: boolean;
 }
 
 interface CreateOrderDownloadLinksParams {
   supabase: SupabaseClient;
   orderId: string;
   appOrigin: string;
+  returnToken: string;
+  expiresAt?: string;
+  maxDownloads?: number;
 }
 
 export const toDownloadUrl = (appOrigin: string, token: string) => {
@@ -35,13 +48,33 @@ export const createEntitlementDownloadToken = async ({
   supabase,
   entitlementId,
   purpose,
+  token: providedToken,
+  expiresAt,
+  maxDownloads,
+  upsert = false,
 }: CreateEntitlementDownloadTokenParams) => {
-  const token = createDownloadToken();
-  const { error } = await supabase.from('entitlement_download_tokens').insert({
+  const token = providedToken ?? createDownloadToken();
+  const row = {
     entitlement_id: entitlementId,
     token_hash: hashDownloadToken(token),
     purpose,
-  });
+    expires_at:
+      expiresAt ??
+      downloadTokenExpiresAt(
+        purpose === 'email' ? EMAIL_DOWNLOAD_TOKEN_TTL_MS : CHECKOUT_RETURN_DOWNLOAD_TOKEN_TTL_MS,
+      ),
+    max_downloads:
+      maxDownloads ??
+      (purpose === 'email' ? EMAIL_DOWNLOAD_MAX_DOWNLOADS : CHECKOUT_RETURN_DOWNLOAD_MAX_DOWNLOADS),
+  };
+
+  const query = upsert
+    ? supabase
+        .from('entitlement_download_tokens')
+        .upsert(row, { onConflict: 'token_hash' })
+    : supabase.from('entitlement_download_tokens').insert(row);
+
+  const { error } = await query;
 
   if (error) {
     throw error;
@@ -54,6 +87,9 @@ export const createOrderDownloadLinks = async ({
   supabase,
   orderId,
   appOrigin,
+  returnToken,
+  expiresAt,
+  maxDownloads = CHECKOUT_RETURN_DOWNLOAD_MAX_DOWNLOADS,
 }: CreateOrderDownloadLinksParams): Promise<DigitalDownloadLink[]> => {
   const { data: entitlements, error } = await supabase
     .from('entitlements')
@@ -75,6 +111,11 @@ export const createOrderDownloadLinks = async ({
       supabase,
       entitlementId: entitlement.id,
       purpose: 'checkout_return',
+      token: deriveCheckoutReturnDownloadToken(returnToken, entitlement.id),
+      expiresAt:
+        expiresAt ?? downloadTokenExpiresAt(CHECKOUT_RETURN_DOWNLOAD_TOKEN_TTL_MS),
+      maxDownloads,
+      upsert: true,
     });
 
     links.push({

@@ -4,10 +4,13 @@ import Stripe from 'stripe';
 import { modelUrlsByProductId } from '@/components/productModelUrls';
 import { getProductById } from '@/data/products';
 import { resolveAppOrigin } from '@/lib/appOrigin';
+import { verifyCheckoutReturnToken } from '@/lib/checkoutReturnAccess';
 import { parseCheckoutItemsPayload, type CheckoutItem } from '@/lib/checkout';
 import { persistCommerceOrder } from '@/lib/commerceOrders';
+import { CHECKOUT_RETURN_DOWNLOAD_MAX_DOWNLOADS } from '@/lib/downloadTokens';
 import { createOrderDownloadLinks } from '@/lib/downloadLinks';
 import { fulfillDigitalOrder } from '@/lib/digitalOrderFulfillment';
+import { checkRateLimit, getClientIp } from '@/lib/rateLimit';
 import { getStripeClient } from '@/lib/stripe';
 import { createServerClient } from '@/lib/supabase/server';
 
@@ -69,8 +72,22 @@ const toReceiptItems = (items: ReadonlyArray<CheckoutItem>) =>
 
 export async function GET(request: Request) {
   const requestId = globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
+  const clientIp = getClientIp(request);
+  const limit = checkRateLimit({
+    key: `stripe-session:${clientIp}`,
+    limit: 60,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (limit.limited) {
+    return NextResponse.json(
+      { error: 'Too many checkout session attempts.', requestId },
+      { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds) } },
+    );
+  }
+
   const { searchParams } = new URL(request.url);
   const sessionId = searchParams.get('session_id')?.trim();
+  const returnToken = searchParams.get('return_token')?.trim();
 
   if (!sessionId || !sessionId.startsWith('cs_')) {
     return NextResponse.json(
@@ -84,6 +101,17 @@ export async function GET(request: Request) {
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
       expand: ['payment_intent.latest_charge'],
     });
+    const returnAccess = verifyCheckoutReturnToken({
+      token: returnToken,
+      metadata: session.metadata,
+    });
+    if (!returnAccess.ok) {
+      return NextResponse.json(
+        { error: returnAccess.error, requestId },
+        { status: returnAccess.status },
+      );
+    }
+
     const supabase = createServerClient();
     const downloadLinks: Array<{
       productId: string;
@@ -166,6 +194,9 @@ export async function GET(request: Request) {
             supabase,
             orderId,
             appOrigin: origin,
+            returnToken: returnToken!,
+            expiresAt: returnAccess.expiresAt,
+            maxDownloads: CHECKOUT_RETURN_DOWNLOAD_MAX_DOWNLOADS,
           })),
         );
       }

@@ -2,7 +2,7 @@ import nextCoreWebVitals from 'eslint-config-next/core-web-vitals';
 
 const config = [
   {
-    ignores: ['audiowebplayer/**/*.js'],
+    ignores: ['.codex*/**', 'audiowebplayer/**/*.js'],
   },
   ...nextCoreWebVitals,
   {

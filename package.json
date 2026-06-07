@@ -9,7 +9,7 @@
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "format": "prettier --write .",
     "verify:webplayer": "node scripts/verify-webplayer.mjs",
-    "test:web-utils": "node --test --experimental-strip-types tests/checkout.test.ts tests/digitalFulfillment.test.ts tests/firmwareUpdateSafety.test.ts",
+    "test:web-utils": "node --test --experimental-strip-types tests/checkout.test.ts tests/digitalFulfillment.test.ts tests/firmwareUpdateSafety.test.ts tests/hx01Access.test.ts tests/musicTracks.test.ts",
     "test:firmware-bootstrap": "node --test --experimental-strip-types tests/firmwareBootstrap.test.ts",
     "build:firmware-package": "node scripts/build-firmware-package.mjs",
     "build:firmware-bootstrap": "node scripts/build-firmware-bootstrap.mjs",

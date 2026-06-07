@@ -42,9 +42,13 @@ Base architecture + starter site for thx4cmn using Next.js App Router, Supabase,
 | `RESEND_API_KEY` | Resend API key used by server routes to send fulfillment email |
 | `RESEND_FROM_EMAIL` | Verified sender, e.g. `THX4CMN <orders@send.thx4cmn.com>` |
 | `RESEND_REPLY_TO_EMAIL` | Reply-to inbox for fulfillment emails |
+| `HX01_ACCESS_PIN` | PIN required for the HX01 device access gate; required in production |
+| `HX01_ACCESS_COOKIE_SECRET` | High-entropy signing secret for the HX01 access cookie; required in production |
 
 Security note:
 If credentials were ever committed with real values, rotate them immediately in Stripe, Supabase, and R2 before deploying.
+
+Production HX01 access fails closed if `HX01_ACCESS_PIN` or `HX01_ACCESS_COOKIE_SECRET` is missing.
 
 ## Stripe webhook setup
 
