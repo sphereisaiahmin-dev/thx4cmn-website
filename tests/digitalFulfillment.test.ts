@@ -3,7 +3,19 @@ import test from 'node:test';
 
 import { getProductById } from '../src/data/products.ts';
 import { resolveAppOrigin } from '../src/lib/appOrigin.ts';
-import { createDownloadToken, hashDownloadToken } from '../src/lib/downloadTokens.ts';
+import {
+  CHECKOUT_RETURN_DOWNLOAD_MAX_DOWNLOADS,
+  createDownloadToken,
+  deriveCheckoutReturnDownloadToken,
+  hasDownloadTokenReachedLimit,
+  hashDownloadToken,
+  isDownloadTokenExpired,
+} from '../src/lib/downloadTokens.ts';
+import {
+  createCheckoutReturnMetadata,
+  createCheckoutReturnToken,
+  verifyCheckoutReturnToken,
+} from '../src/lib/checkoutReturnAccess.ts';
 import { readEmailLogoAttachment } from '../src/lib/emailLogoAttachment.ts';
 import { buildDigitalFulfillmentEmail } from '../src/lib/fulfillmentEmail.ts';
 
@@ -13,6 +25,63 @@ test('download tokens are URL-safe and hash deterministically', () => {
   assert.match(token, /^[A-Za-z0-9_-]+$/);
   assert.equal(hashDownloadToken(token), hashDownloadToken(token));
   assert.notEqual(hashDownloadToken(token), token);
+});
+
+test('checkout return access token validates hash and expiry metadata', () => {
+  const now = new Date('2026-06-07T12:00:00.000Z');
+  const token = createCheckoutReturnToken();
+  const metadata = createCheckoutReturnMetadata(token, now);
+
+  assert.equal(
+    verifyCheckoutReturnToken({
+      token,
+      metadata,
+      now: new Date('2026-06-07T12:10:00.000Z'),
+    }).ok,
+    true,
+  );
+
+  assert.equal(
+    verifyCheckoutReturnToken({
+      token: 'wrong-token',
+      metadata,
+      now: new Date('2026-06-07T12:10:00.000Z'),
+    }).ok,
+    false,
+  );
+
+  assert.equal(
+    verifyCheckoutReturnToken({
+      token,
+      metadata,
+      now: new Date('2026-06-07T12:31:00.000Z'),
+    }).ok,
+    false,
+  );
+});
+
+test('checkout return download tokens are deterministic per entitlement', () => {
+  const token = 'return-token';
+  const entitlementId = 'entitlement-a';
+
+  assert.equal(
+    deriveCheckoutReturnDownloadToken(token, entitlementId),
+    deriveCheckoutReturnDownloadToken(token, entitlementId),
+  );
+  assert.notEqual(
+    deriveCheckoutReturnDownloadToken(token, entitlementId),
+    deriveCheckoutReturnDownloadToken(token, 'entitlement-b'),
+  );
+});
+
+test('download token expiry and max-download helpers enforce limits', () => {
+  const now = new Date('2026-06-07T12:00:00.000Z');
+
+  assert.equal(isDownloadTokenExpired('2026-06-07T11:59:59.999Z', now), true);
+  assert.equal(isDownloadTokenExpired('2026-06-07T12:00:00.001Z', now), false);
+  assert.equal(hasDownloadTokenReachedLimit(2, CHECKOUT_RETURN_DOWNLOAD_MAX_DOWNLOADS), false);
+  assert.equal(hasDownloadTokenReachedLimit(3, CHECKOUT_RETURN_DOWNLOAD_MAX_DOWNLOADS), true);
+  assert.equal(hasDownloadTokenReachedLimit(99, null), false);
 });
 
 test('fulfillment email includes the product download link', () => {
@@ -93,10 +162,10 @@ test('development app origin ignores placeholder env and uses request host', () 
   process.env.NODE_ENV = 'development';
 
   try {
-    assert.equal(
-      resolveAppOrigin(new Headers({ host: 'localhost:3001' })),
-      'http://localhost:3001',
-    );
+  assert.equal(
+    resolveAppOrigin(new Headers({ host: 'localhost:3001' })),
+    'http://localhost:3001',
+  );
   } finally {
     if (previousAppOrigin === undefined) {
       delete process.env.APP_ORIGIN;

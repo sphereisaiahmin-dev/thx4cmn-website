@@ -9,6 +9,10 @@ import {
   normalizeCheckoutEmail,
   parseCheckoutItemsPayload,
 } from '@/lib/checkout';
+import {
+  createCheckoutReturnMetadata,
+  createCheckoutReturnToken,
+} from '@/lib/checkoutReturnAccess';
 import { persistCommerceOrder } from '@/lib/commerceOrders';
 import { fulfillDigitalOrder } from '@/lib/digitalOrderFulfillment';
 import { createServerClient } from '@/lib/supabase/server';
@@ -134,15 +138,18 @@ export async function POST(request: Request) {
       origin,
       usingConfiguredOrigin: Boolean(process.env.APP_ORIGIN),
     };
+    const returnToken = createCheckoutReturnToken();
+    const returnTokenMetadata = createCheckoutReturnMetadata(returnToken);
 
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       ui_mode: 'elements',
       customer_creation: 'always',
       line_items: lineItems,
-      return_url: `${origin}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
+      return_url: `${origin}/checkout/return?session_id={CHECKOUT_SESSION_ID}&return_token=${encodeURIComponent(returnToken)}`,
       metadata: {
         cart: JSON.stringify(items),
+        ...returnTokenMetadata,
       },
     });
 
@@ -160,6 +167,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       clientSecret: session.client_secret,
       sessionId: session.id,
+      returnToken,
       requestId,
       persistCheckoutUrl: false,
     });

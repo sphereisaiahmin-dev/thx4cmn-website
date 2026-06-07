@@ -1,9 +1,44 @@
 import { spawn } from 'node:child_process';
+import net from 'node:net';
 import process from 'node:process';
 
 import { chromium } from 'playwright';
 
-const BASE_URL = 'http://127.0.0.1:3000';
+const HOST = '127.0.0.1';
+let BASE_URL = `http://${HOST}:3000`;
+
+const isPortAvailable = (port) =>
+  new Promise((resolve) => {
+    const server = net.createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port, HOST);
+  });
+
+const resolveVerifyPort = async () => {
+  const requestedPort = Number.parseInt(process.env.WEBPLAYER_VERIFY_PORT ?? '3000', 10);
+  if (!Number.isFinite(requestedPort) || requestedPort <= 0) {
+    throw new Error('WEBPLAYER_VERIFY_PORT must be a positive integer.');
+  }
+
+  if (await isPortAvailable(requestedPort)) {
+    return requestedPort;
+  }
+
+  if (process.env.WEBPLAYER_VERIFY_PORT) {
+    throw new Error(`WEBPLAYER_VERIFY_PORT ${requestedPort} is already in use.`);
+  }
+
+  for (let port = 3010; port < 3100; port += 1) {
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+  }
+
+  throw new Error('No available local port found for web player verification.');
+};
 
 const waitForServer = async (timeoutMs = 60000) => {
   const start = Date.now();
@@ -206,6 +241,8 @@ const assertActivationDuringTrackLoadAutoplays = async (browser) => {
 };
 
 const run = async () => {
+  const verifyPort = await resolveVerifyPort();
+  BASE_URL = `http://${HOST}:${verifyPort}`;
   const verifyEnv = {
     ...process.env,
     // Force local fixture mode for deterministic browser playback verification.
@@ -217,7 +254,16 @@ const run = async () => {
   const packageManager = resolvePackageManagerCommand();
   const devServer = spawn(
     packageManager.command,
-    [...packageManager.args, 'run', 'dev', '--', '--hostname', '127.0.0.1', '--port', '3000'],
+    [
+      ...packageManager.args,
+      'run',
+      'dev',
+      '--',
+      '--hostname',
+      HOST,
+      '--port',
+      String(verifyPort),
+    ],
     {
     stdio: 'inherit',
     env: verifyEnv,

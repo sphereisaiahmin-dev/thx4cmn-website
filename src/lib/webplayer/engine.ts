@@ -47,8 +47,13 @@ export class WebPlayerEngine {
   private loopStartSec: number | null = null;
   private loopEndSec: number | null = null;
   private loopEnabled = false;
+  private isDestroyed = false;
 
   private async ensureContext(resumeIfSuspended = false) {
+    if (this.isDestroyed) {
+      throw new Error('Web player engine has been destroyed.');
+    }
+
     if (!this.context) {
       this.context = new AudioContext();
       this.entryGain = this.context.createGain();
@@ -56,6 +61,11 @@ export class WebPlayerEngine {
       this.rebuildGraph();
       await this.ensureTransportNode();
     }
+
+    if (this.isDestroyed || !this.context) {
+      throw new Error('Web player engine has been destroyed.');
+    }
+
     if (resumeIfSuspended && this.context.state !== 'running') {
       await this.context.resume();
     }
@@ -63,9 +73,16 @@ export class WebPlayerEngine {
   }
 
   private async ensureTransportNode() {
-    if (!this.context || !this.entryGain || this.transportNode) return;
-    await this.context.audioWorklet.addModule(WORKLET_MODULE_URL);
-    this.transportNode = new AudioWorkletNode(this.context, WORKLET_NAME, {
+    const context = this.context;
+    const entryGain = this.entryGain;
+    if (!context || !entryGain || this.transportNode || this.isDestroyed) return;
+
+    await context.audioWorklet.addModule(WORKLET_MODULE_URL);
+    if (this.isDestroyed || this.context !== context || !this.entryGain || context.state === 'closed') {
+      return;
+    }
+
+    this.transportNode = new AudioWorkletNode(context, WORKLET_NAME, {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [2],
@@ -75,7 +92,7 @@ export class WebPlayerEngine {
   }
 
   private handleTransportMessage(message: { type?: string; frame?: number; playing?: boolean }) {
-    if (!this.currentTrack) return;
+    if (this.isDestroyed || !this.currentTrack) return;
 
     if (message.type === 'CURRENT_FRAME' && typeof message.frame === 'number') {
       // Processor reports frame in forward-frame space. We keep this as the authoritative
@@ -283,6 +300,7 @@ export class WebPlayerEngine {
   }
 
   private postTransportMessage(message: TransportMessage) {
+    if (this.isDestroyed) return;
     this.transportNode?.port.postMessage(message);
   }
 
@@ -320,7 +338,11 @@ export class WebPlayerEngine {
   }
 
   destroy() {
+    this.isDestroyed = true;
     this.pause();
+    if (this.transportNode) {
+      this.transportNode.port.onmessage = null;
+    }
     this.transportNode?.disconnect();
     this.entryGain?.disconnect();
     this.masterGain?.disconnect();

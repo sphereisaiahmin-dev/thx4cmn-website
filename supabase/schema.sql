@@ -71,6 +71,7 @@ create table if not exists entitlement_download_tokens (
   token_hash text unique not null,
   purpose text not null default 'email' check (purpose in ('email', 'checkout_return')),
   download_count integer not null default 0,
+  max_downloads integer not null default 10,
   expires_at timestamp with time zone,
   last_downloaded_at timestamp with time zone,
   created_at timestamp with time zone default now(),
@@ -81,6 +82,8 @@ create index if not exists entitlement_download_tokens_entitlement_id_idx
   on entitlement_download_tokens(entitlement_id);
 create index if not exists entitlement_download_tokens_purpose_idx
   on entitlement_download_tokens(purpose);
+create index if not exists entitlement_download_tokens_expires_at_idx
+  on entitlement_download_tokens(expires_at);
 
 create table if not exists digital_fulfillments (
   id uuid primary key default gen_random_uuid(),
