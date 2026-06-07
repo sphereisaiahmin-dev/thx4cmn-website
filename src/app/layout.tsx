@@ -40,14 +40,28 @@ export default function RootLayout({
               if (window.__thx4cmnFirstInteractionAutoplayReady) return;
               window.__thx4cmnFirstInteractionAutoplayReady = true;
               window.__thx4cmnAutoplayActivationCount = window.__thx4cmnAutoplayActivationCount || 0;
+              window.__thx4cmnAutoplayActivationConsumed = window.__thx4cmnAutoplayActivationConsumed || false;
               var intentEventName = 'thx4cmn:autoplay-intent';
               var activationEventName = 'thx4cmn:autoplay-activation';
+              var removeIntentListener = function () {
+                window.removeEventListener('mousemove', markIntent);
+              };
+              var removeActivationListeners = function () {
+                window.removeEventListener('pointerdown', markActivation);
+                window.removeEventListener('click', markActivation);
+                window.removeEventListener('touchstart', markActivation);
+                window.removeEventListener('keydown', markActivation);
+              };
               var markIntent = function () {
                 window.__thx4cmnAutoplayIntent = true;
-                window.removeEventListener('mousemove', markIntent);
+                removeIntentListener();
                 window.dispatchEvent(new Event(intentEventName));
               };
               var markActivation = function () {
+                if (window.__thx4cmnAutoplayActivationConsumed) return;
+                window.__thx4cmnAutoplayActivationConsumed = true;
+                removeIntentListener();
+                removeActivationListeners();
                 window.__thx4cmnAutoplayIntent = true;
                 window.__thx4cmnAutoplayActivationCount += 1;
                 window.dispatchEvent(new Event(intentEventName));
