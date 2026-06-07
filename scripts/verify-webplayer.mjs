@@ -167,6 +167,24 @@ const assertInitialAutoplayActivationFlow = async (page) => {
   await page.getByRole('button', { name: 'pause', exact: true }).waitFor({ timeout: 5000 });
   await page.getByRole('button', { name: 'pause', exact: true }).click();
   await page.getByRole('button', { name: 'play', exact: true }).waitFor({ timeout: 3000 });
+  await page.mouse.click(24, 24);
+  await page.waitForTimeout(500);
+
+  const stateAfterPostPauseClick = await page.evaluate(() => {
+    const transportButton = Array.from(document.querySelectorAll('.audio-player__controls button')).find((button) => {
+      const label = button.textContent?.trim().toLowerCase();
+      return label === 'play' || label === 'pause';
+    });
+    return transportButton?.textContent?.trim().toLowerCase() ?? null;
+  });
+
+  assert(
+    stateAfterPostPauseClick === 'play',
+    'Clicks after the first autoplay activation should not restart playback after pause.',
+  );
+
+  await page.getByRole('button', { name: 'play', exact: true }).click();
+  await page.getByRole('button', { name: 'pause', exact: true }).waitFor({ timeout: 3000 });
 };
 
 const assertActivationDuringTrackLoadAutoplays = async (browser) => {

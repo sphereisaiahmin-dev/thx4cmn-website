@@ -16,6 +16,7 @@ const AUTOPLAY_ACTIVATION_EVENT = 'thx4cmn:autoplay-activation';
 type FirstInteractionWindow = Window & {
   __thx4cmnAutoplayIntent?: boolean;
   __thx4cmnAutoplayActivationCount?: number;
+  __thx4cmnAutoplayActivationConsumed?: boolean;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
@@ -45,8 +46,8 @@ export const AudioPlayer = () => {
   const titleViewportRef = useRef<HTMLSpanElement | null>(null);
   const titleTextRef = useRef<HTMLSpanElement | null>(null);
   const hasArmedAutoplayRef = useRef(false);
+  const hasConsumedAutoplayActivationRef = useRef(false);
   const handledActivationCountRef = useRef(0);
-  const lastAutoplayPathRef = useRef<string | null>(null);
   const requestFirstInteractionAutoplayRef = useRef(requestFirstInteractionAutoplay);
   const isMobileCompact = isMobile && !isHome;
   const isDspVisible = isDspOpen && !isCollapsed && !isMobileCompact;
@@ -129,16 +130,6 @@ export const AudioPlayer = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const firstInteractionWindow = window as FirstInteractionWindow;
-    const isInitialPath = lastAutoplayPathRef.current === null;
-    const hasPathChanged = lastAutoplayPathRef.current !== pathname;
-
-    if (hasPathChanged) {
-      hasArmedAutoplayRef.current = false;
-      lastAutoplayPathRef.current = pathname;
-      if (!isInitialPath) {
-        firstInteractionWindow.__thx4cmnAutoplayIntent = false;
-      }
-    }
 
     const handleAutoplayIntent = () => {
       if (hasArmedAutoplayRef.current) return;
@@ -151,6 +142,9 @@ export const AudioPlayer = () => {
       if (activationCount > handledActivationCountRef.current) {
         handledActivationCountRef.current = activationCount;
       }
+      if (hasConsumedAutoplayActivationRef.current) return;
+      hasConsumedAutoplayActivationRef.current = true;
+      firstInteractionWindow.__thx4cmnAutoplayActivationConsumed = true;
       hasArmedAutoplayRef.current = true;
       void requestFirstInteractionAutoplayRef.current({ canStartPlayback: true });
     };
@@ -179,7 +173,7 @@ export const AudioPlayer = () => {
       window.removeEventListener('touchstart', handleAutoplayActivation);
       window.removeEventListener('keydown', handleAutoplayActivation);
     };
-  }, [pathname]);
+  }, []);
 
   useEffect(() => {
     if (!currentTrackTitle) {
