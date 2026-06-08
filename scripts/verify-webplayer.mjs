@@ -240,6 +240,56 @@ const assertActivationDuringTrackLoadAutoplays = async (browser) => {
   }
 };
 
+const assertConsumedActivationSuppressesFreshDocumentAutoplay = async (page) => {
+  await page.goto(BASE_URL, { waitUntil: 'networkidle' });
+  await page.evaluate(() => {
+    window.sessionStorage.setItem('thx4cmn:autoplay-activation-consumed', 'true');
+  });
+
+  await page.goto(`${BASE_URL}/checkout/return`, { waitUntil: 'networkidle' });
+  await waitForPlayerMounted(page);
+  await page.waitForFunction(() => {
+    const playButton = Array.from(document.querySelectorAll('.audio-player__controls button')).find(
+      (button) => button.textContent?.trim().toLowerCase() === 'play',
+    );
+    return Boolean(playButton && !playButton.hasAttribute('disabled'));
+  });
+
+  await page.mouse.move(48, 48);
+  await page.mouse.click(48, 48);
+  await page.waitForTimeout(500);
+
+  const stateAfterCheckoutReturnClick = await page.evaluate(() => {
+    const transportButton = Array.from(document.querySelectorAll('.audio-player__controls button')).find((button) => {
+      const label = button.textContent?.trim().toLowerCase();
+      return label === 'play' || label === 'pause';
+    });
+    return {
+      transportLabel: transportButton?.textContent?.trim().toLowerCase() ?? null,
+      playerCount: document.querySelectorAll('.audio-player').length,
+      consumed: window.sessionStorage.getItem('thx4cmn:autoplay-activation-consumed'),
+    };
+  });
+
+  assert(
+    stateAfterCheckoutReturnClick.playerCount === 1,
+    'Checkout return should mount exactly one audio player.',
+  );
+  assert(
+    stateAfterCheckoutReturnClick.consumed === 'true',
+    'Autoplay activation consumed flag should persist across fresh checkout return documents.',
+  );
+  assert(
+    stateAfterCheckoutReturnClick.transportLabel === 'play',
+    'Checkout return fresh document should not restart first-interaction autoplay after it was consumed.',
+  );
+
+  await page.getByRole('button', { name: 'play', exact: true }).click();
+  await page.getByRole('button', { name: 'pause', exact: true }).waitFor({ timeout: 3000 });
+  await page.getByRole('button', { name: 'pause', exact: true }).click();
+  await page.getByRole('button', { name: 'play', exact: true }).waitFor({ timeout: 3000 });
+};
+
 const run = async () => {
   const verifyPort = await resolveVerifyPort();
   BASE_URL = `http://${HOST}:${verifyPort}`;
@@ -295,7 +345,9 @@ const run = async () => {
     const page = await browser.newPage();
     await page.goto(BASE_URL, { waitUntil: 'networkidle' });
     await assertInitialAutoplayActivationFlow(page);
+    await assertConsumedActivationSuppressesFreshDocumentAutoplay(page);
     await assertActivationDuringTrackLoadAutoplays(browser);
+    await page.goto(BASE_URL, { waitUntil: 'networkidle' });
 
     // Desktop home: full player + transport correctness.
     await page.waitForSelector('.audio-player__controls button');

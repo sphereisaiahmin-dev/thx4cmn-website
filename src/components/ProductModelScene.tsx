@@ -37,6 +37,8 @@ interface ProductModelSceneProps {
   fitMode?: FitMode;
   isActive?: boolean;
   performanceMode?: ScenePerformanceMode;
+  presentationFitScaleMultiplier?: number;
+  presentationPositionOffset?: [number, number, number];
   presentationScaleMultiplier?: number;
   universePointIntensity?: UniversePointIntensityOptions;
   universeLightIntensityMultiplier?: number;
@@ -50,6 +52,7 @@ interface ProductModelRigProps {
   onToggle: () => void;
   orbitRef: MutableRefObject<Group | null>;
   spinRef: MutableRefObject<Group | null>;
+  presentationPositionOffset?: [number, number, number];
   presentationScaleMultiplier?: number;
   universePointIntensity?: UniversePointIntensityOptions;
 }
@@ -57,6 +60,8 @@ interface ProductModelRigProps {
 interface DetailCameraFitterProps {
   fitMode: FitMode;
   modelUrl: string;
+  presentationFitScaleMultiplier?: number;
+  presentationPositionOffset?: [number, number, number];
   targetRef: MutableRefObject<Group | null>;
   controlsRef: MutableRefObject<OrbitControlsImpl | null>;
 }
@@ -101,6 +106,8 @@ const ProductModel = ({
 const DetailCameraFitter = ({
   fitMode,
   modelUrl,
+  presentationFitScaleMultiplier = 1,
+  presentationPositionOffset = [0, 0, 0],
   targetRef,
   controlsRef,
 }: DetailCameraFitterProps) => {
@@ -132,19 +139,37 @@ const DetailCameraFitter = ({
     const verticalFov = MathUtils.degToRad(camera.fov);
     const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * referenceAspect);
     const limitingFov = Math.min(verticalFov, horizontalFov);
-    const distance = (sphere.radius / Math.sin(limitingFov / 2)) * (fitMargin / fillTarget);
+    const fitScale = Math.max(presentationFitScaleMultiplier, 0.01);
+    const distance =
+      (sphere.radius / Math.sin(limitingFov / 2)) * (fitMargin / (fillTarget * fitScale));
+    const frameTarget = {
+      x: sphere.center.x - presentationPositionOffset[0],
+      y: sphere.center.y - presentationPositionOffset[1],
+      z: sphere.center.z - presentationPositionOffset[2],
+    };
 
-    camera.position.set(sphere.center.x, sphere.center.y, sphere.center.z + distance);
+    camera.position.set(frameTarget.x, frameTarget.y, frameTarget.z + distance);
     camera.near = Math.max(0.01, distance - sphere.radius * 2.2);
     camera.far = distance + sphere.radius * 3.2;
-    camera.lookAt(sphere.center);
+    camera.lookAt(frameTarget.x, frameTarget.y, frameTarget.z);
     camera.updateProjectionMatrix();
 
-    controls.target.copy(sphere.center);
+    controls.target.set(frameTarget.x, frameTarget.y, frameTarget.z);
     controls.update();
 
     return true;
-  }, [camera, controlsRef, fillTarget, fitMargin, isEnabled, size.height, size.width, targetRef]);
+  }, [
+    camera,
+    controlsRef,
+    fillTarget,
+    fitMargin,
+    isEnabled,
+    presentationFitScaleMultiplier,
+    presentationPositionOffset,
+    size.height,
+    size.width,
+    targetRef,
+  ]);
 
   useEffect(() => {
     needsFitRef.current = isEnabled;
@@ -168,6 +193,7 @@ const ProductModelRig = ({
   onToggle,
   orbitRef,
   spinRef,
+  presentationPositionOffset,
   presentationScaleMultiplier = 1,
   universePointIntensity,
 }: ProductModelRigProps) => {
@@ -188,22 +214,24 @@ const ProductModelRig = ({
   });
 
   return (
-    <group
-      ref={orbitRef}
-      onClick={(event) => {
-        event.stopPropagation();
-        onToggle();
-      }}
-    >
-      <group ref={spinRef}>
-        <Center>
-          <ProductModel
-            modelUrl={modelUrl}
-            surface={fitMode === 'default' ? 'card' : 'detail'}
-            presentationScaleMultiplier={presentationScaleMultiplier}
-            universePointIntensity={universePointIntensity}
-          />
-        </Center>
+    <group position={presentationPositionOffset}>
+      <group
+        ref={orbitRef}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+      >
+        <group ref={spinRef}>
+          <Center>
+            <ProductModel
+              modelUrl={modelUrl}
+              surface={fitMode === 'default' ? 'card' : 'detail'}
+              presentationScaleMultiplier={presentationScaleMultiplier}
+              universePointIntensity={universePointIntensity}
+            />
+          </Center>
+        </group>
       </group>
     </group>
   );
@@ -215,6 +243,8 @@ export const ProductModelScene = ({
   fitMode = 'default',
   isActive = true,
   performanceMode = 'auto',
+  presentationFitScaleMultiplier,
+  presentationPositionOffset,
   presentationScaleMultiplier = 1,
   universePointIntensity,
   universeLightIntensityMultiplier = 1,
@@ -278,12 +308,15 @@ export const ProductModelScene = ({
           autoRotate={autoRotate}
           isActive={isActive}
           onToggle={() => setAutoRotate((value) => !value)}
+          presentationPositionOffset={presentationPositionOffset}
           presentationScaleMultiplier={presentationScaleMultiplier}
           universePointIntensity={universePointIntensity}
         />
         <DetailCameraFitter
           fitMode={fitMode}
           modelUrl={modelUrl}
+          presentationFitScaleMultiplier={presentationFitScaleMultiplier}
+          presentationPositionOffset={presentationPositionOffset}
           targetRef={orbitRef}
           controlsRef={controlsRef}
         />

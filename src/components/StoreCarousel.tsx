@@ -77,7 +77,12 @@ const LERP_SPEED = 0.09;
 const SIDE_IDLE_OPACITY = 0.48;
 const DEFAULT_STORE_LANDING_MODEL_SCALE = 3.4;
 const storeLandingModelScaleByProductId: Record<string, number> = {
-  'community-vol-1-free-pack': 3.05,
+  'community-vol-1-free-pack': 2.4,
+  'universe-vol-1': 6,
+};
+const storeLandingModelOffsetByProductId: Record<string, [number, number, number]> = {
+  'community-vol-1-free-pack': [0, 0.2, 0],
+  'universe-vol-1': [0, 0.2, 0],
 };
 
 const wrap = (index: number, total: number) =>
@@ -504,6 +509,9 @@ const SplitProductPanel = ({
 }: SplitProductPanelProps) => {
   const presentationScaleMultiplier =
     storeLandingModelScaleByProductId[product.id] ?? DEFAULT_STORE_LANDING_MODEL_SCALE;
+  const presentationFitScaleMultiplier =
+    presentationScaleMultiplier / DEFAULT_STORE_LANDING_MODEL_SCALE;
+  const presentationPositionOffset = storeLandingModelOffsetByProductId[product.id];
 
   return (
     <article
@@ -520,6 +528,8 @@ const SplitProductPanel = ({
             modelUrl={modelUrl}
             className="h-full w-full"
             fitMode="detail-immersive"
+            presentationFitScaleMultiplier={presentationFitScaleMultiplier}
+            presentationPositionOffset={presentationPositionOffset}
             presentationScaleMultiplier={presentationScaleMultiplier}
           />
         </div>
