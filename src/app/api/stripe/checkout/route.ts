@@ -15,6 +15,7 @@ import {
 } from '@/lib/checkoutReturnAccess';
 import { persistCommerceOrder } from '@/lib/commerceOrders';
 import { fulfillDigitalOrder } from '@/lib/digitalOrderFulfillment';
+import { createOrderDownloadLinks } from '@/lib/downloadLinks';
 import { createServerClient } from '@/lib/supabase/server';
 import { isProductPurchasable } from '@/lib/productCommerce';
 import { getStripeClient } from '@/lib/stripe';
@@ -111,22 +112,49 @@ export async function POST(request: Request) {
         currency: products[0]?.product.currency ?? 'USD',
         recipientEmail: requiresEmailForFreeClaim ? recipientEmail : null,
       });
-      await fulfillDigitalOrder({
+      let fulfillmentError: string | null = null;
+      try {
+        await fulfillDigitalOrder({
+          supabase,
+          orderId: persistedOrder.order.id,
+          recipientEmail: persistedOrder.recipientEmail,
+          deliveries: persistedOrder.digitalDeliveries,
+          appOrigin: origin,
+          paymentStatus: 'no_payment_required',
+          amountTotalCents: 0,
+          currency: products[0]?.product.currency ?? 'USD',
+          receiptItems,
+        });
+      } catch (error) {
+        fulfillmentError =
+          error instanceof Error ? error.message : 'Unable to send fulfillment email.';
+        console.error('Free claim fulfillment email failed.', {
+          requestId,
+          orderId: persistedOrder.order.id,
+          error,
+        });
+      }
+      const checkoutReturnToken = createCheckoutReturnToken();
+      const downloadLinks = await createOrderDownloadLinks({
         supabase,
         orderId: persistedOrder.order.id,
-        recipientEmail: persistedOrder.recipientEmail,
-        deliveries: persistedOrder.digitalDeliveries,
         appOrigin: origin,
-        paymentStatus: 'no_payment_required',
-        amountTotalCents: 0,
-        currency: products[0]?.product.currency ?? 'USD',
-        receiptItems,
+        returnToken: checkoutReturnToken,
       });
+      const claimToken =
+        downloadLinks[0]?.downloadUrl &&
+        new URL(downloadLinks[0].downloadUrl).searchParams.get('token');
+      if (!claimToken) {
+        throw new Error('Unable to create free claim return token.');
+      }
 
       return NextResponse.json({
-        url: `${origin}/cart?checkout=success&mode=free-claim&order_id=${persistedOrder.order.id}`,
+        url: `${origin}/checkout/return?${new URLSearchParams({
+          claim_token: claimToken,
+        }).toString()}`,
         requestId,
         persistCheckoutUrl: false,
+        fulfillmentError,
       });
     }
 

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { COMMUNITY_FREE_PACK_PRODUCT_ID } from '../src/data/products.ts';
 import {
   normalizeCheckoutQuantity,
   parseCheckoutItemsPayload,
@@ -13,6 +14,7 @@ import {
 } from '../src/lib/cartPersistence.ts';
 import {
   buildStripeCheckoutLineItems,
+  isCommunityFreePackOnlyCheckout,
   shouldUseStripeCheckout,
 } from '../src/lib/stripeCheckout.ts';
 
@@ -25,12 +27,12 @@ test('normalizeCheckoutQuantity floors and clamps to minimum', () => {
 
 test('toCheckoutItemsPayload normalizes outgoing quantities', () => {
   const payload = toCheckoutItemsPayload([
-    { productId: 'sample-pack', quantity: 2.9 },
+    { productId: COMMUNITY_FREE_PACK_PRODUCT_ID, quantity: 2.9 },
     { productId: 'midi-device', quantity: 0 },
   ]);
 
   assert.deepEqual(payload, [
-    { productId: 'sample-pack', quantity: 2 },
+    { productId: COMMUNITY_FREE_PACK_PRODUCT_ID, quantity: 2 },
     { productId: 'midi-device', quantity: 1 },
   ]);
 });
@@ -38,7 +40,7 @@ test('toCheckoutItemsPayload normalizes outgoing quantities', () => {
 test('parseCheckoutItemsPayload accepts strict integer quantities', () => {
   const parsed = parseCheckoutItemsPayload({
     items: [
-      { productId: 'sample-pack', quantity: 1 },
+      { productId: COMMUNITY_FREE_PACK_PRODUCT_ID, quantity: 1 },
       { productId: 'midi-device', quantity: 3 },
     ],
   });
@@ -46,7 +48,7 @@ test('parseCheckoutItemsPayload accepts strict integer quantities', () => {
   assert.equal(parsed.ok, true);
   if (parsed.ok) {
     assert.deepEqual(parsed.items, [
-      { productId: 'sample-pack', quantity: 1 },
+      { productId: COMMUNITY_FREE_PACK_PRODUCT_ID, quantity: 1 },
       { productId: 'midi-device', quantity: 3 },
     ]);
   }
@@ -54,7 +56,7 @@ test('parseCheckoutItemsPayload accepts strict integer quantities', () => {
 
 test('parseCheckoutItemsPayload rejects fractional quantities', () => {
   const parsed = parseCheckoutItemsPayload({
-    items: [{ productId: 'sample-pack', quantity: 1.5 }],
+    items: [{ productId: COMMUNITY_FREE_PACK_PRODUCT_ID, quantity: 1.5 }],
   });
 
   assert.equal(parsed.ok, false);
@@ -72,13 +74,13 @@ test('parseCheckoutItemsPayload rejects malformed items', () => {
   }
 });
 
-test('Stripe line items include zero-price products that have a Stripe price', () => {
-  const lineItems = buildStripeCheckoutLineItems([
+test('Community Vol. 1 alone uses the direct email claim flow even with a Stripe price', () => {
+  const products = [
     {
-      item: { productId: 'sample-pack', quantity: 1 },
+      item: { productId: COMMUNITY_FREE_PACK_PRODUCT_ID, quantity: 1 },
       product: {
-        id: 'sample-pack',
-        slug: 'sample-pack',
+        id: COMMUNITY_FREE_PACK_PRODUCT_ID,
+        slug: COMMUNITY_FREE_PACK_PRODUCT_ID,
         name: 'Community Vol. 1',
         description: 'Free pack',
         type: 'digital',
@@ -91,14 +93,22 @@ test('Stripe line items include zero-price products that have a Stripe price', (
         deliveryMethod: 'email',
       },
     },
-  ]);
+  ] as const;
 
-  assert.equal(shouldUseStripeCheckout([
+  assert.equal(isCommunityFreePackOnlyCheckout(products), true);
+  assert.equal(shouldUseStripeCheckout(products), false);
+  assert.deepEqual(buildStripeCheckoutLineItems(products), [
+    { price: 'price_free_community', quantity: 1 },
+  ]);
+});
+
+test('Community Vol. 1 uses Stripe when another checkout item is present', () => {
+  const products = [
     {
-      item: { productId: 'sample-pack', quantity: 1 },
+      item: { productId: COMMUNITY_FREE_PACK_PRODUCT_ID, quantity: 1 },
       product: {
-        id: 'sample-pack',
-        slug: 'sample-pack',
+        id: COMMUNITY_FREE_PACK_PRODUCT_ID,
+        slug: COMMUNITY_FREE_PACK_PRODUCT_ID,
         name: 'Community Vol. 1',
         description: 'Free pack',
         type: 'digital',
@@ -111,8 +121,31 @@ test('Stripe line items include zero-price products that have a Stripe price', (
         deliveryMethod: 'email',
       },
     },
-  ]), true);
-  assert.deepEqual(lineItems, [{ price: 'price_free_community', quantity: 1 }]);
+    {
+      item: { productId: 'universe-vol-1', quantity: 1 },
+      product: {
+        id: 'universe-vol-1',
+        slug: 'universe-vol-1',
+        name: 'Universe Vol. 1',
+        description: 'Paid pack',
+        type: 'digital',
+        isReleased: true,
+        purchaseStatus: 'available',
+        priceCents: 3000,
+        currency: 'USD',
+        stripePriceId: 'price_paid_universe',
+        r2Key: null,
+        deliveryMethod: 'email',
+      },
+    },
+  ] as const;
+
+  assert.equal(isCommunityFreePackOnlyCheckout(products), false);
+  assert.equal(shouldUseStripeCheckout(products), true);
+  assert.deepEqual(buildStripeCheckoutLineItems(products), [
+    { price: 'price_free_community', quantity: 1 },
+    { price: 'price_paid_universe', quantity: 1 },
+  ]);
 });
 
 test('free products without Stripe prices stay on the direct claim fallback', () => {
@@ -150,7 +183,7 @@ test('persisted cart ttl accepts fresh state and expires stale state', () => {
 test('persisted cart items hydrate from current product data', () => {
   const items = normalizePersistedCartItems([
     {
-      productId: 'sample-pack',
+      productId: COMMUNITY_FREE_PACK_PRODUCT_ID,
       name: 'Old name',
       priceCents: 999,
       currency: 'EUR',
@@ -167,7 +200,7 @@ test('persisted cart items hydrate from current product data', () => {
 
   assert.deepEqual(items, [
     {
-      productId: 'sample-pack',
+      productId: COMMUNITY_FREE_PACK_PRODUCT_ID,
       name: 'Community Vol. 1',
       priceCents: 0,
       currency: 'USD',

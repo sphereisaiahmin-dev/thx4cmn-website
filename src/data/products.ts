@@ -18,10 +18,20 @@ export interface Product {
   deliveryMethod?: ProductDeliveryMethod;
 }
 
+export const COMMUNITY_FREE_PACK_PRODUCT_ID = 'community-vol-1-free-pack';
+export const LEGACY_COMMUNITY_FREE_PACK_PRODUCT_IDS = ['sample-pack'] as const;
+
+export const normalizeProductId = (id: string) =>
+  LEGACY_COMMUNITY_FREE_PACK_PRODUCT_IDS.includes(
+    id as (typeof LEGACY_COMMUNITY_FREE_PACK_PRODUCT_IDS)[number],
+  )
+    ? COMMUNITY_FREE_PACK_PRODUCT_ID
+    : id;
+
 export const products: Product[] = [
   {
-    id: 'sample-pack',
-    slug: 'sample-pack',
+    id: COMMUNITY_FREE_PACK_PRODUCT_ID,
+    slug: COMMUNITY_FREE_PACK_PRODUCT_ID,
     name: 'Community Vol. 1',
     description:
       'The "Community" series is a thank you to all the producers, artists, and creators. A small free collection made to give back to the same space that helped shape our journey.',
@@ -68,7 +78,8 @@ export const products: Product[] = [
 ];
 
 export const getReleasedProducts = () => products.filter((product) => product.isReleased);
-export const getProductById = (id: string) => products.find((product) => product.id === id);
+export const getProductById = (id: string) =>
+  products.find((product) => product.id === normalizeProductId(id));
 export const getProductBySlug = (slug: string) => products.find((product) => product.slug === slug);
 export const getReleasedProductBySlug = (slug: string) =>
   products.find((product) => product.slug === slug && product.isReleased);

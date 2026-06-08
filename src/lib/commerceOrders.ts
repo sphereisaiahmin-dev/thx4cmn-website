@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { getProductById, type Product } from '@/data/products';
+import { getProductById, normalizeProductId, type Product } from '@/data/products';
 import { normalizeCheckoutEmail, type CheckoutItem } from '@/lib/checkout';
 import {
   DIGITAL_FULFILLMENT_METHOD,
@@ -54,9 +54,10 @@ const aggregateCheckoutItems = (items: ReadonlyArray<CheckoutItem>) => {
   const aggregated = new Map<string, CheckoutItem>();
 
   items.forEach((item) => {
-    const existing = aggregated.get(item.productId);
-    aggregated.set(item.productId, {
-      productId: item.productId,
+    const productId = normalizeProductId(item.productId);
+    const existing = aggregated.get(productId);
+    aggregated.set(productId, {
+      productId,
       quantity: (existing?.quantity ?? 0) + item.quantity,
     });
   });
@@ -176,6 +177,39 @@ const ensureOrderItems = async ({
   const { error: itemsError } = await supabase.from('order_items').insert(orderItems);
   if (itemsError) {
     throw itemsError;
+  }
+};
+
+const ensureProducts = async ({
+  supabase,
+  products,
+}: {
+  supabase: SupabaseClient;
+  products: ReadonlyArray<Product>;
+}) => {
+  if (products.length === 0) {
+    return;
+  }
+
+  const productRows = products.map((product) => ({
+    id: product.id,
+    slug: product.slug,
+    name: product.name,
+    description: product.description,
+    type: product.type,
+    price_cents: product.priceCents,
+    currency: product.currency,
+    stripe_price_id: product.stripePriceId ?? null,
+    r2_key: product.r2Key ?? null,
+    active: product.purchaseStatus === 'available',
+  }));
+
+  const { error } = await supabase
+    .from('products')
+    .upsert(productRows, { onConflict: 'id' });
+
+  if (error) {
+    throw error;
   }
 };
 
@@ -352,6 +386,11 @@ export const persistCommerceOrder = async ({
       })
       .filter((entry): entry is [string, Product] => Boolean(entry)),
   );
+
+  await ensureProducts({
+    supabase,
+    products: Array.from(productsById.values()),
+  });
 
   await ensureOrderItems({
     supabase,

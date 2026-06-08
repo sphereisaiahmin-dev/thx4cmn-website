@@ -14,6 +14,50 @@ create table if not exists products (
   created_at timestamp with time zone default now()
 );
 
+insert into products (
+  id,
+  slug,
+  name,
+  description,
+  type,
+  price_cents,
+  currency,
+  r2_key,
+  active
+)
+values
+  (
+    'community-vol-1-free-pack',
+    'community-vol-1-free-pack',
+    'Community Vol. 1',
+    'The "Community" series is a thank you to all the producers, artists, and creators. A small free collection made to give back to the same space that helped shape our journey.',
+    'digital',
+    0,
+    'USD',
+    'packs/Community Vol. 1.zip',
+    true
+  ),
+  (
+    'universe-vol-1',
+    'universe-vol-1',
+    'Universe Vol. 1',
+    'The "Universe" series brings together ideas from across the THX4CMN team. With each producer contributing their own folder, style and approach, this collection was built to give creators more inspiration and more ways to create.',
+    'digital',
+    3000,
+    'USD',
+    'packs/Universe Vol. 1.zip',
+    true
+  )
+on conflict (id) do update set
+  slug = excluded.slug,
+  name = excluded.name,
+  description = excluded.description,
+  type = excluded.type,
+  price_cents = excluded.price_cents,
+  currency = excluded.currency,
+  r2_key = coalesce(excluded.r2_key, products.r2_key),
+  active = excluded.active;
+
 create table if not exists customers (
   id uuid primary key default gen_random_uuid(),
   email text unique not null check (email = lower(email) and position('@' in email) > 1),
