@@ -1,4 +1,9 @@
-import { getProductById, type Product } from '@/data/products';
+import {
+  COMMUNITY_FREE_PACK_PRODUCT_ID,
+  getProductById,
+  normalizeProductId,
+  type Product,
+} from '@/data/products';
 import type { CartItem } from '@/store/cart';
 
 import { formatCurrency } from '@/lib/format';
@@ -81,9 +86,17 @@ export const hasStripeBackedCartItems = (
   items: ReadonlyArray<Pick<CartItem, 'productId'>>,
 ) => items.some((item) => hasStripePriceForCartItem(item));
 
+export const hasOnlyCommunityFreePackCartItem = (
+  items: ReadonlyArray<Pick<CartItem, 'productId' | 'priceCents' | 'type'>>,
+) =>
+  items.length === 1 &&
+  normalizeProductId(items[0].productId) === COMMUNITY_FREE_PACK_PRODUCT_ID &&
+  items[0].type === 'digital' &&
+  items[0].priceCents <= 0;
+
 export const cartRequiresEmailCapture = (
   items: ReadonlyArray<Pick<CartItem, 'productId' | 'priceCents' | 'type'>>,
-) => hasFreeOnlyDigitalCart(items) && !hasPaidItems(items) && !hasStripeBackedCartItems(items);
+) => hasOnlyCommunityFreePackCartItem(items);
 
 export const getCartPrimaryActionLabel = (
   items: ReadonlyArray<Pick<CartItem, 'productId' | 'priceCents' | 'type'>>,

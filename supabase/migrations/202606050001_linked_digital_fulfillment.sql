@@ -27,8 +27,8 @@ insert into products (
 )
 values
   (
-    'sample-pack',
-    'sample-pack',
+    'community-vol-1-free-pack',
+    'community-vol-1-free-pack',
     'Community Vol. 1',
     'Downloadable sample pack with curated drum, texture, and instrument sounds from the lab.',
     'digital',

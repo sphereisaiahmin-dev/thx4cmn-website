@@ -33,6 +33,7 @@ interface CheckoutSessionStatusPayload {
     downloadUrl: string;
   }>;
   fulfillmentError?: string | null;
+  emailFulfillmentStatus?: 'pending' | 'sent' | 'failed' | null;
   requestId?: string;
   error?: string;
 }
@@ -49,6 +50,7 @@ type StatusState =
       receiptItems: CheckoutReceiptItem[];
       downloadLinks: NonNullable<CheckoutSessionStatusPayload['downloadLinks']>;
       fulfillmentError: string | null;
+      emailFulfillmentStatus: CheckoutSessionStatusPayload['emailFulfillmentStatus'];
     }
   | { type: 'open'; sessionId: string; returnToken: string }
   | { type: 'expired' }
@@ -69,17 +71,70 @@ const formatPaymentStatus = (status: CheckoutSessionStatusPayload['paymentStatus
   return 'Recorded';
 };
 
+const formatEmailFulfillmentStatus = (
+  status: CheckoutSessionStatusPayload['emailFulfillmentStatus'],
+) => {
+  if (status === 'sent') return 'Sent';
+  if (status === 'failed') return 'Needs attention';
+  if (status === 'pending') return 'Queued';
+  return 'Queued';
+};
+
 function CheckoutReturnContent() {
   const searchParams = useSearchParams();
   const clear = useCartStore((state) => state.clear);
   const sessionId = searchParams.get('session_id')?.trim() ?? '';
   const returnToken = searchParams.get('return_token')?.trim() ?? '';
+  const claimToken = searchParams.get('claim_token')?.trim() ?? '';
   const [statusState, setStatusState] = useState<StatusState>({ type: 'loading' });
 
   useEffect(() => {
     const controller = new AbortController();
 
     const loadSessionStatus = async () => {
+      if (claimToken) {
+        try {
+          const query = new URLSearchParams({ claim_token: claimToken });
+          const response = await fetch(`/api/checkout/free-claim?${query.toString()}`, {
+            signal: controller.signal,
+          });
+          const payload = (await response.json().catch(() => null)) as
+            | CheckoutSessionStatusPayload
+            | null;
+
+          if (!response.ok) {
+            const message = payload?.error ?? 'Unable to load free checkout status.';
+            const requestId = payload?.requestId ? ` (requestId: ${payload.requestId})` : '';
+            throw new Error(`${message}${requestId}`);
+          }
+
+          if (controller.signal.aborted) return;
+
+          clear();
+          clearStoredCheckoutSession();
+          setStatusState({
+            type: 'complete',
+            orderId: payload?.orderId ?? null,
+            customerEmail: payload?.customerEmail ?? null,
+            paymentStatus: payload?.paymentStatus ?? 'no_payment_required',
+            amountTotal: payload?.amountTotal ?? null,
+            currency: payload?.currency ?? null,
+            receiptItems: payload?.receiptItems ?? [],
+            downloadLinks: payload?.downloadLinks ?? [],
+            fulfillmentError: payload?.fulfillmentError ?? null,
+            emailFulfillmentStatus: payload?.emailFulfillmentStatus ?? null,
+          });
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          setStatusState({
+            type: 'error',
+            message:
+              error instanceof Error ? error.message : 'Unable to load free checkout status.',
+          });
+        }
+        return;
+      }
+
       if (!sessionId) {
         setStatusState({ type: 'error', message: 'Missing checkout session ID.' });
         return;
@@ -123,6 +178,7 @@ function CheckoutReturnContent() {
             receiptItems: payload.receiptItems ?? [],
             downloadLinks: payload.downloadLinks ?? [],
             fulfillmentError: payload.fulfillmentError ?? null,
+            emailFulfillmentStatus: payload.emailFulfillmentStatus ?? null,
           });
           return;
         }
@@ -150,7 +206,7 @@ function CheckoutReturnContent() {
 
     void loadSessionStatus();
     return () => controller.abort();
-  }, [clear, returnToken, sessionId]);
+  }, [claimToken, clear, returnToken, sessionId]);
 
   const title =
     statusState.type === 'complete'
@@ -198,6 +254,14 @@ function CheckoutReturnContent() {
                     <dt className="uppercase tracking-[0.22em] text-black/42">Email</dt>
                     <dd className="mt-1 break-words text-sm text-black/75">
                       {statusState.customerEmail}
+                    </dd>
+                  </div>
+                ) : null}
+                {statusState.emailFulfillmentStatus ? (
+                  <div>
+                    <dt className="uppercase tracking-[0.22em] text-black/42">Email delivery</dt>
+                    <dd className="mt-1 text-sm text-black/75">
+                      {formatEmailFulfillmentStatus(statusState.emailFulfillmentStatus)}
                     </dd>
                   </div>
                 ) : null}

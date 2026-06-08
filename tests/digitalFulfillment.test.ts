@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getProductById } from '../src/data/products.ts';
+import { COMMUNITY_FREE_PACK_PRODUCT_ID, getProductById } from '../src/data/products.ts';
 import { resolveAppOrigin } from '../src/lib/appOrigin.ts';
 import {
   CHECKOUT_RETURN_DOWNLOAD_MAX_DOWNLOADS,
@@ -182,9 +182,12 @@ test('development app origin ignores placeholder env and uses request host', () 
 });
 
 test('released digital products point to distinct verified R2 pack objects', () => {
-  const community = getProductById('sample-pack');
+  const community = getProductById(COMMUNITY_FREE_PACK_PRODUCT_ID);
+  const legacyCommunity = getProductById('sample-pack');
   const universe = getProductById('universe-vol-1');
 
+  assert.equal(community?.id, COMMUNITY_FREE_PACK_PRODUCT_ID);
+  assert.equal(legacyCommunity?.id, COMMUNITY_FREE_PACK_PRODUCT_ID);
   assert.equal(community?.r2Key, 'packs/Community Vol. 1.zip');
   assert.equal(universe?.r2Key, 'packs/Universe Vol. 1.zip');
   assert.notEqual(community?.r2Key, universe?.r2Key);

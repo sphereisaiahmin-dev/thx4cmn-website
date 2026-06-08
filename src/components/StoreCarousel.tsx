@@ -77,7 +77,7 @@ const LERP_SPEED = 0.09;
 const SIDE_IDLE_OPACITY = 0.48;
 const DEFAULT_STORE_LANDING_MODEL_SCALE = 3.4;
 const storeLandingModelScaleByProductId: Record<string, number> = {
-  'sample-pack': 3.05,
+  'community-vol-1-free-pack': 3.05,
 };
 
 const wrap = (index: number, total: number) =>

@@ -11,6 +11,7 @@ export interface PersistedCartItem {
 }
 
 interface ProductSnapshot {
+  id?: string;
   name: string;
   priceCents: number;
   currency: string;
@@ -56,7 +57,7 @@ export const normalizePersistedCartItems = (
       }
 
       return [{
-        productId: item.productId,
+        productId: product?.id ?? item.productId,
         name: product?.name ?? item.name,
         priceCents: product?.priceCents ?? item.priceCents,
         currency: product?.currency ?? item.currency,
