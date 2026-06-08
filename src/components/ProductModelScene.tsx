@@ -214,22 +214,24 @@ const ProductModelRig = ({
   });
 
   return (
-    <group
-      ref={orbitRef}
-      onClick={(event) => {
-        event.stopPropagation();
-        onToggle();
-      }}
-    >
-      <group ref={spinRef} position={presentationPositionOffset}>
-        <Center>
-          <ProductModel
-            modelUrl={modelUrl}
-            surface={fitMode === 'default' ? 'card' : 'detail'}
-            presentationScaleMultiplier={presentationScaleMultiplier}
-            universePointIntensity={universePointIntensity}
-          />
-        </Center>
+    <group position={presentationPositionOffset}>
+      <group
+        ref={orbitRef}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+      >
+        <group ref={spinRef}>
+          <Center>
+            <ProductModel
+              modelUrl={modelUrl}
+              surface={fitMode === 'default' ? 'card' : 'detail'}
+              presentationScaleMultiplier={presentationScaleMultiplier}
+              universePointIntensity={universePointIntensity}
+            />
+          </Center>
+        </group>
       </group>
     </group>
   );
