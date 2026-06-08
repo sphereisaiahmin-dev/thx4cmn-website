@@ -37,6 +37,7 @@ interface ProductModelSceneProps {
   fitMode?: FitMode;
   isActive?: boolean;
   performanceMode?: ScenePerformanceMode;
+  presentationPositionOffset?: [number, number, number];
   presentationScaleMultiplier?: number;
   universePointIntensity?: UniversePointIntensityOptions;
   universeLightIntensityMultiplier?: number;
@@ -50,6 +51,7 @@ interface ProductModelRigProps {
   onToggle: () => void;
   orbitRef: MutableRefObject<Group | null>;
   spinRef: MutableRefObject<Group | null>;
+  presentationPositionOffset?: [number, number, number];
   presentationScaleMultiplier?: number;
   universePointIntensity?: UniversePointIntensityOptions;
 }
@@ -168,6 +170,7 @@ const ProductModelRig = ({
   onToggle,
   orbitRef,
   spinRef,
+  presentationPositionOffset,
   presentationScaleMultiplier = 1,
   universePointIntensity,
 }: ProductModelRigProps) => {
@@ -195,7 +198,7 @@ const ProductModelRig = ({
         onToggle();
       }}
     >
-      <group ref={spinRef}>
+      <group ref={spinRef} position={presentationPositionOffset}>
         <Center>
           <ProductModel
             modelUrl={modelUrl}
@@ -215,6 +218,7 @@ export const ProductModelScene = ({
   fitMode = 'default',
   isActive = true,
   performanceMode = 'auto',
+  presentationPositionOffset,
   presentationScaleMultiplier = 1,
   universePointIntensity,
   universeLightIntensityMultiplier = 1,
@@ -278,6 +282,7 @@ export const ProductModelScene = ({
           autoRotate={autoRotate}
           isActive={isActive}
           onToggle={() => setAutoRotate((value) => !value)}
+          presentationPositionOffset={presentationPositionOffset}
           presentationScaleMultiplier={presentationScaleMultiplier}
           universePointIntensity={universePointIntensity}
         />

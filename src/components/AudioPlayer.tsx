@@ -12,6 +12,7 @@ const ARTIST_LABEL = 'thx4cmn';
 const DOT_COUNT = 24;
 const AUTOPLAY_INTENT_EVENT = 'thx4cmn:autoplay-intent';
 const AUTOPLAY_ACTIVATION_EVENT = 'thx4cmn:autoplay-activation';
+const AUTOPLAY_ACTIVATION_CONSUMED_STORAGE_KEY = 'thx4cmn:autoplay-activation-consumed';
 
 type FirstInteractionWindow = Window & {
   __thx4cmnAutoplayIntent?: boolean;
@@ -20,6 +21,22 @@ type FirstInteractionWindow = Window & {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const readAutoplayActivationConsumed = () => {
+  try {
+    return window.sessionStorage.getItem(AUTOPLAY_ACTIVATION_CONSUMED_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+};
+
+const writeAutoplayActivationConsumed = () => {
+  try {
+    window.sessionStorage.setItem(AUTOPLAY_ACTIVATION_CONSUMED_STORAGE_KEY, 'true');
+  } catch {
+    // Ignore storage failures; the in-document guard still prevents duplicate activation.
+  }
+};
 
 export const AudioPlayer = () => {
   const isMiniCartOpen = useUiStore((state) => state.isMiniCartOpen);
@@ -130,6 +147,17 @@ export const AudioPlayer = () => {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const firstInteractionWindow = window as FirstInteractionWindow;
+    const activationCount = firstInteractionWindow.__thx4cmnAutoplayActivationCount ?? 0;
+
+    if (
+      (readAutoplayActivationConsumed() ||
+        firstInteractionWindow.__thx4cmnAutoplayActivationConsumed) &&
+      activationCount <= handledActivationCountRef.current
+    ) {
+      firstInteractionWindow.__thx4cmnAutoplayActivationConsumed = true;
+      hasConsumedAutoplayActivationRef.current = true;
+      return;
+    }
 
     const handleAutoplayIntent = () => {
       if (hasArmedAutoplayRef.current) return;
@@ -145,6 +173,7 @@ export const AudioPlayer = () => {
       if (hasConsumedAutoplayActivationRef.current) return;
       hasConsumedAutoplayActivationRef.current = true;
       firstInteractionWindow.__thx4cmnAutoplayActivationConsumed = true;
+      writeAutoplayActivationConsumed();
       hasArmedAutoplayRef.current = true;
       void requestFirstInteractionAutoplayRef.current({ canStartPlayback: true });
     };
