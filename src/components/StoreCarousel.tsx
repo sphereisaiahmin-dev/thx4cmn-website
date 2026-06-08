@@ -81,8 +81,8 @@ const storeLandingModelScaleByProductId: Record<string, number> = {
   'universe-vol-1': 6,
 };
 const storeLandingModelOffsetByProductId: Record<string, [number, number, number]> = {
-  'community-vol-1-free-pack': [0, -1, 0],
-  'universe-vol-1': [0, -4, 0],
+  'community-vol-1-free-pack': [0, 0.2, 0],
+  'universe-vol-1': [0, 0.2, 0],
 };
 
 const wrap = (index: number, total: number) =>
