@@ -509,6 +509,8 @@ const SplitProductPanel = ({
 }: SplitProductPanelProps) => {
   const presentationScaleMultiplier =
     storeLandingModelScaleByProductId[product.id] ?? DEFAULT_STORE_LANDING_MODEL_SCALE;
+  const presentationFitScaleMultiplier =
+    presentationScaleMultiplier / DEFAULT_STORE_LANDING_MODEL_SCALE;
   const presentationPositionOffset = storeLandingModelOffsetByProductId[product.id];
 
   return (
@@ -526,6 +528,7 @@ const SplitProductPanel = ({
             modelUrl={modelUrl}
             className="h-full w-full"
             fitMode="detail-immersive"
+            presentationFitScaleMultiplier={presentationFitScaleMultiplier}
             presentationPositionOffset={presentationPositionOffset}
             presentationScaleMultiplier={presentationScaleMultiplier}
           />
