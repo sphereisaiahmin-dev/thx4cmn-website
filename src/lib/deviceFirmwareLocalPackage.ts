@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { basename, isAbsolute, relative, resolve } from 'node:path';
-import { readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 
 export const DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV = 'DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH';
 export const DEVICE_FIRMWARE_LOCAL_PACKAGE_ROUTE = '/api/device/firmware/package?local=1';
@@ -81,13 +81,53 @@ const resolveDistRoot = (workspaceRoot?: string) =>
 
 const normalizeDistRelativePath = (configuredPath: string) => configuredPath.replace(/^dist[\\/]+/i, '');
 
+const readPackageVersion = (packagePath: string) => {
+  try {
+    const parsed = JSON.parse(readFileSync(/* turbopackIgnore: true */ packagePath, 'utf8')) as unknown;
+    return isLocalFirmwarePackage(parsed) ? parsed.version : null;
+  } catch {
+    return null;
+  }
+};
+
+const findLatestLocalFirmwarePackagePath = (workspaceRoot?: string) => {
+  const distRoot = resolveDistRoot(workspaceRoot);
+  let fileNames: string[];
+
+  try {
+    fileNames = readdirSync(/* turbopackIgnore: true */ distRoot);
+  } catch {
+    return null;
+  }
+
+  let latest: { packagePath: string; releaseRank: number } | null = null;
+  for (const fileName of fileNames) {
+    if (!LOCAL_DIRECT_PACKAGE_PATTERN.test(fileName)) {
+      continue;
+    }
+
+    const packagePath = resolve(distRoot, fileName);
+    const version = readPackageVersion(packagePath);
+    const releaseRank = version ? computeReleaseRank(version) : null;
+    if (releaseRank === null) {
+      continue;
+    }
+
+    if (!latest || releaseRank > latest.releaseRank) {
+      latest = { packagePath, releaseRank };
+    }
+  }
+
+  return latest?.packagePath ?? null;
+};
+
 export const resolveLocalFirmwarePackagePath = (
   configuredPath = process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV] ?? '',
   workspaceRoot?: string,
 ) => {
   const trimmed = configuredPath.trim();
   if (!trimmed) {
-    return null;
+    return findLatestLocalFirmwarePackagePath(workspaceRoot);
   }
 
   const distRoot = resolveDistRoot(workspaceRoot);

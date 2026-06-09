@@ -85,6 +85,40 @@ test('local firmware package reader returns the configured package text', async 
   });
 });
 
+test('local firmware package metadata auto-discovers the newest dist package', async () => {
+  const tempRoot = mkdtempSync(join(tmpdir(), 'hx01-local-fw-auto-'));
+  const distDir = join(tempRoot, 'dist');
+  const originalCwd = process.cwd();
+  const originalEnv = process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV];
+
+  const olderPackageText = `${JSON.stringify({ ...localPackagePayload, version: '0.9.5' }, null, 2)}\n`;
+  const newestPackageText = `${JSON.stringify({ ...localPackagePayload, version: '0.9.7' }, null, 2)}\n`;
+
+  mkdirSync(distDir, { recursive: true });
+  writeFileSync(join(distDir, 'hx01-firmware-0.9.5-direct.json'), olderPackageText, 'utf8');
+  writeFileSync(join(distDir, 'hx01-firmware-0.9.7-direct.json'), newestPackageText, 'utf8');
+
+  process.chdir(tempRoot);
+  delete process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV];
+
+  try {
+    const metadata = loadLocalFirmwarePackageMetadata();
+    assert.ok(metadata);
+    assert.equal(metadata.version, '0.9.7');
+    assert.equal(metadata.releaseRank, 50907);
+    assert.equal(metadata.packageText, newestPackageText);
+    assert.equal(metadata.sha256, createHash('sha256').update(newestPackageText).digest('hex'));
+  } finally {
+    if (originalEnv === undefined) {
+      delete process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV];
+    } else {
+      process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV] = originalEnv;
+    }
+    process.chdir(originalCwd);
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('latest firmware lookup can build an unavailable fallback response', async () => {
   const response = buildUnavailableLatestFirmwareResponse('0.9.5', 50905);
 
@@ -123,7 +157,11 @@ test('latest firmware lookup accepts canonical hx01 even when manifest metadata 
 
 test('local firmware package reader returns null when no local artifact is configured', async () => {
   const originalEnv = process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV];
+  const originalCwd = process.cwd();
+  const tempRoot = mkdtempSync(join(tmpdir(), 'hx01-local-fw-empty-'));
+
   delete process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV];
+  process.chdir(tempRoot);
 
   try {
     assert.equal(readLocalFirmwarePackageText(), null);
@@ -133,5 +171,7 @@ test('local firmware package reader returns null when no local artifact is confi
     } else {
       process.env[DEVICE_FIRMWARE_LOCAL_PACKAGE_PATH_ENV] = originalEnv;
     }
+    process.chdir(originalCwd);
+    rmSync(tempRoot, { recursive: true, force: true });
   }
 });

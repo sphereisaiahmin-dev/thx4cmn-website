@@ -30,7 +30,7 @@ keybow = Keybow2040(Hardware())
 keys = keybow.keys
 
 BRIGHTNESS_SCALE = 0.9
-FIRMWARE_VERSION = "0.9.6"
+FIRMWARE_VERSION = "0.9.7"
 DEVICE_NAME = "hx01"
 DEVICE_STATE_FILE = "/device_state.json"
 FIRMWARE_ALLOWED_PATHS = ("/boot.py", "/code.py", "/midi_note_utils.py", "/protocol_v1.py")
@@ -682,6 +682,7 @@ def protocol_apply_config(config, config_id, idempotency_key):
 
     emergency_note_off()
     apply_device_state_runtime(normalized)
+    wake_from_transport_animation()
 
     last_applied_idempotency_key = idempotency_key
     last_applied_config_id = config_id

@@ -146,6 +146,7 @@ test(
         }
 
         async close() {
+          window.__serialStats.closeCalls += 1;
           this._controller?.close();
         }
 
@@ -217,6 +218,22 @@ test(
                 pongTs: Date.now(),
               },
             });
+            return;
+          }
+
+          if (frame.type === 'apply_config') {
+            window.__serialStats.applyConfigCalls += 1;
+            window.__serialStats.lastAppliedConfig = frame.payload.config;
+            this._push({
+              ...base,
+              type: 'ack',
+              payload: {
+                requestType: 'apply_config',
+                status: 'ok',
+                state: frame.payload.config,
+                appliedConfigId: frame.payload.configId,
+              },
+            });
           }
         }
       }
@@ -225,6 +242,9 @@ test(
         requestPortCalls: 0,
         requestPortOptions: [],
         signalHistory: [],
+        applyConfigCalls: 0,
+        closeCalls: 0,
+        lastAppliedConfig: null,
       };
 
       Object.defineProperty(navigator, 'serial', {
@@ -282,5 +302,52 @@ test(
     assert.equal(relevantConsoleErrors.length, 0, relevantConsoleErrors.join('\n'));
     assert.match(bodyText ?? '', /Status:\s*ready/);
     assert.match(bodyText ?? '', /Connected to hx01 \(0\.9\.6\)\./);
+
+    await page.evaluate(() => {
+      const presetSelect = Array.from(document.querySelectorAll('select')).find((select) =>
+        Array.from(select.options).some((option) => option.value === 'gradient'),
+      );
+      if (!(presetSelect instanceof HTMLSelectElement)) {
+        throw new Error('Preset select not found.');
+      }
+
+      presetSelect.value = 'gradient';
+      presetSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    await page.evaluate(() => {
+      const applyButton = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === 'Apply',
+      );
+      if (!(applyButton instanceof HTMLButtonElement)) {
+        throw new Error('Apply button not found.');
+      }
+
+      applyButton.click();
+    });
+    await page.waitForFunction(() => document.body.textContent?.includes('Status: idle'));
+    await page.waitForFunction(() =>
+      document.body.textContent?.includes('Configuration updated on hx01. Device is ready to use.'),
+    );
+
+    const applyConfigCalls = await page.evaluate(() => window.__serialStats?.applyConfigCalls ?? 0);
+    const closeCalls = await page.evaluate(() => window.__serialStats?.closeCalls ?? 0);
+    const signalHistoryAfterApply = await page.evaluate(
+      () => window.__serialStats?.signalHistory ?? [],
+    );
+    const lastAppliedMode = await page.evaluate(
+      () => window.__serialStats?.lastAppliedConfig?.notePreset?.mode ?? null,
+    );
+    const bodyTextAfterApply = await page.locator('body').textContent();
+
+    assert.equal(applyConfigCalls, 1);
+    assert.equal(closeCalls, 1);
+    assert.equal(lastAppliedMode, 'gradient');
+    assert.deepEqual(signalHistoryAfterApply.at(-1), {
+      dataTerminalReady: false,
+      requestToSend: false,
+      afterOpen: true,
+    });
+    assert.match(bodyTextAfterApply ?? '', /Status:\s*idle/);
   },
 );
