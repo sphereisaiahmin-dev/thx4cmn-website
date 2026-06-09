@@ -58,6 +58,10 @@ const LEGACY_REPL_CHUNK_BASE64_SIZE = 96;
 
 type BrowserSerialPortLike = {
   open: (options: { baudRate: number }) => Promise<void>;
+  setSignals?: (signals: {
+    dataTerminalReady?: boolean;
+    requestToSend?: boolean;
+  }) => Promise<void>;
   close?: () => Promise<void>;
   readable?: ReadableStream<Uint8Array> | null;
   writable?: WritableStream<Uint8Array> | null;
@@ -123,6 +127,7 @@ const flashFirmwareViaLegacyRepl = async (
   }
 
   await port.open({ baudRate: 115200 });
+  await port.setSignals?.({ dataTerminalReady: true, requestToSend: true });
 
   if (!port.readable || !port.writable) {
     throw new Error('Serial streams are unavailable for legacy recovery update.');

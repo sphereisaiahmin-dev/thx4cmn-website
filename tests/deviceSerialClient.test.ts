@@ -86,8 +86,11 @@ class MockSerialPort implements SerialPortLike {
   private readableController: ReadableStreamDefaultController<Uint8Array> | null = null;
   private readonly onHostFrame: HostFrameHandler;
   private outboundBuffer = '';
+  private isOpen = false;
 
   receivedHostFrames: DeviceEnvelope[] = [];
+  signalHistory: Array<{ dataTerminalReady?: boolean; requestToSend?: boolean }> = [];
+  setSignalsCalledAfterOpen = false;
 
   constructor(onHostFrame: HostFrameHandler) {
     this.onHostFrame = onHostFrame;
@@ -107,7 +110,13 @@ class MockSerialPort implements SerialPortLike {
   }
 
   async open() {
+    this.isOpen = true;
     return;
+  }
+
+  async setSignals(signals: { dataTerminalReady?: boolean; requestToSend?: boolean }) {
+    this.setSignalsCalledAfterOpen = this.isOpen;
+    this.signalHistory.push(signals);
   }
 
   async close() {
@@ -246,6 +255,31 @@ test('connect requests a filtered chooser port when no prior permission exists',
 
   assert.equal(serial.requestPortCalls, 1);
   assert.deepEqual(serial.lastRequestPortOptions, DEVICE_SERIAL_REQUEST_PORT_OPTIONS);
+  assert.deepEqual(serial.lastRequestPortOptions?.filters, [
+    { usbVendorId: 0x239a, usbProductId: 0x8162 },
+    { usbVendorId: 0x2e8a },
+  ]);
+
+  await client.disconnect();
+});
+
+test('connect asserts serial control signals after opening the port', async () => {
+  const port = new MockSerialPort(() => {
+    // No-op.
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+  });
+
+  await client.connect();
+
+  assert.equal(port.setSignalsCalledAfterOpen, true);
+  assert.deepEqual(port.signalHistory, [
+    { dataTerminalReady: true, requestToSend: true },
+  ]);
 
   await client.disconnect();
 });
