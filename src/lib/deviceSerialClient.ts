@@ -286,6 +286,10 @@ export type ProtocolEventHandler = (event: ProtocolEvent) => void;
 
 export type SerialPortLike = {
   open: (options: { baudRate: number }) => Promise<void>;
+  setSignals?: (signals: {
+    dataTerminalReady?: boolean;
+    requestToSend?: boolean;
+  }) => Promise<void>;
   close?: () => Promise<void>;
   readable?: ReadableStream<Uint8Array> | null;
   writable?: WritableStream<Uint8Array> | null;
@@ -306,7 +310,7 @@ export type SerialPortRequestOptions = {
 };
 
 export const DEVICE_SERIAL_REQUEST_PORT_OPTIONS = {
-  filters: [{ usbVendorId: 0x2e8a }],
+  filters: [{ usbVendorId: 0x239a, usbProductId: 0x8162 }, { usbVendorId: 0x2e8a }],
 } as const satisfies SerialPortRequestOptions;
 
 export type SerialLike = {
@@ -787,6 +791,7 @@ export class DeviceSerialClient {
     this.port = await this.resolvePort();
     this.emit({ level: 'info', message: 'Opening serial port.' });
     await this.port.open({ baudRate: this.baudRate });
+    await this.port.setSignals?.({ dataTerminalReady: true, requestToSend: true });
 
     if (!this.port.readable || !this.port.writable) {
       await this.disconnect();

@@ -112,6 +112,7 @@ test(
         constructor() {
           this._buffer = '';
           this._controller = null;
+          this._isOpen = false;
           this.readable = new ReadableStream({
             start: (controller) => {
               this._controller = controller;
@@ -133,7 +134,16 @@ test(
           });
         }
 
-        async open() {}
+        async open() {
+          this._isOpen = true;
+        }
+
+        async setSignals(signals) {
+          window.__serialStats.signalHistory.push({
+            ...signals,
+            afterOpen: this._isOpen,
+          });
+        }
 
         async close() {
           this._controller?.close();
@@ -213,14 +223,17 @@ test(
 
       window.__serialStats = {
         requestPortCalls: 0,
+        requestPortOptions: [],
+        signalHistory: [],
       };
 
       Object.defineProperty(navigator, 'serial', {
         configurable: true,
         value: {
           getPorts: async () => [],
-          requestPort: async () => {
+          requestPort: async (options) => {
             window.__serialStats.requestPortCalls += 1;
+            window.__serialStats.requestPortOptions.push(options);
             await new Promise((resolveDelay) => window.setTimeout(resolveDelay, 250));
             return new MockSerialPort();
           },
@@ -247,9 +260,24 @@ test(
     await page.waitForFunction(() => document.body.textContent?.includes('Connected to hx01 (0.9.6).'));
 
     const requestPortCalls = await page.evaluate(() => window.__serialStats?.requestPortCalls ?? 0);
+    const requestPortOptions = await page.evaluate(
+      () => window.__serialStats?.requestPortOptions ?? [],
+    );
+    const signalHistory = await page.evaluate(() => window.__serialStats?.signalHistory ?? []);
     const bodyText = await page.locator('body').textContent();
 
     assert.equal(requestPortCalls, 1);
+    assert.deepEqual(requestPortOptions, [
+      {
+        filters: [
+          { usbVendorId: 0x239a, usbProductId: 0x8162 },
+          { usbVendorId: 0x2e8a },
+        ],
+      },
+    ]);
+    assert.deepEqual(signalHistory, [
+      { dataTerminalReady: true, requestToSend: true, afterOpen: true },
+    ]);
     assert.equal(pageErrors.length, 0, pageErrors.join('\n'));
     assert.equal(relevantConsoleErrors.length, 0, relevantConsoleErrors.join('\n'));
     assert.match(bodyText ?? '', /Status:\s*ready/);
