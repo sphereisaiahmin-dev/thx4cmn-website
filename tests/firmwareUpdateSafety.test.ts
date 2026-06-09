@@ -32,7 +32,10 @@ test('legacy fallback signatures are version-gated', () => {
   );
   assert.equal(shouldUseLegacyRecoveryForError('0.9.0', 'Unhandled protocol exception'), false);
   assert.equal(shouldUseLegacyRecoveryForError('0.9.1', 'Unhandled protocol exception'), true);
+  assert.equal(shouldUseLegacyRecoveryForError('0.9.2', 'Unsupported firmware file path.'), true);
+  assert.equal(shouldUseLegacyRecoveryForError('0.9.3', 'Unsupported firmware file path.'), true);
   assert.equal(shouldUseLegacyRecoveryForError('0.9.4', 'Unhandled protocol exception'), true);
+  assert.equal(shouldUseLegacyRecoveryForError('0.9.4', 'Unsupported firmware file path.'), true);
   assert.equal(shouldUseLegacyRecoveryForError('0.9.6', 'Unhandled protocol exception'), true);
   assert.equal(
     shouldUseLegacyRecoveryForError('0.9.1', 'Some unrelated network failure'),
