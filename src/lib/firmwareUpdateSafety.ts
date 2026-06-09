@@ -12,18 +12,24 @@ export interface FirmwarePackagePayload {
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
 
 const LEGACY_RECOVERY_SIGNATURES: Record<string, RegExp[]> = {
-  '0.9.0': [/timed out waiting for response to firmware_begin/i],
+  '0.9.0': [
+    /timed out waiting for response to firmware_begin/i,
+    /unsupported firmware file path/i,
+  ],
   '0.9.1': [
     /unhandled protocol exception/i,
+    /unsupported firmware file path/i,
     /legacy firmware_commit crash/i,
     /device rebooted during firmware_commit/i,
   ],
+  '0.9.2': [/unsupported firmware file path/i],
   '0.9.3': [
     /unhandled protocol exception/i,
+    /unsupported firmware file path/i,
     /legacy firmware_commit crash/i,
     /device rebooted during firmware_commit/i,
   ],
-  '0.9.4': [/unhandled protocol exception/i],
+  '0.9.4': [/unhandled protocol exception/i, /unsupported firmware file path/i],
   '0.9.6': [/unhandled protocol exception/i],
 };
 
