@@ -839,6 +839,14 @@ export class DeviceSerialClient {
       this.writer = null;
     }
 
+    if (this.port?.setSignals) {
+      try {
+        await this.port.setSignals({ dataTerminalReady: false, requestToSend: false });
+      } catch {
+        // Ignore signal cleanup issues during teardown.
+      }
+    }
+
     if (this.port?.close) {
       try {
         await this.port.close();
@@ -1439,11 +1447,15 @@ export class DeviceSerialClient {
 
     if (envelope.type === 'error') {
       const payload = envelope.payload as DeviceErrorPayload;
+      const detailReason =
+        isObject(payload.details) && typeof payload.details.reason === 'string'
+          ? ` ${payload.details.reason}`
+          : '';
       this.rejectPending(
         envelope.id,
         new DeviceClientError(
           payload.code || 'device_error',
-          payload.message || 'Device returned error response.',
+          `${payload.message || 'Device returned error response.'}${detailReason}`,
         ),
       );
       return;

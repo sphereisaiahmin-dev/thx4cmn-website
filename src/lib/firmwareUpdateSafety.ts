@@ -23,6 +23,8 @@ const LEGACY_RECOVERY_SIGNATURES: Record<string, RegExp[]> = {
     /legacy firmware_commit crash/i,
     /device rebooted during firmware_commit/i,
   ],
+  '0.9.4': [/unhandled protocol exception/i],
+  '0.9.6': [/unhandled protocol exception/i],
 };
 
 const isRecord = (candidate: unknown): candidate is Record<string, unknown> =>

@@ -90,7 +90,9 @@ class MockSerialPort implements SerialPortLike {
 
   receivedHostFrames: DeviceEnvelope[] = [];
   signalHistory: Array<{ dataTerminalReady?: boolean; requestToSend?: boolean }> = [];
+  signalHistoryAtClose: Array<{ dataTerminalReady?: boolean; requestToSend?: boolean }> = [];
   setSignalsCalledAfterOpen = false;
+  closeCalls = 0;
 
   constructor(onHostFrame: HostFrameHandler) {
     this.onHostFrame = onHostFrame;
@@ -120,6 +122,8 @@ class MockSerialPort implements SerialPortLike {
   }
 
   async close() {
+    this.closeCalls += 1;
+    this.signalHistoryAtClose = [...this.signalHistory];
     this.readableController?.close();
   }
 
@@ -282,6 +286,31 @@ test('connect asserts serial control signals after opening the port', async () =
   ]);
 
   await client.disconnect();
+});
+
+test('disconnect lowers serial control signals before closing the port', async () => {
+  const port = new MockSerialPort(() => {
+    // No-op.
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    backoffBaseMs: 1,
+  });
+
+  await client.connect();
+  await client.disconnect();
+
+  assert.deepEqual(port.signalHistory, [
+    { dataTerminalReady: true, requestToSend: true },
+    { dataTerminalReady: false, requestToSend: false },
+  ]);
+  assert.equal(port.closeCalls, 1);
+  assert.deepEqual(port.signalHistoryAtClose.at(-1), {
+    dataTerminalReady: false,
+    requestToSend: false,
+  });
 });
 
 test('handshake accepts and migrates legacy state payload', async () => {
@@ -788,6 +817,59 @@ test('apply_config nack is surfaced', async () => {
       },
     });
   }, /Config is invalid/);
+
+  await client.disconnect();
+});
+
+test('device error details are included in surfaced errors', async () => {
+  const port = new MockSerialPort((frame, currentPort) => {
+    if (frame.type === 'hello') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'hello_ack',
+        id: frame.id,
+        ts: Date.now(),
+        payload: buildHelloAckPayload(),
+      });
+      return;
+    }
+
+    if (frame.type === 'firmware_begin') {
+      currentPort.pushDeviceFrame({
+        v: DEVICE_PROTOCOL_VERSION,
+        type: 'error',
+        id: frame.id,
+        ts: Date.now(),
+        payload: {
+          code: 'internal_error',
+          message: 'Unhandled protocol exception.',
+          details: {
+            type: 'firmware_begin',
+            reason: 'simulated firmware_begin crash',
+          },
+        },
+      });
+    }
+  });
+
+  const client = new DeviceSerialClient({
+    serial: new MockSerial(port),
+    requestTimeoutMs: 100,
+    firmwareRequestTimeoutMs: 100,
+    backoffBaseMs: 1,
+    handshakeAttempts: 2,
+  });
+
+  await client.connect();
+  await client.handshake();
+
+  await assert.rejects(async () => {
+    await client.firmwareBegin({
+      sessionId: 'session-1',
+      targetVersion: '0.9.7',
+      files: [{ path: '/code.py', size: 12, sha256: 'a'.repeat(64) }],
+    });
+  }, /Unhandled protocol exception\. simulated firmware_begin crash/);
 
   await client.disconnect();
 });

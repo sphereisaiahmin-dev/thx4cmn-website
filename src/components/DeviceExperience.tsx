@@ -720,15 +720,30 @@ export default function DeviceExperience() {
       });
 
       hydrateState(response.state);
+      await disconnectClient();
+      setStatus('idle');
+      hasLoggedConnectionLostRef.current = false;
+      setConnectedFirmwareVersion(null);
+      setConnectedFeatures([]);
+      setFirmwareUpdateState(null);
+      setIsUpdatePanelOpen(false);
 
-      appendLog('Configuration updated on hx01.');
+      appendLog('Configuration updated on hx01. Device is ready to use.');
     } catch (error) {
       const detail = error instanceof Error && error.message ? ` ${error.message}` : '';
       appendLog(`Couldn't update configuration.${detail} Try again.`);
     } finally {
       setIsApplying(false);
     }
-  }, [appendLog, draftState, hydrateState, isApplying, isUpdatingFirmware, status]);
+  }, [
+    appendLog,
+    disconnectClient,
+    draftState,
+    hydrateState,
+    isApplying,
+    isUpdatingFirmware,
+    status,
+  ]);
 
   const handleUpdateMe = useCallback(async () => {
     if (
@@ -868,7 +883,7 @@ export default function DeviceExperience() {
             ? 'Detected 0.9.0 firmware_begin crash. Switching to legacy serial recovery...'
             : effectiveState.currentVersion === '0.9.1'
               ? 'Detected 0.9.1 firmware_commit crash. Switching to legacy serial recovery...'
-              : 'Detected 0.9.3 firmware_commit crash. Switching to legacy serial recovery...',
+              : `Detected ${effectiveState.currentVersion} direct update crash. Switching to legacy serial recovery...`,
         );
         await disconnectClient();
         await flashFirmwareViaLegacyRepl(packagePayload, appendLog);
